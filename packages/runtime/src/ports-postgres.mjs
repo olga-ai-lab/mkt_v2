@@ -345,5 +345,34 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
     },
   };
 
-  return { routing, budget, registry, runs, policies, receipts, outbox, approvals };
+  /**
+   * Conexoes de canal e variantes — o que o adapter de provider precisa ler.
+   *
+   * `secret_ref` sai daqui; o TOKEN nao. Resolver a referencia e trabalho do
+   * vault (ADR-005), e por isso o adapter recebe uma porta `secrets` separada:
+   * assim nenhuma query deste arquivo tem como devolver credencial.
+   */
+  const connections = {
+    async get(connection_id) {
+      const { rows } = await pool.query(
+        `select id, org_id, workspace_id, channel::text as channel, provider,
+                external_account_id, display_name, status::text as status,
+                secret_ref, scopes, expires_at
+           from ${S}.connections where id = $1`, [connection_id]);
+      return rows[0] ?? null;
+    },
+  };
+
+  const variants = {
+    async get(channel_variant_id) {
+      const { rows } = await pool.query(
+        `select id, content_version_id, channel::text as channel,
+                headline, body, cta, asset_refs, char_count
+           from ${S}.channel_variants where id = $1`, [channel_variant_id]);
+      return rows[0] ?? null;
+    },
+  };
+
+  return { routing, budget, registry, runs, policies, receipts, outbox, approvals,
+           connections, variants };
 }

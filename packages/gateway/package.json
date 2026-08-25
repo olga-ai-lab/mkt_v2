@@ -4,5 +4,12 @@
   "private": true,
   "type": "module",
   "main": "src/index.mjs",
-  "dependencies": { "@olga/contracts": "*", "@olga/policy": "*" }
+  "dependencies": {
+    "@olga/contracts": "*",
+    "@olga/policy": "*"
+  },
+  "exports": {
+    ".": "./src/index.mjs",
+    "./adapters": "./src/adapters/index.mjs"
+  }
 }
