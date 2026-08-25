@@ -23,20 +23,20 @@ const modelGateway = createModelGateway({
   routing: ports.routing,
   budget: ports.budget,
   providers: { anthropic },
-  tracer: { event: (e) => console.log(JSON.stringify({ ...e, kind: "trace" })) },
+  tracer: { event: (e: object) => console.log(JSON.stringify({ ...e, kind: "trace" })) },
 });
 
 const agentRuntime = createAgentRuntime({
   modelGateway,
   registry: ports.registry,
   runs: ports.runs,
-  tracer: { event: (e) => console.log(JSON.stringify({ ...e, kind: "trace" })) },
+  tracer: { event: (e: object) => console.log(JSON.stringify({ ...e, kind: "trace" })) },
   ids: { newId: () => crypto.randomUUID(), newTraceId: () => `tr_${crypto.randomUUID()}` },
 });
 
 export async function POST(request: NextRequest) {
   // Tenant e ator vem da sessao. Se o corpo trouxer, o runtime recusa.
-  const ctx = await getTrustedContext(request);
+  const ctx = await getTrustedContext({ headers: request.headers, searchParams: request.nextUrl.searchParams });
   if (!ctx) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 
   const body = await request.json();
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({
-      run_id, trace_id, ...response,
+      ...response, run_id, trace_id,
       usage: { cost_cents: model.cost_cents, input_tokens: model.input_tokens,
                output_tokens: model.output_tokens, fallback_used: model.fallback_used },
     });

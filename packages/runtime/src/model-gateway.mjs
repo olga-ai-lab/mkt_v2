@@ -36,6 +36,9 @@ const isTransient = (e) =>
   ["ETIMEDOUT", "ECONNRESET", "rate_limit", "overloaded", "503", "529"].some((s) =>
     String(e?.code ?? e?.message ?? "").includes(s));
 
+/**
+ * @param {{ routing: any, providers: any, budget: any, tracer?: any, clock?: any }} deps
+ */
 export function createModelGateway({ routing, providers, budget, tracer, clock }) {
   const now = () => clock?.now?.() ?? Date.now();
 

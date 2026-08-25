@@ -23,6 +23,10 @@ export class RuntimeError extends Error {
   }
 }
 
+/**
+ * @param {{ modelGateway: any, registry: any, runs: any, ids: any,
+ *           tracer?: any, clock?: any }} deps
+ */
 export function createAgentRuntime({ modelGateway, registry, runs, tracer, clock, ids }) {
   const now = () => clock?.now?.() ?? Date.now();
 
@@ -32,6 +36,9 @@ export function createAgentRuntime({ modelGateway, registry, runs, tracer, clock
    * @param {object} req.actor    { id, role, org_id }
    * @param {string} req.agent_id
    * @param {object} req.input    { text?, refs? } — conteudo do usuario, sem autoridade
+   * @param {string} [req.trace_id]
+   * @param {string} [req.requested_autonomy]
+   * @param {boolean} [req.internal]
    * @param {boolean}[req.internal] permite rodar agente CANDIDATE
    */
   async function run(req) {

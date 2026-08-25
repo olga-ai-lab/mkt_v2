@@ -219,5 +219,131 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
     },
   };
 
-  return { routing, budget, registry, runs, policies, receipts, outbox };
+  /**
+   * Transacao servindo tanto um Pool quanto um Client.
+   * Os testes injetam um pg.Client unico; a aplicacao injeta um Pool.
+   */
+  async function emTransacao(fn) {
+    const ehPool = typeof pool.connect === "function" && typeof pool.idleCount === "number";
+    if (!ehPool) {
+      await pool.query("begin");
+      try { const r = await fn(pool); await pool.query("commit"); return r; }
+      catch (e) { await pool.query("rollback"); throw e; }
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("begin");
+      const r = await fn(client);
+      await client.query("commit");
+      return r;
+    } catch (e) {
+      await client.query("rollback");
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Aprovacoes (T4).
+   *
+   * A leitura sempre traz a linha de aprovacao JUNTO da versao de conteudo.
+   * Sao as duas metades da mesma pergunta: nenhuma decisao sobre validade pode
+   * ser tomada olhando so para a tabela de aprovacoes, porque e no conteudo
+   * que o trigger de edicao deixa a marca.
+   */
+  const SELECT_PAR = `
+    select
+      a.id, a.org_id, a.workspace_id, a.subject_type, a.subject_id, a.subject_version,
+      a.decision::text as decision, a.requested_reason_codes, a.decided_by, a.decided_at,
+      a.comment, a.trace_id, a.created_at,
+      cv.id as cv_id, cv.version as cv_version, cv.state::text as cv_state,
+      cv.master_body as cv_master_body, cv.risk_tier::text as cv_risk_tier,
+      cv.approved_at as cv_approved_at, cv.content_id as cv_content_id
+    from ${S}.approvals a
+    left join ${S}.content_versions cv on cv.id = a.subject_id`;
+
+  const parear = (r) => r == null ? null : ({
+    approval: {
+      id: r.id, org_id: r.org_id, workspace_id: r.workspace_id,
+      subject_type: r.subject_type, subject_id: r.subject_id, subject_version: r.subject_version,
+      decision: r.decision, requested_reason_codes: r.requested_reason_codes,
+      decided_by: r.decided_by, decided_at: r.decided_at, comment: r.comment,
+      trace_id: r.trace_id, created_at: r.created_at,
+    },
+    content: r.cv_id == null ? null : {
+      id: r.cv_id, version: r.cv_version, state: r.cv_state, master_body: r.cv_master_body,
+      risk_tier: r.cv_risk_tier, approved_at: r.cv_approved_at, content_id: r.cv_content_id,
+    },
+  });
+
+  const approvals = {
+    async listPending(org_id, workspace_id) {
+      const { rows } = await pool.query(
+        `${SELECT_PAR}
+          where a.org_id = $1 and a.workspace_id = $2 and a.decision = 'PENDING'
+          order by a.created_at asc`, [org_id, workspace_id]);
+      return rows.map(parear);
+    },
+
+    async getWithContent(org_id, approval_id) {
+      const { rows } = await pool.query(
+        `${SELECT_PAR} where a.id = $1 and a.org_id = $2`, [approval_id, org_id]);
+      return parear(rows[0]);
+    },
+
+    /**
+     * Sem org_id: e a porta que o Capability Gateway usa, e o escopo de tenant
+     * ja foi verificado por ele no passo 2. A RLS continua valendo por baixo.
+     */
+    async getWithContentById(approval_id) {
+      const { rows } = await pool.query(`${SELECT_PAR} where a.id = $1`, [approval_id]);
+      return parear(rows[0]) ?? { approval: null, content: null };
+    },
+
+    /**
+     * Decisao e transicao de estado no mesmo commit.
+     *
+     * A transicao NAO e validada aqui: quem recusa DRAFT -> APPROVED e o
+     * trigger mkt.assert_content_transition(). Se ele levantar, a transacao
+     * inteira volta e nao sobra aprovacao registrada sobre conteudo que nao
+     * mudou de estado. Um `if` aqui seria a mesma regra em dois lugares.
+     *
+     * E porque os dois updates dividem a transacao, `now()` e o mesmo instante
+     * em approvals.decided_at e em content_versions.approved_at — que e o que
+     * torna exata a comparacao feita em evaluateApproval().
+     */
+    /**
+     * @param {{ org_id: string, approval_id: string, decision: string, decided_by: string,
+     *           comment?: string|null, trace_id?: string|null }} args
+     */
+    async decide({ org_id, approval_id, decision, decided_by, comment = null, trace_id = null }) {
+      return emTransacao(async (c) => {
+        const { rows } = await c.query(
+          `update ${S}.approvals
+              set decision = $3::${S}.approval_decision, decided_by = $4,
+                  decided_at = now(), comment = coalesce($5, comment),
+                  trace_id = coalesce($6, trace_id)
+            where id = $1 and org_id = $2 and decision = 'PENDING'
+            returning subject_id`,
+          [approval_id, org_id, decision, decided_by, comment, trace_id]);
+
+        if (!rows[0]) {
+          const e = new Error("aprovacao ja decidida ou inexistente");
+          e.reason_code = "CONTENT_NOT_APPROVED";
+          throw e;
+        }
+
+        await c.query(
+          `update ${S}.content_versions set state = $2::${S}.content_state where id = $1`,
+          [rows[0].subject_id, decision === "APPROVED" ? "APPROVED" : "REJECTED"]);
+
+        const { rows: par } = await c.query(
+          `${SELECT_PAR} where a.id = $1 and a.org_id = $2`, [approval_id, org_id]);
+        return parear(par[0]);
+      });
+    },
+  };
+
+  return { routing, budget, registry, runs, policies, receipts, outbox, approvals };
 }

@@ -8,7 +8,8 @@
     ".": "./src/index.mjs",
     "./model-gateway": "./src/model-gateway.mjs",
     "./agent-runtime": "./src/agent-runtime.mjs",
-    "./ports-postgres": "./src/ports-postgres.mjs"
+    "./ports-postgres": "./src/ports-postgres.mjs",
+    "./approvals": "./src/approvals.mjs"
   },
   "dependencies": {
     "@olga/contracts": "*",
