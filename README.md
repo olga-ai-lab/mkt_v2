@@ -164,13 +164,14 @@ produtores que alimentam as duas filas.
 
 ### O que falta de infraestrutura
 
-3. **Endpoint HTTP do Inngest.** `registerFunctions()` existe e está testada,
-   mas ninguém a serve ainda — falta a dependência `inngest` e a decisão de
-   onde hospedar (rota no app Next é o caminho natural).
-4. **App web além da tela de aprovação.** Sem home, sem login, sem listagem de
+3. **App web além da tela de aprovação.** Sem home, sem login, sem listagem de
    conteúdo. `SUPABASE_JWT_SECRET` precisa estar configurado para a sessão
    funcionar.
-5. **Brand Brain a partir de URL** — Fase 2, depois da Meta liberada.
+4. **Brand Brain a partir de URL** — Fase 2, depois da Meta liberada.
+
+O endpoint durável do Inngest já está servido em
+`apps/web/app/api/inngest/route.ts`; falta só configurar `INNGEST_EVENT_KEY` e
+`INNGEST_SIGNING_KEY` no deploy.
 
 ## Rastreabilidade
 

@@ -37,6 +37,11 @@
  * deduplicado pelo gateway e barato; perder publicacao e invisivel e caro.
  */
 
+/** Tudo que o relay e a guarda de consumo chamam em `db`. Ver PUBLISH_DB_SURFACE. */
+export const OUTBOX_DB_SURFACE = [
+  "claimOutboxBatch", "markOutboxPublished", "wasProcessed", "markProcessed",
+];
+
 /** Chave de deduplicacao de um evento entregue pelo relay. */
 export function outboxEventKey(data) {
   if (data?.outbox_id == null) {

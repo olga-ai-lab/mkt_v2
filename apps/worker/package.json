@@ -7,6 +7,17 @@
     "@olga/contracts": "*",
     "@olga/gateway": "*",
     "@olga/policy": "*",
-    "@olga/runtime": "*"
+    "@olga/runtime": "*",
+    "inngest": "^4.18.1"
+  },
+  "main": "src/inngest.mjs",
+  "exports": {
+    ".": "./src/inngest.mjs",
+    "./client": "./src/client.mjs",
+    "./composition": "./src/composition.mjs",
+    "./ports-worker": "./src/ports-worker.mjs",
+    "./outbox-relay": "./src/outbox-relay.mjs",
+    "./publish-workflow": "./src/publish-workflow.mjs",
+    "./adapters": "./src/adapters.mjs"
   }
 }

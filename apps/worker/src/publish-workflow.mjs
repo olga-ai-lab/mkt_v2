@@ -14,6 +14,20 @@ import { buildIdempotencyKey } from "@olga/gateway";
 
 export const PUBLISH_STATES = ["RECEIVED", "GATED", "PUBLISHING", "PUBLISHED", "FAILED", "DEAD_LETTERED"];
 
+/**
+ * Tudo que este workflow chama em `db`.
+ *
+ * Declarado como dado para poder ser conferido na montagem. A porta do worker
+ * ja existiu so nos testes uma vez — o workflow era provado contra um dublê
+ * completo e teria explodido na primeira publicacao real, num metodo faltando.
+ * Com esta lista, faltar metodo derruba o boot, nao a publicacao.
+ */
+export const PUBLISH_DB_SURFACE = [
+  "getCapability", "collectPublishFacts",
+  "upsertWorkflowRun", "updateWorkflowRun",
+  "markPublished", "markBlocked", "markFailed",
+];
+
 export function createPublishWorkflow({ gateway, db, tracer }) {
   /**
    * @param {object} event { org_id, workspace_id, content_version_id, channel, connection_id, channel_variant_id, actor, approval_id, trace_id }

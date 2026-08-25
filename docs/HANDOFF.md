@@ -3,7 +3,7 @@
 **Para:** a próxima sessão (Claude Code, com acesso a git e ao banco)
 **De:** sessão Cowork de 24–25/08/2026, atualizado pela sessão de 25/08/2026
 **Estado:** Fase 0 fechada, Fase 1 de pé e andando de ponta a ponta.
-212 testes, 10/10 no Gate G0, schema `mkt_v2` aplicado, CI executando.
+221 testes, 10/10 no Gate G0, schema `mkt_v2` aplicado, CI verde.
 **Pendência real:** uma só, e não é código — a submissão do app na Meta.
 
 > O LLM interpreta; os contratos decidem; o código calcula; as ferramentas
@@ -249,9 +249,17 @@ adapter → publicado → evento de volta no outbox.
 
 **Infraestrutura, essa sim é código:**
 
-4. **Endpoint HTTP do Inngest.** `registerFunctions()` existe e está testada,
-   mas ninguém a serve. Falta a dependência `inngest` e a decisão de onde
-   hospedar — uma rota no app Next é o caminho natural.
+4. ~~Endpoint HTTP do Inngest.~~ Feito. `apps/web/app/api/inngest/route.ts`
+   serve as duas funções, e `apps/worker/src/composition.mjs` é o único lugar
+   que sabe montar tudo junto.
+
+   Montar de verdade pela primeira vez achou um bug parado: `inngest.mjs`
+   estava escrito na API v3 (config, gatilho, handler), e a v4 exige o gatilho
+   dentro do primeiro argumento. Nunca falhou porque nenhum cliente Inngest
+   real chegava a ser construído. Hoje `composition.test.mjs` constrói um.
+
+   Falta configurar `INNGEST_EVENT_KEY` e `INNGEST_SIGNING_KEY` no deploy.
+
 5. **App web além da tela de aprovação:** home, login, listagem de conteúdo.
    `SUPABASE_JWT_SECRET` precisa estar configurado.
 
@@ -259,7 +267,7 @@ adapter → publicado → evento de volta no outbox.
 
 | | Antes | Depois |
 |---|---|---|
-| Testes | 126 | 212 |
+| Testes | 126 | 221 |
 | Gate G0 | 10/10 | 10/10 |
 | Migrations | 8 | 8 (nenhuma nova) |
 
@@ -371,7 +379,7 @@ O plano completo está no MKT-17, entregue como PDF e como página navegável.
 
 ---
 
-*Última verificação: 25/08/2026. 212 testes, 10/10 no Gate G0, typecheck
+*Última verificação: 25/08/2026. 221 testes, 10/10 no Gate G0, typecheck
 limpo, 8 migrations, árvore limpa, tudo empurrado para
 `claude/projeto-superpower-plugin-iyj47t`.*
 
