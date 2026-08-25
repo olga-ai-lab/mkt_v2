@@ -1,6 +1,6 @@
 /**
  * Implementacao das portas contra Postgres. O runtime nao conhece SQL;
- * conhece estas quatro interfaces. Trocar Supabase por outro banco mexe aqui
+ * conhece estas interfaces. Trocar Supabase por outro banco mexe aqui
  * e em nenhum outro lugar.
  *
  * O schema e injetavel para o codigo servir tanto `mkt` quanto `mkt_v2`.
@@ -144,5 +144,80 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
     },
   };
 
-  return { routing, budget, registry, runs, policies, receipts };
+  /**
+   * Outbox e ledger de deduplicacao de consumo (T5).
+   *
+   * O outbox recebe a intencao de evento no mesmo commit da mudanca de estado.
+   * Estas portas sao o outro lado: quem drena e quem se lembra do que ja
+   * consumiu. A politica (marcar depois do sucesso, nunca reservar antes)
+   * mora em apps/worker/src/outbox-relay.mjs; aqui e so o SQL.
+   */
+  const outbox = {
+    /**
+     * Reserva um lote de linhas nao publicadas e ja conta a tentativa.
+     *
+     * `for update skip locked` e o que permite mais de um relay rodando: cada
+     * um pega linhas diferentes em vez de disputar as mesmas. Sem isso, dois
+     * workers entregariam o mesmo evento em paralelo — o consumidor aguenta,
+     * mas e trabalho jogado fora de proposito.
+     *
+     * O incremento de attempts acontece no mesmo comando do claim: uma linha
+     * que derrube o processo logo depois volta com a tentativa ja contada, e
+     * por isso um evento envenenado eventualmente sai do caminho dos outros.
+     */
+    async claimOutboxBatch(limit = 100, maxAttempts = 5) {
+      const { rows } = await pool.query(
+        `with candidatas as (
+           select id from ${S}.outbox
+            where published_at is null and attempts < $2
+            order by id
+            limit $1
+            for update skip locked
+         )
+         update ${S}.outbox o
+            set attempts = o.attempts + 1
+           from candidatas c
+          where o.id = c.id
+         returning o.id, o.org_id, o.workspace_id, o.event_type,
+                   o.payload, o.trace_id, o.occurred_at, o.attempts`,
+        [limit, maxAttempts]);
+      return rows;
+    },
+
+    async markOutboxPublished(id) {
+      await pool.query(
+        `update ${S}.outbox set published_at = now()
+          where id = $1 and published_at is null`, [id]);
+    },
+
+    /**
+     * Linhas que estouraram maxAttempts e ninguem vai tentar de novo.
+     * Nao ha coluna de dead-letter no outbox de proposito: "attempts alto e
+     * published_at nulo" ja e a definicao, e uma coluna a mais seria um segundo
+     * lugar para a mesma verdade.
+     */
+    async listStuckOutbox(maxAttempts = 5, limit = 100) {
+      const { rows } = await pool.query(
+        `select id, org_id, event_type, attempts, trace_id, occurred_at
+           from ${S}.outbox
+          where published_at is null and attempts >= $1
+          order by id limit $2`, [maxAttempts, limit]);
+      return rows;
+    },
+
+    async wasProcessed(consumer, event_key) {
+      const { rows } = await pool.query(
+        `select 1 from ${S}.processed_events where consumer = $1 and event_key = $2`,
+        [consumer, event_key]);
+      return rows.length > 0;
+    },
+
+    async markProcessed(consumer, event_key) {
+      await pool.query(
+        `insert into ${S}.processed_events (consumer, event_key) values ($1,$2)
+         on conflict (consumer, event_key) do nothing`, [consumer, event_key]);
+    },
+  };
+
+  return { routing, budget, registry, runs, policies, receipts, outbox };
 }
