@@ -38,6 +38,7 @@
  * obriga o campo a existir; nós obrigamos ele a estar certo.
  */
 import { assertValid } from "@olga/contracts";
+import { deltaFor } from "./agent-deltas.mjs";
 
 /** Ordem fixa das camadas. Exportada para o teste poder afirmar a ordem. */
 export const CONTEXT_LAYERS = [
@@ -65,10 +66,14 @@ export function assembleContext(layers = {}) {
   return mensagens;
 }
 
-/** Descrição curta do agente para as camadas de persona. */
-const personaDe = (agent) =>
-  `Você é ${agent.agent_id}. Missão: ${agent.mission}\n` +
-  `Você só pode propor estas capabilities: ${(agent.capabilities ?? []).join(", ")}.`;
+/**
+ * Camada de persona: o delta do agente, montado a partir da linha do registry.
+ *
+ * Missão e capabilities NÃO são escritas aqui — vêm do banco, via deltaFor().
+ * O que o delta acrescenta é a política de incerteza: para que lado este
+ * agente erra quando não tem certeza.
+ */
+const personaDe = (agent) => deltaFor(agent);
 
 const REGRAS_COMUNS =
   "Você interpreta pedidos; você não autoriza nada. " +

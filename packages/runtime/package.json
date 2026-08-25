@@ -12,7 +12,8 @@
     "./approvals": "./src/approvals.mjs",
     "./agent-loop": "./src/agent-loop.mjs",
     "./agent-stages": "./src/agent-stages.mjs",
-    "./capability-compilers": "./src/capability-compilers.mjs"
+    "./capability-compilers": "./src/capability-compilers.mjs",
+    "./agent-deltas": "./src/agent-deltas.mjs"
   },
   "dependencies": {
     "@olga/contracts": "*",
