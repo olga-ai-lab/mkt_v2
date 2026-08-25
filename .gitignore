@@ -6,6 +6,7 @@ dist/
 .env
 .env.local
 .pgdata/
+*.tsbuildinfo
 # tipos gerados SAO commitados: o CI compara e quebra se divergirem
 
 # O bundle de migrations e excecao ao `dist/` acima. O handoff manda entregar
