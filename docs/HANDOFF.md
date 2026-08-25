@@ -1,8 +1,9 @@
 # HANDOFF — Olga Marketing OS
 
 **Para:** a próxima sessão (Claude Code, com acesso a git e ao banco)
-**De:** sessão Cowork de 24–25/08/2026
-**Estado:** Fase 0 fechada, núcleo da Fase 1 de pé. 126 testes, 10/10 no Gate G0.
+**De:** sessão Cowork de 24–25/08/2026, atualizado pela sessão de 25/08/2026
+**Estado:** Fase 0 fechada, Fase 1 quase toda de pé. 203 testes, 10/10 no Gate G0.
+**Pendências reais:** só duas, e nenhuma é código — ver §4.
 
 > O LLM interpreta; os contratos decidem; o código calcula; as ferramentas
 > executam; a evidência sustenta.
@@ -36,35 +37,18 @@ O `README.md` explica as decisões. Leia antes de mexer em qualquer coisa.
 
 ---
 
-## 2. Como pegar o código — leia primeiro, é a parte que trava
+## 2. O código está no GitHub
 
-**O repositório ainda não foi para o GitHub.** Ele existe em duas cópias:
-
-1. Um `.zip` entregue à Olga na conversa Cowork, com o `.git` completo dentro
-   (6 commits, branch `main`, remote já configurado).
-2. Nada mais. Não há cópia no GitHub.
-
-O remote `https://github.com/olga-ai-lab/mkt_v2.git` **existe e está vazio** —
-a Olga criou o repositório, mas o push nunca aconteceu, porque a sessão
-anterior não tinha permissão de rede para esse host.
-
-### Sua primeira tarefa
-
-Se você foi aberto dentro da pasta descompactada, confirme e empurre:
+Resolvido. O repositório foi para `olga-ai-lab/mkt_v2`, na branch
+`claude/projeto-superpower-plugin-iyj47t`, com os 6 commits originais
+preservados — o histórico não foi recriado.
 
 ```bash
-git log --oneline          # esperado: 6 commits, o mais recente sobre o handoff
-git status                 # esperado: árvore limpa
-git remote -v              # esperado: olga-ai-lab/mkt_v2.git
-git push -u origin main
+git log --oneline    # 6 commits originais + os desta sessão
 ```
 
-Se a pasta não existe ainda, peça o `.zip` à Olga antes de qualquer outra
-coisa. **Não recrie o repositório do zero** — o histórico dos 6 commits
-carrega as decisões e os dois bugs que os testes pegaram; perdê-lo custa mais
-do que parece.
-
----
+**`main` continua vazia.** O push foi para a branch de trabalho, não para
+`main`; promover para `main` é decisão da Olga, não da sessão.
 
 ## 3. Mapa de acesso ao Supabase — leia antes de tocar em qualquer projeto
 
@@ -88,7 +72,31 @@ encostar no que já está de pé.
 **Nunca aplique nada em `mkt` neste projeto.** Nosso alvo é `mkt_v2`, sempre.
 
 Estado: migrations **0001 a 0006 aplicadas** pela Olga, pelo SQL Editor.
-**0007 e 0008 pendentes.**
+**0007 e 0008 seguem pendentes** — e a sessão de 25/08 não conseguiu
+aplicá-las. O motivo está medido, não suposto:
+
+| | |
+|---|---|
+| Conector `Supabase` | enxerga **uma** organização: `88i` (`unybbcqvrknnpuqysoma`), com 4 projetos |
+| Conector `Dashboard_supabase` | preso ao projeto `bakjzzdvvkrhdoyihvhf`, que o outro conector nem lista |
+| `get_project('emumzyejysosywlsridm')` | `You do not have permission to perform this action` |
+
+São **duas credenciais diferentes**, e nenhuma alcança o projeto certo.
+`Olga's Project` vive na org **Sistemas OLGA PRO**; os conectores desta
+sessão só têm 88i. Não é problema de qual projeto escolher — é falta de
+autorização para a organização.
+
+Isso não é dedução a partir de uma listagem vazia: a API respondeu
+negando o projeto pelo id. A diferença importa, porque uma listagem vazia
+poderia ser filtro e a negação explícita não é.
+
+**Para destravar, escolha uma:**
+
+1. A Olga aplica pelo SQL Editor. O arquivo já está pronto e versionado em
+   `packages/db/dist/mkt_v2_0007-0008.sql`. É a rota mais segura.
+2. A Olga passa a `DATABASE_URL` do projeto e a sessão roda
+   `node packages/db/scripts/migrate.mjs`, que pula 0001–0006.
+3. Alguém autoriza o conector Supabase na org `Sistemas OLGA PRO`.
 
 ### 3.2 O projeto onde a sessão anterior aplicou por engano
 
@@ -102,8 +110,20 @@ vazios exceto pelo seed (12 capabilities, 4 agents, 11 policies). Foram
 criados por engano: a sessão anterior aplicou no projeto que o conector
 enxergava, em vez de parar e perguntar qual era o certo.
 
-**A Olga escolheu deixar os dois como estão.** Não faça nada com eles sem ela
-pedir explicitamente. Se ela pedir, a limpeza é:
+**Achado novo (25/08), e este é de segurança:** nesses dois schemas órfãos,
+`processed_events` está com **RLS DESLIGADA** — `mkt.processed_events` e
+`mkt_v2.processed_events`. É exatamente a falha que a migration 0008
+corrige, e ela está de pé numa base de produção. As tabelas estão vazias,
+mas enquanto a RLS estiver desligada qualquer um com a anon key lê e
+escreve nelas. O advisor do próprio Supabase sinaliza como crítico.
+
+Apagar os schemas resolve junto, porque remove as tabelas. Ligar só a RLS
+(sem policy) também fecha, e é o contrato correto dessa tabela: só
+`service_role` alcança.
+
+**A Olga escolheu deixar os dois como estão** e não autorizou mexer.
+Não faça nada com eles sem ela pedir explicitamente. Se ela pedir, a
+limpeza é:
 
 ```sql
 drop schema mkt cascade;
@@ -131,76 +151,75 @@ Delete project. Lembre-a se ela não tiver feito.
 
 ## 4. Fila de trabalho
 
-Em ordem. Cada item tem critério de aceite verificável — não pare em "parece
-funcionar".
+**T1 — Push do repositório.** Feito. Ver §2.
 
-### T1 — Push do repositório
-Seção 2. **Aceite:** `git log origin/main --oneline` mostra os 6 commits.
+**T5 — Ligar `mkt.outbox` ao Inngest.** Feito.
+`apps/worker/src/outbox-relay.mjs` drena o outbox; a guarda de consumo usa
+`mkt.processed_events`. A entrega é at-least-once **de propósito**: entre
+`bus.send()` e `markPublished()` existe uma janela que só uma transação
+distribuída entre Postgres e o barramento fecharia. A defesa fica onde já
+estava — a idempotência do efeito externo mora no Capability Gateway.
+O ledger evita trabalho repetido; não é ele que impede post duplicado.
 
-### T2 — Aplicar 0007 e 0008 em `mkt_v2` no projeto certo
+A decisão que custou mais pensamento: marcar consumido **depois** do
+sucesso, não reservar a chave antes. Reservar antes perde evento se o
+processo cair no meio — e evento perdido em silêncio é a pior falha de um
+outbox. Há teste para a janela exata.
 
-Duas rotas, escolha pela sua permissão de rede:
+**T4 — Tela de aprovação.** Feito. A decisão é vinculada à versão, e quem
+derruba a aprovação numa edição continua sendo o trigger
+`mkt.invalidate_approval_on_edit()`. A camada nova lê o efeito e recusa
+publicar; não reimplementa. O aceite do handoff — *aprovar, editar, e a
+aprovação cai* — está em `packages/db/test/approvals.test.mjs`, contra
+Postgres.
 
-**Rota A — linha de comando** (precisa da connection string do projeto):
-```bash
-MKT_SCHEMA=mkt_v2 DATABASE_URL="postgres://...emumzyejysosywlsridm..." \
-  node packages/db/scripts/migrate.mjs
-```
-O runner pula o que já rodou e aplica só 0007 e 0008.
+Fechou também um buraco que o trigger sozinho deixava: aprovar → editar →
+aprovar de novo fazia a decisão antiga voltar a valer sobre um texto que
+aquele aprovador nunca leu. Resolvido comparando `decided_at` com
+`approved_at`, exato porque os dois saem da mesma transação.
 
-**Rota B — SQL Editor** (se não alcançar o banco por rede):
-```bash
-MKT_SCHEMA=mkt_v2 MKT_ONLY=0007,0008 npm run db:bundle
-# -> packages/db/dist/mkt_v2_0007-0008.sql
-```
-O arquivo já está gerado no repositório. Entregue à Olga para colar.
+**T3 — Adapter real do Meta Graph.** Código feito; o aceite não.
+`packages/gateway/src/adapters/` agora existe, com o contrato escrito, o
+falso extraído e o real. A decisão central é a classificação de retry:
+falhar **criando o container** é seguro repetir (container órfão expira em
+24h e não é post); falhar **publicando** sem resposta é ambíguo, e aí o
+adapter marca como não-retentável de propósito. Item parado que uma pessoa
+resolve vale mais que post duplicado que ninguém desfaz.
 
-**Aceite** — ensaiado contra um banco com 0001–0006 em `mkt_v2`, deu isto:
-```
-tabelas antes:  26
-tabelas depois: 29        (model_routing, workspace_budgets, model_spend)
-tabelas sem RLS: nenhuma
-```
-Confira com:
-```sql
-select count(*) from information_schema.tables where table_schema = 'mkt_v2';
-select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
- where n.nspname = 'mkt_v2' and c.relkind = 'r' and c.relrowsecurity = false;
-```
-A segunda query precisa voltar **vazia**.
+**O aceite pede o teste de replay contra uma conta de teste real, e isso
+depende da submissão do app na Meta.** Continua sendo o caminho crítico da
+Fase 1 e continua não sendo código (ADR-0008). Se ainda não foi submetida,
+**é o item mais urgente do projeto inteiro.** Pergunte à Olga antes de
+investir em qualquer outra coisa.
 
-O bundle roda inteiro numa transação. Aplicar duas vezes falha no primeiro
-`create type` e faz rollback completo — sem estado parcial, sem seed
-duplicado. Isso foi testado, não deduzido.
+**T2 — Aplicar 0007 e 0008.** Bloqueado por autorização, não por código.
+Ver §3.1 para o diagnóstico e as três rotas de saída.
 
-### T3 — Adapter real do Meta Graph
-Em `packages/gateway/src/adapters/`. O adapter falso já implementa o contrato
-e o gateway não distingue um do outro — é essa a prova de que a fronteira
-está no lugar certo.
+**T6 — Brand Brain a partir de URL (Fase 2).** Não começado. Depende de T3
+de verdade (com a Meta liberada), não do código do adapter.
 
-**Bloqueado por fora:** a submissão do app na Meta leva de duas a seis semanas
-(ADR-0008) e é o caminho crítico da Fase 1. Se ainda não foi submetida,
-**esse é o item mais urgente do projeto inteiro, e ele não é código.** Pergunte
-à Olga antes de investir em qualquer outra coisa.
+### O que esta sessão acrescentou, em números
 
-**Aceite:** o mesmo teste de replay do `publish-workflow` passa com o adapter
-real apontando para uma conta de teste, e o provider é chamado uma única vez.
+| | Antes | Depois |
+|---|---|---|
+| Testes | 126 | 203 |
+| Gate G0 | 10/10 | 10/10 |
+| Migrations | 8 | 8 (nenhuma nova) |
 
-### T4 — Tela de aprovação
-Decisão vinculada à versão do conteúdo, não ao conteúdo. `mkt.approvals` já
-existe e o trigger `invalidate_approval_on_edit()` já derruba a aprovação
-quando a versão muda — a tela precisa respeitar isso, não reimplementar.
+Nenhuma migration nova foi criada de propósito: a fila de coisas para a
+Olga aplicar à mão já tinha duas, e "attempts alto e published_at nulo" já
+era a definição de linha travada — uma coluna de dead-letter seria um
+segundo lugar para a mesma verdade.
 
-**Aceite:** aprovar, editar, e a aprovação cai. Teste, não clique.
+### Dois defeitos que estavam de pé e foram corrigidos
 
-### T5 — Ligar `mkt.outbox` ao Inngest
-A tabela e o workflow existem; falta o consumidor. `mkt.processed_events` é o
-ledger de deduplicação — use-o, não invente outro.
-
-### T6 — Brand Brain a partir de URL (Fase 2)
-Só depois de T3 e T4.
-
----
+- **`apps/web/lib/auth.ts` não existia**, e `app/api/agent/route.ts` já o
+  importava. O app web não subia. Agora existe, com a parte verificável em
+  `lib/session.mjs`: assinatura conferida com `timingSafeEqual`, `alg: none`
+  e troca de algoritmo recusados, e o papel vindo da membership em vez da
+  claim — token com role forjada não vira permissão.
+- **Não havia typecheck.** Passou a haver, e entrou no `npm test`: tipo
+  quebrado é o mesmo que teste quebrado.
 
 ## 5. Regras de engajamento neste repositório
 
@@ -260,6 +279,15 @@ Supabase encontrou depois de o schema já estar em banco. A correção está em
 `0005` e `0008`; o que impede a reincidência é o teste estrutural, não a
 correção pontual.
 
+**A sessão de 25/08 quase repetiu o primeiro erro.** Dois conectores
+Supabase estavam ligados, nenhum alcançando o projeto certo, e um deles
+apontando justamente para a base de produção onde os órfãos foram criados.
+O que impediu a repetição não foi sorte: foi conferir o projeto pelo id
+antes de escrever, e parar diante da negação em vez de aplicar no que
+estava à mão. Fica a regra: **antes de qualquer escrita, prove o alvo pelo
+id.** Uma listagem que não mostra o projeto pode ser filtro; uma negação
+explícita pelo id é resposta.
+
 Dois outros bugs, esses pegos pelos testes antes de chegar em banco, estão
 documentados em `docs/GATE-G0.md`: `CREATE RULE ... DO INSTEAD NOTHING`
 quebrando integridade referencial, e `array_length('{}', 1)` devolvendo NULL
@@ -286,5 +314,9 @@ O plano completo está no MKT-17, entregue como PDF e como página navegável.
 
 ---
 
-*Última verificação: 25/08/2026. 126 testes, 10/10 no Gate G0, 8 migrations,
-árvore limpa, 6 commits à espera de push.*
+*Última verificação: 25/08/2026. 203 testes, 10/10 no Gate G0, typecheck
+limpo, 8 migrations, árvore limpa, tudo empurrado para
+`claude/projeto-superpower-plugin-iyj47t`.*
+
+*Só duas coisas seguram a Fase 1, e nenhuma é código: a submissão do app na
+Meta e a autorização do Supabase na org Sistemas OLGA PRO.*
