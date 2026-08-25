@@ -1,0 +1,439 @@
+/**
+ * Loop de agente — as nove interfaces da Documentação Mestra §6.
+ *
+ * Até aqui o agent-runtime fazia uma chamada ao modelo e devolvia texto. Isso
+ * é um cliente de LLM, não um agente. O que falta entre os dois é este
+ * arquivo: a sequência que separa interpretar, decidir, executar e provar.
+ *
+ *   Resolver       texto            -> IntentResolution      (LLM)
+ *   Retrieval      intent           -> slices + versões      (porta)
+ *   Planner        intent + contexto-> TaskPlan              (LLM)
+ *   Respondability plan + policy    -> decisão + reason codes (CÓDIGO)
+ *   Compiler       plano aprovado   -> args reais            (CÓDIGO)
+ *   Executor       request validado -> ExecutionResult       (gateway)
+ *   Validator      resultado        -> ValidatedResult       (CÓDIGO)
+ *   Evidence       resultado válido -> EvidencePackage       (CÓDIGO)
+ *   Responder      evidence+persona -> FinalResponse         (LLM, aterrado)
+ *
+ * ── A linha que este arquivo existe para não deixar ninguém cruzar ─────────
+ *
+ * O schema do TaskPlan diz, no próprio campo: "args_summary — resumo humano.
+ * Os args reais são construídos pelo compiler, nunca pelo LLM."
+ *
+ * É a fronteira inteira em uma frase. O modelo propõe *o que* fazer, em texto
+ * que um humano lê. O *como* — o id do conteúdo, o canal, a conexão — é
+ * montado por código determinístico a partir de entidades resolvidas e do
+ * contexto confiável. Um LLM que escolhe argumentos de uma chamada externa é
+ * um LLM que possui autorização, e o MKT-SPEC-STANDARD §8 proíbe isso.
+ *
+ * Por isso o compiler recusa capability sem builder registrado, em vez de
+ * repassar o que o modelo escreveu. Recusar é o comportamento seguro; repassar
+ * seria o inseguro disfarçado de flexível.
+ *
+ * ── Ordem dos checks ───────────────────────────────────────────────────────
+ *
+ * A Mestra §15.1 fixa a ordem: schema e IDs canônicos, status de governança,
+ * permissão e tenant, compatibilidade semântica, saúde da fonte, quality
+ * gates, ambiguidade material, policy e materialidade, aprovação. A ordem
+ * importa: checar policy antes de tenant deixaria a policy decidir sobre um
+ * escopo que ainda não foi provado.
+ */
+import { assertValid, validate, autonomyRank } from "@olga/contracts";
+import { evaluate } from "@olga/policy";
+
+export class LoopError extends Error {
+  constructor(reason_code, state, message, extra = {}) {
+    super(message ?? reason_code);
+    this.reason_code = reason_code;
+    this.respondability = state;
+    Object.assign(this, extra);
+  }
+}
+
+/** Ambiguidade que não é material não para o loop; a que é, para. */
+const AMBIGUIDADE_MATERIAL = new Set([
+  "AMBIGUOUS_GOAL", "AMBIGUOUS_ENTITY", "AMBIGUOUS_AUDIENCE",
+]);
+
+/**
+ * Compiler: transforma um passo aprovado do plano em args reais.
+ *
+ * `builders` é um mapa capability_id -> função determinística. Nenhum builder
+ * recebe texto do modelo: recebe as entidades já resolvidas para ID canônico e
+ * o contexto confiável da sessão.
+ */
+export function createCompiler(builders = {}) {
+  return {
+    /** @returns {{ capability_id: string, mode: string, args: object }} */
+    compile(step, { entities, context, tenant }) {
+      const builder = builders[step.capability_id];
+      if (!builder) {
+        // Sem builder não há compilação possível. A alternativa seria aceitar
+        // os args que o modelo escreveu — que é exatamente o que não pode.
+        throw new LoopError("SCHEMA_VALIDATION_FAILED", "UNSUPPORTED",
+          `sem compilador para ${step.capability_id}: os args teriam de vir do modelo`);
+      }
+      const args = builder({ entities, context, tenant, step });
+      if (args == null || typeof args !== "object") {
+        throw new LoopError("SCHEMA_VALIDATION_FAILED", "UNSUPPORTED",
+          `compilador de ${step.capability_id} nao devolveu args`);
+      }
+      return { capability_id: step.capability_id, mode: step.mode, args };
+    },
+    has: (capability_id) => typeof builders[capability_id] === "function",
+  };
+}
+
+/**
+ * Validator: cinco checagens fixadas pelo contrato ValidatedResult.
+ * Nunca converte erro em sucesso (MKT-09B §5).
+ */
+export function validateResult({ trace_id, execution, tenant, freshness_ok = true }) {
+  const checks = [];
+  const reason_codes = [];
+  const add = (check, passed, detail) => checks.push(detail ? { check, passed, detail } : { check, passed });
+
+  // 1. O resultado bate com o contrato de saída do executor?
+  const { valid: schemaOk } = validate("olga://io/execution-result", execution);
+  add("schema", schemaOk, schemaOk ? undefined : "execution-result fora do contrato");
+  if (!schemaOk) reason_codes.push("SCHEMA_VALIDATION_FAILED");
+
+  // 2. Falha continua sendo falha. Este é o check que impede o pior bug
+  //    possível desta camada: um erro do provider virar resposta bonita.
+  const falhou = execution.status === "FAILED" || execution.status === "BLOCKED";
+  add("failure_normalized", !falhou,
+    falhou ? `execucao terminou ${execution.status}` : undefined);
+  if (falhou && execution.error?.reason_code) reason_codes.push(execution.error.reason_code);
+
+  // 3. Efeito externo sem id do provider não é efeito comprovado.
+  const precisaId = execution.status === "SUCCEEDED" && execution.provider != null;
+  const temId = execution.external_id != null && execution.external_id !== "";
+  add("cardinality", !precisaId || temId,
+    precisaId && !temId ? "provider respondeu sem external_id" : undefined);
+  if (precisaId && !temId) reason_codes.push("PROVIDER_UNAVAILABLE");
+
+  // 4. O escopo que saiu é o mesmo que entrou.
+  const escopoOk = tenant?.org_id != null && tenant?.workspace_id != null;
+  add("tenant_scope", escopoOk, escopoOk ? undefined : "tenant ausente no resultado");
+  if (!escopoOk) reason_codes.push("TENANT_SCOPE_VIOLATION");
+
+  add("freshness", freshness_ok, freshness_ok ? undefined : "contexto usado esta vencido");
+  if (!freshness_ok) reason_codes.push("SOURCE_STALE");
+
+  const result = {
+    trace_id,
+    valid: checks.every((c) => c.passed),
+    checks,
+    reason_codes: [...new Set(reason_codes)],
+  };
+  assertValid("olga://io/validated-result", result);
+  return result;
+}
+
+/**
+ * Evidence: monta o pacote de provenance.
+ * Item sem origem não entra — evidence sem origem é proibida (MKT-09B §5).
+ */
+export function buildEvidence({ trace_id, items = [] }) {
+  const completos = items.filter(
+    (i) => i.evidence_id && i.source_kind && i.locator && i.hash);
+  const pkg = { trace_id, items: completos };
+  assertValid("olga://io/evidence-package", pkg);
+  return {
+    pkg,
+    descartados: items.length - completos.length,
+  };
+}
+
+/**
+ * @param {{ resolver: any, planner: any, responder: any, retrieval?: any,
+ *           compiler: any, gateway: any, registry: any, policies: any,
+ *           runs?: any, tracer?: any, ids: any, clock?: any }} deps
+ */
+export function createAgentLoop({
+  resolver, planner, responder, retrieval,
+  compiler, gateway, registry, policies,
+  runs, tracer, ids, clock,
+}) {
+  const now = () => clock?.now?.() ?? Date.now();
+  const nowIso = () => new Date(now()).toISOString();
+
+  async function run(req) {
+    const trace_id = req.trace_id ?? ids.newTraceId();
+    const started_at = now();
+    const emitir = (event, extra = {}) => tracer?.event?.({ trace_id, event, ...extra });
+
+    // ── 0. Tenant e ator: do contexto confiável, nunca do input ────────────
+    const { tenant, actor } = req;
+    if (!tenant?.org_id || !tenant?.workspace_id) {
+      throw new LoopError("TENANT_SCOPE_VIOLATION", "UNSUPPORTED", "tenant ausente");
+    }
+    if (!actor?.role) throw new LoopError("ACTOR_ROLE_FORBIDDEN", "UNSUPPORTED", "ator sem papel");
+    if (req.input?.org_id || req.input?.workspace_id) {
+      // Tentativa de injetar tenant pelo corpo é violação, não correção.
+      throw new LoopError("TENANT_SCOPE_VIOLATION", "UNSUPPORTED",
+        "tenant no input do usuario");
+    }
+    if (!(await registry.workspaceBelongsToOrg(tenant.workspace_id, tenant.org_id))) {
+      throw new LoopError("TENANT_SCOPE_VIOLATION", "UNSUPPORTED",
+        "workspace nao pertence a organizacao");
+    }
+
+    // ── 0b. Agente e teto de autonomia ─────────────────────────────────────
+    const agent = await registry.getAgent(req.agent_id);
+    if (!agent) throw new LoopError("AGENT_NOT_ACTIVE", "UNSUPPORTED", `agente desconhecido: ${req.agent_id}`);
+    if (agent.status !== "ACTIVE" && !(agent.status === "CANDIDATE" && req.internal === true)) {
+      throw new LoopError("AGENT_NOT_ACTIVE", "UNSUPPORTED",
+        `agente ${agent.agent_id} esta ${agent.status}; CANDIDATE so roda em modo interno`);
+    }
+    const teto = agent.status === "ACTIVE"
+      ? (agent.max_autonomy ?? agent.baseline_autonomy)
+      : agent.baseline_autonomy;
+    const autonomy_ceiling =
+      req.requested_autonomy && autonomyRank(req.requested_autonomy) < autonomyRank(teto)
+        ? req.requested_autonomy : teto;
+
+    const run_id = ids.newId();
+    await runs?.start?.({
+      id: run_id, org_id: tenant.org_id, workspace_id: tenant.workspace_id, trace_id,
+      agent_id: agent.agent_id, agent_version: agent.version,
+      task_class: agent.model_profile?.task_class ?? null,
+      status: "RUNNING", started_at: nowIso(),
+    });
+
+    const evidencias = [];
+    const receipt_ids = [];
+
+    try {
+      // ── encerramento comum a toda parada antes do fim ───────────────────
+      async function encerrar(state, reason_codes, message) {
+        const { pkg: parcial } = buildEvidence({ trace_id, items: evidencias });
+        const resp = {
+          trace_id, respondability: state,
+          message,
+          next_step: proximoPasso(state),
+          autonomy_mode: modeFor(autonomy_ceiling),
+          reason_codes: [...new Set(reason_codes)].filter(Boolean),
+          evidence_ids: parcial.items.map((i) => i.evidence_id),
+          receipt_ids,
+        };
+        assertValid("olga://io/final-response", resp);
+        await runs?.finish?.(run_id, {
+          status: state === "POLICY_BLOCKED" || state === "APPROVAL_REQUIRED" ? "BLOCKED" : "FAILED",
+          respondability: state, reason_codes: resp.reason_codes,
+          autonomy_used: autonomy_ceiling, latency_ms: now() - started_at, finished_at: nowIso(),
+        });
+        emitir("loop.stopped", { state, reason_codes: resp.reason_codes });
+        return { run_id, trace_id, response: resp, evidence: parcial };
+      }
+
+      // ── 1. RESOLVER ──────────────────────────────────────────────────────
+      const intent = await resolver.resolve({ trace_id, tenant, input: req.input, agent });
+      assertValid("olga://io/intent-resolution", intent);
+      emitir("loop.resolved", { intent: intent.intent, confidence: intent.confidence_band });
+
+      if (intent.intent === "UNKNOWN") {
+        return encerrar("CLARIFICATION_REQUIRED", ["AMBIGUOUS_GOAL"],
+          "Não entendi o que você quer fazer.");
+      }
+
+      // Ambiguidade material para o loop antes de qualquer decisão. Adivinhar
+      // aqui seria decidir sobre algo que ninguém afirmou.
+      const materiais = (intent.ambiguities ?? [])
+        .filter((a) => AMBIGUIDADE_MATERIAL.has(a.reason_code));
+      if (materiais.length > 0) {
+        return encerrar("CLARIFICATION_REQUIRED", materiais.map((a) => a.reason_code),
+          "Preciso de uma informação a mais antes de seguir.");
+      }
+
+      // Referência que não resolveu para ID canônico não vira palpite.
+      const semId = (intent.entities ?? []).filter((e) => e.canonical_id == null);
+      if (semId.length > 0) {
+        return encerrar("CLARIFICATION_REQUIRED", ["AMBIGUOUS_ENTITY"],
+          `Não consegui identificar: ${semId.map((e) => e.raw ?? e.type).join(", ")}.`);
+      }
+
+      // ── 2. RETRIEVAL ─────────────────────────────────────────────────────
+      // Contexto vindo de tool ou documento é dado NÃO confiável até passar
+      // por contrato e policy (Mestra §13). Por isso ele entra em `context`,
+      // separado de `tenant`, e nunca vira argumento sem passar pelo compiler.
+      const recuperado = retrieval
+        ? await retrieval.fetch({ trace_id, tenant, intent })
+        : { slices: [], versions: [], stale: false };
+      emitir("loop.retrieved", { slices: recuperado.slices?.length ?? 0, stale: !!recuperado.stale });
+
+      for (const s of recuperado.slices ?? []) {
+        if (s.evidence) evidencias.push(s.evidence);
+      }
+
+      // ── 3. PLANNER ───────────────────────────────────────────────────────
+      const plan = await planner.plan({ trace_id, tenant, intent, agent, context: recuperado });
+      assertValid("olga://io/task-plan", plan);
+      emitir("loop.planned", { steps: plan.steps.length });
+
+      // O plano não pode inventar capability fora do charter do agente.
+      const permitidas = new Set(agent.capabilities ?? []);
+      const fora = plan.steps.filter((s) => !permitidas.has(s.capability_id));
+      if (fora.length > 0) {
+        return encerrar("UNSUPPORTED", ["UNSUPPORTED_VALUE"],
+          `Este agente não faz: ${fora.map((s) => s.capability_id).join(", ")}.`);
+      }
+
+      // Nem capability que ninguém sabe compilar.
+      const semCompilador = plan.steps.filter((s) => !compiler.has(s.capability_id));
+      if (semCompilador.length > 0) {
+        return encerrar("UNSUPPORTED", ["UNSUPPORTED_VALUE"],
+          `Ainda não sei executar: ${semCompilador.map((s) => s.capability_id).join(", ")}.`);
+      }
+
+      // ── 4 a 8. Um passo por vez ──────────────────────────────────────────
+      const politicas = await policies.listActive(tenant.org_id);
+      let ultimaExecucao = null;
+      let ultimaRespondability = null;
+
+      for (const step of plan.steps) {
+        const cap = await registry.getCapability(step.capability_id, 1);
+        if (!cap) return encerrar("UNSUPPORTED", ["CAPABILITY_NOT_ACTIVE"],
+          `Capability desconhecida: ${step.capability_id}.`);
+
+        // ── 4. RESPONDABILITY ──────────────────────────────────────────────
+        const respondability = evaluate({
+          trace_id,
+          context: {
+            capability_id: cap.capability_id, capability_mode: cap.mode,
+            agent_id: agent.agent_id, risk_tier: cap.risk_tier,
+            channel: req.facts?.channel ?? null,
+          },
+          facts: req.facts ?? {},
+          requested_autonomy: autonomy_ceiling,
+          policies: politicas,
+        });
+        ultimaRespondability = respondability;
+        emitir("loop.respondability", { step: step.step_id, state: respondability.state });
+
+        if (respondability.state === "POLICY_BLOCKED") {
+          return encerrar("POLICY_BLOCKED", respondability.reason_codes,
+            "Esta ação está bloqueada pela política do workspace.");
+        }
+        if (respondability.state === "APPROVAL_REQUIRED" && !req.approval_id) {
+          return encerrar("APPROVAL_REQUIRED", respondability.reason_codes,
+            "Esta ação precisa de aprovação humana antes de acontecer.");
+        }
+
+        // Modo somente-leitura do pedido não executa escrita, mesmo autorizado.
+        if (req.dry_run === true) {
+          emitir("loop.dry_run", { step: step.step_id });
+          continue;
+        }
+
+        // ── 5. COMPILER — os args nascem aqui, não no modelo ───────────────
+        const compilado = compiler.compile(step, {
+          entities: intent.entities, context: recuperado, tenant,
+        });
+
+        // ── 6. EXECUTOR ────────────────────────────────────────────────────
+        const request = {
+          trace_id, tenant,
+          capability_id: compilado.capability_id, capability_version: cap.version ?? 1,
+          mode: compilado.mode, args: compilado.args,
+          requested_autonomy: autonomy_ceiling,
+          approval_id: req.approval_id ?? null,
+          ...(req.idempotency_key ? { idempotency_key: req.idempotency_key } : {}),
+        };
+        const saida = await gateway.execute(request, { facts: req.facts ?? {}, actor });
+        ultimaExecucao = saida.execution;
+        if (saida.receipt?.receipt_id) receipt_ids.push(saida.receipt.receipt_id);
+        emitir("loop.executed", { step: step.step_id, status: saida.execution.status });
+
+        // ── 7. VALIDATOR ───────────────────────────────────────────────────
+        const validado = validateResult({
+          trace_id, execution: saida.execution, tenant,
+          freshness_ok: !recuperado.stale,
+        });
+        if (!validado.valid) {
+          // Nunca converte erro em sucesso.
+          const estado = saida.execution.status === "BLOCKED" ? "POLICY_BLOCKED"
+                       : "TEMPORARILY_UNAVAILABLE";
+          return encerrar(estado, validado.reason_codes,
+            "Não consegui concluir esta ação agora.");
+        }
+
+        // ── 8. EVIDENCE — o efeito externo é sua própria evidência ─────────
+        if (saida.receipt) {
+          evidencias.push({
+            evidence_id: saida.receipt.receipt_id,
+            source_kind: "PROVIDER_RESPONSE",
+            locator: `${saida.receipt.provider ?? "provider"}://${saida.receipt.external_id ?? ""}`,
+            hash: saida.receipt.request_hash ?? saida.receipt.idempotency_key,
+            retrieved_at: saida.receipt.recorded_at,
+          });
+        }
+      }
+
+      // ── 9. RESPONDER ─────────────────────────────────────────────────────
+      const { pkg, descartados } = buildEvidence({ trace_id, items: evidencias });
+      if (descartados > 0) emitir("loop.evidence_discarded", { descartados });
+
+      const resposta = await responder.respond({
+        trace_id, tenant, agent, intent,
+        evidence: pkg,
+        execution: ultimaExecucao,
+        respondability: ultimaRespondability,
+      });
+
+      const final = {
+        trace_id,
+        // Chegar aqui significa que nenhum gate parou o loop.
+        respondability: "EXECUTABLE",
+        message: resposta.message,
+        next_step: resposta.next_step,
+        autonomy_mode: modeFor(ultimaRespondability?.granted_autonomy ?? autonomy_ceiling),
+        reason_codes: ultimaRespondability?.reason_codes ?? [],
+        evidence_ids: pkg.items.map((i) => i.evidence_id),
+        receipt_ids,
+      };
+
+      // Grounding: o responder não pode citar evidência que não existe no
+      // pacote. Se citar, a resposta não está aterrada e não sai.
+      const conhecidos = new Set(pkg.items.map((i) => i.evidence_id));
+      const inventados = (resposta.evidence_ids ?? []).filter((id) => !conhecidos.has(id));
+      if (inventados.length > 0) {
+        return encerrar("QUALITY_BLOCKED", ["EVIDENCE_INSUFFICIENT"],
+          "Não consigo sustentar esta resposta com evidência.");
+      }
+
+      assertValid("olga://io/final-response", final);
+      await runs?.finish?.(run_id, {
+        status: "SUCCEEDED", respondability: final.respondability,
+        reason_codes: final.reason_codes, autonomy_used: autonomy_ceiling,
+        latency_ms: now() - started_at, finished_at: nowIso(),
+      });
+      emitir("loop.completed", { state: final.respondability, steps: plan.steps.length });
+      return { run_id, trace_id, response: final, plan, intent, evidence: pkg };
+
+    } catch (e) {
+      const reason = e.reason_code ?? "PROVIDER_UNAVAILABLE";
+      await runs?.finish?.(run_id, {
+        status: "FAILED", respondability: e.respondability ?? "TEMPORARILY_UNAVAILABLE",
+        reason_codes: [reason], latency_ms: now() - started_at, finished_at: nowIso(),
+      });
+      emitir("loop.failed", { reason_code: reason });
+      throw e;
+    }
+  }
+
+  return { run };
+}
+
+const modeFor = (a) =>
+  ({ A0: "SUGGEST", A1: "SUGGEST", A2: "DRAFT", A3: "GOVERNED_EXECUTE", A4: "AUTOPILOT" }[a] ?? "SUGGEST");
+
+const proximoPasso = (state) => ({
+  CLARIFICATION_REQUIRED: "Responda a pergunta acima para eu continuar.",
+  UNSUPPORTED: "Escolha uma ação que este agente saiba executar.",
+  POLICY_BLOCKED: "Fale com quem administra o workspace para revisar a política.",
+  QUALITY_BLOCKED: "Revise o conteúdo e as fontes antes de tentar de novo.",
+  APPROVAL_REQUIRED: "Peça a aprovação e tente de novo depois dela.",
+  TEMPORARILY_UNAVAILABLE: "Tente de novo em alguns minutos.",
+  HANDOFF_HUMAN: "Alguém do time vai assumir daqui.",
+}[state] ?? "Revise o resultado.");
