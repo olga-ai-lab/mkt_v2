@@ -65,7 +65,7 @@ const AMBIGUIDADE_MATERIAL = new Set([
 export function createCompiler(builders = {}) {
   return {
     /** @returns {{ capability_id: string, mode: string, args: object }} */
-    compile(step, { entities, context, tenant }) {
+    async compile(step, { entities, context, tenant }) {
       const builder = builders[step.capability_id];
       if (!builder) {
         // Sem builder não há compilação possível. A alternativa seria aceitar
@@ -73,7 +73,7 @@ export function createCompiler(builders = {}) {
         throw new LoopError("SCHEMA_VALIDATION_FAILED", "UNSUPPORTED",
           `sem compilador para ${step.capability_id}: os args teriam de vir do modelo`);
       }
-      const args = builder({ entities, context, tenant, step });
+      const args = await builder({ entities, context, tenant, step });
       if (args == null || typeof args !== "object") {
         throw new LoopError("SCHEMA_VALIDATION_FAILED", "UNSUPPORTED",
           `compilador de ${step.capability_id} nao devolveu args`);
@@ -327,7 +327,10 @@ export function createAgentLoop({
         }
 
         // ── 5. COMPILER — os args nascem aqui, não no modelo ───────────────
-        const compilado = compiler.compile(step, {
+        // `await`: um builder real precisa consultar o banco. A conexão e a
+        // variante de canal não vêm do modelo — são resolvidas a partir do
+        // conteúdo e do canal, que é justamente o que os tira do alcance dele.
+        const compilado = await compiler.compile(step, {
           entities: intent.entities, context: recuperado, tenant,
         });
 

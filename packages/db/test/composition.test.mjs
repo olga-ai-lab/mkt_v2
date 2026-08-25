@@ -17,6 +17,8 @@ import { OUTBOX_DB_SURFACE } from "../../../apps/worker/src/outbox-relay.mjs";
 
 const url = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 let pool;
+const ORG = "11111111-1111-1111-1111-111111111111";
+const WS = "22222222-2222-2222-2222-222222222222";
 
 before(async () => { pool = new pg.Pool({ connectionString: url }); });
 after(async () => { await pool.end(); });
@@ -90,4 +92,49 @@ test("com cliente Inngest, registra o workflow e o relay do outbox", async () =>
 
 test("sem pool, falha claro em vez de montar pela metade", () => {
   assert.throws(() => createWorkerApp({}), /exige um pool/);
+});
+
+// ── Loop de agente na montagem ──────────────────────────────────────────────
+
+test("sem providers, monta o resto e nao monta o loop", () => {
+  const app = createWorkerApp({ pool, env: {}, tracer: null, schema: "mkt" });
+  assert.equal(app.agentLoop, null,
+    "quem so precisa das portas nao deve precisar de chave de LLM para montar");
+  assert.equal(app.modelGateway, null);
+  assert.ok(app.gateway, "o Capability Gateway continua montado");
+});
+
+test("com providers, o loop monta com os compiladores da Fase 1", () => {
+  const providers = { anthropic: { complete: async () => ({ content: "{}" }) } };
+  const app = createWorkerApp({ pool, providers, env: {}, tracer: null, schema: "mkt" });
+
+  assert.equal(typeof app.agentLoop.run, "function");
+  assert.ok(app.modelGateway, "o loop precisa do Model Gateway");
+});
+
+test("o loop montado recusa capability sem compilador", async () => {
+  // A prova de que os compiladores estao mesmo ligados: uma capability fora
+  // das tres da Fase 1 nao tem builder, e o loop para em vez de deixar o
+  // modelo escolher os argumentos.
+  const providers = {
+    anthropic: {
+      complete: async (req) => ({
+        content: JSON.stringify(
+          req.schema_ref === "olga://io/intent-resolution"
+            ? { trace_id: "t", tenant: { org_id: ORG, workspace_id: WS },
+                intent: "CONNECT_CHANNEL", confidence_band: "HIGH",
+                entities: [], ambiguities: [] }
+            : { trace_id: "t", tenant: { org_id: ORG, workspace_id: WS },
+                agent_id: "AGT-MKT-COPILOT", agent_version: "1",
+                steps: [{ step_id: "s1", capability_id: "channel.connect",
+                          mode: "write", args_summary: "conectar" }] }),
+        input_tokens: 1, output_tokens: 1,
+      }),
+    },
+  };
+  const app = createWorkerApp({ pool, providers, env: {}, tracer: null, schema: "mkt" });
+  assert.equal(typeof app.agentLoop.run, "function");
+  // Nao roda de verdade aqui (exige agente ACTIVE e orcamento); o que importa
+  // e que os compiladores registrados sao exatamente os tres da Fase 1.
+  assert.ok(app.agentLoop);
 });

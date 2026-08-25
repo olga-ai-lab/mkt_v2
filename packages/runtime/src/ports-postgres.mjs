@@ -464,6 +464,31 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
      * fosse texto qualquer.
      */
     /**
+     * Onde uma versão de conteúdo pode ser publicada num canal.
+     *
+     * O compilador de publishing.publish chama isto em vez de aceitar
+     * connection_id e channel_variant_id do modelo. As duas coisas são
+     * consequência do conteúdo e do canal, não escolha de quem pediu — e
+     * deixá-las virem de fora seria deixar o modelo escolher em qual conta
+     * publicar.
+     */
+    async findDestination(org_id, workspace_id, content_version_id, channel) {
+      const { rows } = await pool.query(
+        `select v.id as channel_variant_id, c.id as connection_id,
+                c.status::text as connection_status, c.external_account_id
+           from ${S}.channel_variants v
+           join ${S}.connections c
+             on c.workspace_id = $2 and c.org_id = $1
+            and c.channel = v.channel and c.status = 'ACTIVE'
+          where v.content_version_id = $3
+            and v.channel = $4::${S}.channel
+            and v.org_id = $1
+          limit 1`,
+        [org_id, workspace_id, content_version_id, channel]);
+      return rows[0] ?? null;
+    },
+
+    /**
      * @param {{ org_id: string, workspace_id: string, content_version_id: string,
      *           reason_codes?: string[], trace_id?: string|null }} args
      */

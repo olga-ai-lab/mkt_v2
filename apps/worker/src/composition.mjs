@@ -19,6 +19,10 @@
  */
 import { createPostgresPorts } from "@olga/runtime/ports-postgres";
 import { createApprovalService } from "@olga/runtime/approvals";
+import { createModelGateway } from "@olga/runtime/model-gateway";
+import { createAgentLoop, createCompiler } from "@olga/runtime/agent-loop";
+import { createLlmResolver, createLlmPlanner, createLlmResponder } from "@olga/runtime/agent-stages";
+import { createPhase1Compilers } from "@olga/runtime/capability-compilers";
 import { createGateway } from "@olga/gateway";
 import { createWorkerPorts } from "./ports-worker.mjs";
 import { createAdapters, createEnvSecrets } from "./adapters.mjs";
@@ -31,9 +35,15 @@ const tracerPadrao = {
 };
 
 /**
- * @param {{ pool: any, inngest?: any, env?: any, tracer?: any, schema?: string }} deps
+ * @param {{ pool: any, inngest?: any, providers?: any, env?: any,
+ *           tracer?: any, schema?: string }} deps
+ *
+ * `providers` é opcional pelo mesmo motivo que `inngest` é: quem só precisa
+ * das portas — um teste de banco, o relay — não deve ser obrigado a ter chave
+ * de LLM configurada para montar. Sem providers não há loop de agente, e isso
+ * é dito no retorno, não escondido.
  */
-export function createWorkerApp({ pool, inngest, env = process.env, tracer = tracerPadrao, schema } = {}) {
+export function createWorkerApp({ pool, inngest, providers, env = process.env, tracer = tracerPadrao, schema } = {}) {
   if (!pool) throw new Error("createWorkerApp exige um pool de Postgres");
 
   const opcoes = schema ? { schema } : undefined;
@@ -69,7 +79,38 @@ export function createWorkerApp({ pool, inngest, env = process.env, tracer = tra
 
   const functions = inngest ? registerFunctions({ inngest, gateway, db, tracer }) : [];
 
-  return { ports, worker, db, gateway, adapters, adapterMode, approvalService, functions };
+  // ── Loop de agente ────────────────────────────────────────────────────────
+  // Os compiladores são o que impede o modelo de escolher argumentos. Sem
+  // eles montados aqui, o loop recusaria toda capability — que é o padrão
+  // seguro, mas não é o que se quer em produção.
+  let modelGateway = null;
+  let agentLoop = null;
+  if (providers) {
+    modelGateway = createModelGateway({
+      routing: ports.routing, budget: ports.budget, providers, tracer,
+    });
+    agentLoop = createAgentLoop({
+      resolver: createLlmResolver({ modelGateway }),
+      planner: createLlmPlanner({ modelGateway }),
+      responder: createLlmResponder({ modelGateway }),
+      compiler: createCompiler(createPhase1Compilers({ publishing: ports.publishing })),
+      gateway,
+      registry: {
+        getAgent: (id) => ports.registry.getAgent(id),
+        getCapability: (id, v) => worker.getCapability(id, v),
+        workspaceBelongsToOrg: (ws, org) => ports.registry.workspaceBelongsToOrg(ws, org),
+      },
+      policies: ports.policies,
+      runs: ports.runs,
+      tracer,
+      ids: { newId: () => crypto.randomUUID(), newTraceId: () => `tr_${crypto.randomUUID()}` },
+    });
+  }
+
+  return {
+    ports, worker, db, gateway, adapters, adapterMode, approvalService, functions,
+    modelGateway, agentLoop,
+  };
 }
 
 /** Falha alto e cedo, com o nome do que falta. */
