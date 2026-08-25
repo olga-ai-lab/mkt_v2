@@ -68,6 +68,9 @@ jobs:
       - name: App web compila
         run: npm run build:web
 
+      - name: Parsers dos gates cobrem os reporters TAP e spec
+        run: npm run test:gates
+
       - name: Gate G0
         run: npm run gate:g0
 
