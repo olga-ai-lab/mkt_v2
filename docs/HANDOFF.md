@@ -2,8 +2,8 @@
 
 **Para:** a próxima sessão (Claude Code, com acesso a git e ao banco)
 **De:** sessão Cowork de 24–25/08/2026, atualizado pela sessão de 25/08/2026
-**Estado:** Fase 0 fechada, Fase 1 de pé. 203 testes, 10/10 no Gate G0,
-schema `mkt_v2` aplicado e conferido.
+**Estado:** Fase 0 fechada, Fase 1 de pé e andando de ponta a ponta.
+212 testes, 10/10 no Gate G0, schema `mkt_v2` aplicado, CI executando.
 **Pendência real:** uma só, e não é código — a submissão do app na Meta.
 
 > O LLM interpreta; os contratos decidem; o código calcula; as ferramentas
@@ -208,11 +208,58 @@ sem RLS.
 **T6 — Brand Brain a partir de URL (Fase 2).** Não começado. Depende de T3
 de verdade (com a Meta liberada), não do código do adapter.
 
+### As peças agora estão ligadas
+
+O bloco seguinte à fila original fechou três buracos do mesmo tipo — coisa
+desenhada que nunca encostou em banco:
+
+**Ninguém alimentava as filas.** O relay drenava um outbox que nada escrevia;
+a tela lia uma fila que nada criava. `ports.publishing` agora tem `schedule()`
+e `requestApproval()`, e os dois gravam estado de domínio e evento no **mesmo
+commit**. Agendar sem aprovação não deixa rastro nenhum — há teste conferindo
+`publications` e `outbox` vazias.
+
+**A porta do worker só existia nos testes.** `collectPublishFacts`,
+`markPublished`, `markBlocked`, `markFailed` e os `workflow_runs` não tinham
+SQL. O workflow era provado contra um dublê e não rodava contra banco nenhum.
+
+**A CI nunca tinha rodado.** Disparava só em `push` para `main` (vazia) e em
+PR (nenhum). Na primeira execução de verdade ela pegou uma divergência que
+estava parada no repositório desde o commit do Model Gateway: o enum ganhou
+quatro reason codes e `generated/index.d.ts` nunca foi regenerado — os quatro
+já eram lançados em produção pelo código. Proteção que não executa não
+protege, e o custo dessa foi exatamente isso.
+
+`packages/db/test/pipeline.test.mjs` mede o caminho inteiro contra Postgres:
+pedir aprovação → aprovar → agendar → outbox → relay → workflow → gateway →
+adapter → publicado → evento de volta no outbox.
+
+### O que falta, e de quem depende
+
+**Depende de você, não de código:**
+
+1. **Promover um agent para `ACTIVE`.** Os quatro nascem `CANDIDATE`, então o
+   runtime recusa qualquer execução com `AGENT_NOT_ACTIVE`. Promover é ato de
+   governança deliberado — nenhuma sessão deve fazer isso sozinha.
+2. **Definir o Gate G1.** A Fase 0 fechou com gate executável (10/10). A Fase 1
+   ainda não tem o dela, e este repositório é construído sobre "gate
+   executável, não checklist em prosa". Há até um teste chamado
+   `GATE G1 — replay do workflow` sem gate correspondente.
+3. **Submeter o app na Meta** — o relógio mais lento do projeto.
+
+**Infraestrutura, essa sim é código:**
+
+4. **Endpoint HTTP do Inngest.** `registerFunctions()` existe e está testada,
+   mas ninguém a serve. Falta a dependência `inngest` e a decisão de onde
+   hospedar — uma rota no app Next é o caminho natural.
+5. **App web além da tela de aprovação:** home, login, listagem de conteúdo.
+   `SUPABASE_JWT_SECRET` precisa estar configurado.
+
 ### O que esta sessão acrescentou, em números
 
 | | Antes | Depois |
 |---|---|---|
-| Testes | 126 | 203 |
+| Testes | 126 | 212 |
 | Gate G0 | 10/10 | 10/10 |
 | Migrations | 8 | 8 (nenhuma nova) |
 
@@ -324,7 +371,7 @@ O plano completo está no MKT-17, entregue como PDF e como página navegável.
 
 ---
 
-*Última verificação: 25/08/2026. 203 testes, 10/10 no Gate G0, typecheck
+*Última verificação: 25/08/2026. 212 testes, 10/10 no Gate G0, typecheck
 limpo, 8 migrations, árvore limpa, tudo empurrado para
 `claude/projeto-superpower-plugin-iyj47t`.*
 
