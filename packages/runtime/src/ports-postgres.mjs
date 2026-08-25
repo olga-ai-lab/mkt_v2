@@ -244,6 +244,15 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
     }
   }
 
+  /** Insere no outbox usando o client da transacao em curso. */
+  async function enfileirarOutbox(c, { org_id, workspace_id, event_type, payload, trace_id }) {
+    const { rows } = await c.query(
+      `insert into ${S}.outbox (org_id, workspace_id, event_type, payload, trace_id)
+       values ($1,$2,$3,$4::jsonb,$5) returning id`,
+      [org_id, workspace_id ?? null, event_type, JSON.stringify(payload ?? {}), trace_id ?? null]);
+    return rows[0].id;
+  }
+
   /**
    * Aprovacoes (T4).
    *
@@ -373,6 +382,119 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
     },
   };
 
+  /**
+   * Producao de trabalho: quem coloca coisa nas filas (T-seguinte).
+   *
+   * Ate aqui o relay drenava um outbox que nada alimentava, e a tela de
+   * aprovacao lia uma fila que nada criava. As duas pontas existiam; faltava
+   * a origem. E aqui.
+   *
+   * A regra que este bloco existe para respeitar: a mudanca de estado do
+   * dominio e a intencao de avisar entram no MESMO commit. Se a publicacao
+   * fosse agendada num lugar e o evento emitido em outro, as duas poderiam
+   * divergir — e um outbox que diverge do dominio e pior que nao ter outbox,
+   * porque parece confiavel.
+   */
+  const publishing = {
+    /**
+     * Agenda uma publicacao e emite o pedido, numa transacao so.
+     *
+     * NAO valida aqui se o conteudo esta aprovado. Quem decide isso e a state
+     * machine em trigger: a transicao APPROVED -> SCHEDULED e a unica legal, e
+     * o `where state = 'APPROVED'` faz a linha nao ser tocada em qualquer outro
+     * estado. Zero linhas atualizadas e a resposta do banco, nao um palpite
+     * nosso — e por isso viramos isso em CONTENT_NOT_APPROVED em vez de
+     * reimplementar a tabela de transicoes num if.
+     */
+    async schedule({ org_id, workspace_id, content_version_id, channel, connection_id,
+                     channel_variant_id, approval_id = null, autonomy_used = null,
+                     trace_id = null, scheduled_at = null }) {
+      return emTransacao(async (c) => {
+        const mov = await c.query(
+          `update ${S}.content_versions set state = 'SCHEDULED'
+            where id = $1 and org_id = $2 and state = 'APPROVED'
+            returning id, version`,
+          [content_version_id, org_id]);
+
+        if (!mov.rows[0]) {
+          const e = new Error("conteudo nao esta aprovado para agendamento");
+          e.reason_code = "CONTENT_NOT_APPROVED";
+          throw e;
+        }
+
+        const pub = await c.query(
+          `insert into ${S}.publications
+             (org_id, workspace_id, content_version_id, channel_variant_id, connection_id,
+              channel, status, scheduled_at, approval_id, autonomy_used)
+           values ($1,$2,$3,$4,$5,$6::${S}.channel,'SCHEDULED',coalesce($7, now()),$8,$9)
+           returning id`,
+          [org_id, workspace_id, content_version_id, channel_variant_id, connection_id,
+           channel, scheduled_at, approval_id, autonomy_used]);
+
+        // O payload e exatamente o que o publish-workflow espera receber.
+        // Nada de tenant vindo daqui para o input do usuario: org e workspace
+        // sao os da linha, ja verificados acima.
+        const outbox_id = await enfileirarOutbox(c, {
+          org_id, workspace_id,
+          event_type: "olga/content.publish.requested",
+          trace_id,
+          payload: {
+            content_version_id, channel, connection_id, channel_variant_id,
+            publication_id: pub.rows[0].id, approval_id,
+          },
+        });
+
+        return { publication_id: pub.rows[0].id, outbox_id: String(outbox_id) };
+      });
+    },
+
+    /**
+     * Cria o pedido de aprovacao e leva o conteudo para revisao.
+     *
+     * O estado de destino sai dos reason codes, nao de um parametro: se a
+     * policy pediu revisao de compliance, o conteudo vai para
+     * COMPLIANCE_REVIEW e nao para a fila humana comum. Deixar quem chama
+     * escolher abriria caminho para um claim material ser revisado como se
+     * fosse texto qualquer.
+     */
+    async requestApproval({ org_id, workspace_id, content_version_id, reason_codes = [],
+                            trace_id = null }) {
+      const compliance = reason_codes.includes("COMPLIANCE_REVIEW_REQUIRED");
+      const destino = compliance ? "COMPLIANCE_REVIEW" : "HUMAN_REVIEW";
+
+      return emTransacao(async (c) => {
+        const cv = await c.query(
+          `select version, state::text as state from ${S}.content_versions
+            where id = $1 and org_id = $2`, [content_version_id, org_id]);
+        if (!cv.rows[0]) {
+          const e = new Error("versao de conteudo inexistente");
+          e.reason_code = "SCHEMA_VALIDATION_FAILED";
+          throw e;
+        }
+
+        // Se ja esta no estado de revisao certo, nao force a transicao: a state
+        // machine recusaria COMPLIANCE_REVIEW -> COMPLIANCE_REVIEW... na verdade
+        // ela deixa passar por `new.state = old.state`, mas evitar o update
+        // deixa claro que reabrir revisao nao e mover conteudo.
+        if (cv.rows[0].state !== destino) {
+          await c.query(
+            `update ${S}.content_versions set state = $2::${S}.content_state where id = $1`,
+            [content_version_id, destino]);
+        }
+
+        const ap = await c.query(
+          `insert into ${S}.approvals
+             (org_id, workspace_id, subject_type, subject_id, subject_version,
+              requested_reason_codes, trace_id)
+           values ($1,$2,'content_version',$3,$4,$5,$6)
+           returning id`,
+          [org_id, workspace_id, content_version_id, cv.rows[0].version, reason_codes, trace_id]);
+
+        return { approval_id: ap.rows[0].id, state: destino };
+      });
+    },
+  };
+
   return { routing, budget, registry, runs, policies, receipts, outbox, approvals,
-           connections, variants };
+           connections, variants, publishing };
 }

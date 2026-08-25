@@ -1,7 +1,10 @@
 name: CI
 
 on:
-  push: { branches: [main] }
+  # Antes: `push: { branches: [main] }`. Como `main` esta vazia e nao havia PR
+  # aberto, a CI nunca rodou uma vez sequer — protecao que nao executa nao
+  # protege. Agora roda em qualquer branch empurrada.
+  push:
   pull_request:
 
 jobs:
@@ -42,6 +45,12 @@ jobs:
       - name: Capability Gateway
         run: npm run test:gateway
 
+      - name: Model Gateway e Agent Runtime
+        run: npm run test:runtime
+
+      - name: Workflow de publicacao e outbox
+        run: npm run test:worker
+
       - name: Microcopy cobre todo reason code
         run: npm run test:web
 
@@ -50,6 +59,9 @@ jobs:
 
       - name: Isolamento cross-tenant
         run: npm run test:rls
+
+      - name: Tipos do app web
+        run: npm run typecheck
 
       - name: Gate G0
         run: npm run gate:g0
