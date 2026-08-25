@@ -83,6 +83,23 @@ Reverter é uma operação: `drop schema mkt cascade`.
 
 Ver `docs/adr/0011-schema-mkt.md` para o porquê.
 
+### Schemas paralelos
+
+Os `.sql` são a fonte única e usam `mkt.` literalmente, para continuarem
+executáveis direto no psql. Para materializar a mesma estrutura sob outro nome:
+
+```bash
+MKT_SCHEMA=mkt_v2 npm run db:migrate:local
+```
+
+O runner reescreve apenas o token `mkt` quando ele aparece como qualificador de
+schema — nomes que só contêm "mkt" ficam intactos, e há teste para isso. Cada
+schema alternativo é uma cópia completa e independente: enums, funções, policies
+e triggers próprios. Um `insert` em um não aparece no outro.
+
+Isso serve para evoluir uma versão sem tocar na que está de pé. **Não é
+mecanismo de migração de dados** — copia estrutura, não linhas.
+
 ## O que falta para fechar a Fase 1
 
 1. **Submeter o app na Meta** — caminho crítico, duas a seis semanas (ADR-0008).
