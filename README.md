@@ -100,6 +100,21 @@ e triggers próprios. Um `insert` em um não aparece no outro.
 Isso serve para evoluir uma versão sem tocar na que está de pé. **Não é
 mecanismo de migração de dados** — copia estrutura, não linhas.
 
+### Aplicar sem CLI
+
+Para um projeto Supabase que você não quer (ou não pode) alcançar por linha de
+comando, gere um `.sql` único e cole no SQL Editor:
+
+```bash
+MKT_SCHEMA=mkt_v2 npm run db:bundle
+# -> packages/db/dist/mkt_v2.sql
+```
+
+O bundle roda inteiro dentro de uma transação: ou entra completo, ou não entra
+nada. Rodar duas vezes falha no primeiro `create type` e faz rollback — o schema
+existente fica exatamente como estava, sem duplicar seed. Testado contra um banco
+que já tinha `mkt` e `rh` populados: nenhum dos dois foi tocado.
+
 ## O que falta para fechar a Fase 1
 
 1. **Submeter o app na Meta** — caminho crítico, duas a seis semanas (ADR-0008).
