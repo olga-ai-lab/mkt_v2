@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import "@/styles/app.css";
 
 export const metadata = {
@@ -7,7 +8,10 @@ export const metadata = {
   description: "Marketing operado por agentes, com governanca verificavel.",
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  // Isto controla apenas a navegacao. Autorizacao continua sendo feita por
+  // getTrustedContext, com assinatura e membership conferidas no servidor.
+  const hasSessionCookie = Boolean((await cookies()).get("sb-access-token")?.value);
   return (
     <html lang="pt-BR">
       <body>
@@ -15,6 +19,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <Link href="/">Início</Link>
           <Link href="/approvals">Aprovações</Link>
           <Link href="/content">Conteúdo</Link>
+          <span className="nav-spacer" />
+          {hasSessionCookie ? (
+            <form action="/api/auth/logout" method="post">
+              <button type="submit">Sair</button>
+            </form>
+          ) : <Link href="/login">Entrar</Link>}
         </nav>
         {children}
       </body>
