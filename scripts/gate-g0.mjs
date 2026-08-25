@@ -5,6 +5,7 @@
  */
 import { execSync } from "node:child_process";
 import { readdirSync, existsSync } from "node:fs";
+import { testSummary } from "./test-output.mjs";
 
 const checks = [];
 const check = (nome, fn) => {
@@ -13,50 +14,30 @@ const check = (nome, fn) => {
 };
 const run = (cmd) => execSync(cmd, { stdio: "pipe", encoding: "utf8" });
 
-check("Contratos validam", () => {
-  const out = run("npm run --silent test:contracts");
-  const m = out.match(/# pass (\d+)/); if (!m) throw new Error("sem resultado");
-  if (/# fail [1-9]/.test(out)) throw new Error("ha teste falhando");
-  return `${m[1]} testes`;
-});
+const exigeSuiteVerde = (script) => {
+  const summary = testSummary(run(`npm run --silent ${script}`));
+  if (summary.fail > 0) throw new Error("ha teste falhando");
+  return `${summary.pass} testes`;
+};
 
-check("Policy engine nega por padrão", () => {
-  const out = run("npm run --silent test:policy");
-  if (/# fail [1-9]/.test(out)) throw new Error("ha teste falhando");
-  return `${out.match(/# pass (\d+)/)[1]} testes`;
-});
+check("Contratos validam", () => exigeSuiteVerde("test:contracts"));
 
-check("Capability Gateway não duplica efeito", () => {
-  const out = run("npm run --silent test:gateway");
-  if (/# fail [1-9]/.test(out)) throw new Error("ha teste falhando");
-  return `${out.match(/# pass (\d+)/)[1]} testes`;
-});
+check("Policy engine nega por padrão", () => exigeSuiteVerde("test:policy"));
 
-check("Replay do workflow não republica", () => {
-  const out = run("npm run --silent test:worker");
-  if (/# fail [1-9]/.test(out)) throw new Error("ha teste falhando");
-  return `${out.match(/# pass (\d+)/)[1]} testes`;
-});
+check("Capability Gateway não duplica efeito", () => exigeSuiteVerde("test:gateway"));
 
-check("Microcopy cobre todo reason code", () => {
-  const out = run("npm run --silent test:web");
-  if (/# fail [1-9]/.test(out)) throw new Error("ha teste falhando");
-  return `${out.match(/# pass (\d+)/)[1]} testes`;
-});
+check("Replay do workflow não republica", () => exigeSuiteVerde("test:worker"));
 
-check("Model Gateway: orcamento antes do gasto, fallback explicito", () => {
-  const out = run("npm run --silent test:runtime");
-  if (/# fail [1-9]/.test(out)) throw new Error("ha teste falhando");
-  return `${out.match(/# pass (\d+)/)[1]} testes`;
-});
+check("Microcopy cobre todo reason code", () => exigeSuiteVerde("test:web"));
+
+check("Model Gateway: orcamento antes do gasto, fallback explicito", () =>
+  exigeSuiteVerde("test:runtime"));
 
 check("Isolamento cross-tenant provado contra Postgres", () => {
   if (!process.env.TEST_DATABASE_URL && !process.env.DATABASE_URL) {
     throw new Error("defina TEST_DATABASE_URL para provar o isolamento");
   }
-  const out = run("npm run --silent test:rls");
-  if (/# fail [1-9]/.test(out)) throw new Error("ha teste falhando");
-  return `${out.match(/# pass (\d+)/)[1]} testes`;
+  return exigeSuiteVerde("test:rls");
 });
 
 check("Toda migration está versionada em arquivo", () => {

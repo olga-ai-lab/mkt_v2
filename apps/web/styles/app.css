@@ -106,3 +106,22 @@ nav.topo {
   border-bottom: 1px solid var(--border); background: var(--surface);
 }
 nav.topo a { color: var(--ink-950); font-weight: 600; font-size: 14px; }
+.nav-spacer { flex: 1; }
+nav.topo form { margin: 0; }
+nav.topo button {
+  padding: 0; border: 0; background: transparent; color: var(--text-muted);
+  font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+
+/* Login */
+.login-page { max-width: 460px; padding-top: calc(var(--space-8) * 2); }
+.eyebrow { margin: 0 0 var(--space-2); color: var(--teal-700); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.login-form { display: grid; gap: var(--space-3); margin-top: var(--space-6); }
+.login-form label { font-size: 14px; font-weight: 600; }
+.login-form input {
+  width: 100%; padding: var(--space-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--surface); color: var(--ink-950); font: inherit;
+}
+.login-form input:focus { outline: 2px solid var(--teal-600); outline-offset: 2px; }
+.login-form .btn { margin-top: var(--space-2); }
+.login-help { margin-top: var(--space-4); font-size: 14px; text-align: center; }

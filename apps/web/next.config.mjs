@@ -5,5 +5,5 @@
 /** @type {import('next').NextConfig} */
 export default {
   transpilePackages: ["@olga/contracts", "@olga/runtime", "@olga/gateway", "@olga/policy"],
-  experimental: { typedRoutes: true },
+  typedRoutes: true,
 };

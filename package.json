@@ -22,7 +22,8 @@
     "test:runtime": "node --test 'packages/runtime/test/**/*.test.mjs'",
     "typecheck": "tsc --noEmit -p apps/web",
     "build:web": "npm run build --workspace @olga/web",
-    "gate:g1": "node scripts/gate-g1.mjs"
+    "gate:g1": "node scripts/gate-g1.mjs",
+    "test:gates": "node --test scripts/test-output.test.mjs"
   },
   "devDependencies": {
     "ajv": "^8.17.1",
