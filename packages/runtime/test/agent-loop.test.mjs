@@ -166,7 +166,10 @@ test("entidade que nao resolveu para ID canonico nao vira palpite", async () => 
   const r = await loop.run(pedido());
 
   assert.equal(r.response.respondability, "CLARIFICATION_REQUIRED");
-  assert.ok(r.response.reason_codes.includes("AMBIGUOUS_ENTITY"));
+  // "nao achei" e diferente de "achei varios": a pessoa que recebe a primeira
+  // confere o nome; a que recebe a segunda escolhe. Trocar manda ela fazer a
+  // coisa errada.
+  assert.deepEqual(r.response.reason_codes, ["NORMALIZATION_FAILED"]);
   assert.match(r.response.message, /a marca nova/);
   assert.equal(visto.executadoCom.length, 0);
 });

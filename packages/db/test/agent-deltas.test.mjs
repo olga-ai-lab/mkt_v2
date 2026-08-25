@@ -12,6 +12,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
+import { readdirSync } from "node:fs";
 import { deltaFor, uncertaintyPolicy, AGENTS_COM_DELTA } from "@olga/runtime/agent-deltas";
 
 const url = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
@@ -23,7 +24,8 @@ before(async () => {
   await db.connect();
   const a = await db.query(
     `select agent_id, version, status::text as status, mission, capabilities,
-            reason_codes, deviates_from_base, baseline_autonomy, max_autonomy
+            reason_codes, deviates_from_base, baseline_autonomy, max_autonomy,
+            modes::text[] as modes
        from mkt.agent_registry order by agent_id`);
   agentes = a.rows;
   const c = await db.query(`select capability_id from mkt.capability_registry`);
@@ -94,8 +96,75 @@ test("agente com autonomia maior nao ganha politica de incerteza mais solta", ()
   }
 });
 
-test("os quatro nascem CANDIDATE — promover e ato de governanca", () => {
-  const ativos = agentes.filter((a) => a.status === "ACTIVE");
-  assert.deepEqual(ativos, [],
-    "se algum agente virou ACTIVE, foi decisao humana e este teste tem de ser revisto junto");
+test("so o COPILOT esta ACTIVE, e a promocao esta registrada em migration", () => {
+  // Este teste antes afirmava que os quatro eram CANDIDATE, e falhou de
+  // proposito no dia da promocao — que era exatamente o ponto dele: promover
+  // nao passa despercebido num diff.
+  //
+  // Agora ele afirma o estado deliberado. Promover o proximo vai quebra-lo de
+  // novo, e de novo por design.
+  const ativos = agentes.filter((a) => a.status === "ACTIVE").map((a) => a.agent_id);
+  assert.deepEqual(ativos, ["AGT-MKT-COPILOT"],
+    "promover agente entra por migration, com motivo junto (ver 0009)");
+});
+
+test("agente ACTIVE nao pode ter capability de escrita", () => {
+  // O invariante que sustenta a promocao do COPILOT: ela nao ampliou
+  // superficie de efeito. Promover algo que escreve e outra decisao, com
+  // outra migration e outro motivo — e este teste obriga a passar por ela.
+  //
+  // A migration 0009 tambem checa isto no banco, e as duas checagens servem a
+  // momentos diferentes: a do banco impede a promocao errada de ser aplicada,
+  // esta impede que ela seja escrita.
+  const ESCRITA = [
+    "content.create_draft", "content.create_variant", "publishing.publish",
+    "publishing.schedule", "approval.request", "brand.propose_version",
+    "brand.extract_from_url", "channel.connect",
+  ];
+  for (const a of agentes.filter((x) => x.status === "ACTIVE")) {
+    const escritas = (a.capabilities ?? []).filter((c) => ESCRITA.includes(c));
+    assert.deepEqual(escritas, [],
+      `${a.agent_id} esta ACTIVE com capability de escrita: ${escritas.join(", ")}`);
+  }
+});
+
+test("todo agente ACTIVE tem eval proprio", () => {
+  // Amarra promocao a evidencia: o que esta em producao foi medido.
+  const comEval = new Set(readdirSync(new URL("../../runtime/evals/", import.meta.url))
+    .filter((f) => f.endsWith(".json")).map((f) => f.replace(/\.json$/, "")));
+  for (const a of agentes.filter((x) => x.status === "ACTIVE")) {
+    assert.ok(comEval.has(a.agent_id),
+      `${a.agent_id} esta ACTIVE sem eval: promover sem medir e promover no escuro`);
+  }
+});
+
+test("nenhum agente tem publishing.publish no charter", () => {
+  // Descoberto escrevendo um eval que assumia o contrário, e o eval falhou.
+  //
+  // Publicar é consequência de uma decisão humana de agendar; o workflow
+  // durável é quem executa, com idempotência e replay. Um agente com essa
+  // capability apagaria essa fronteira — e o pior é que apagaria em silêncio,
+  // porque tudo o mais continuaria passando.
+  //
+  // Fica como teste estrutural, e não como eval, porque um eval só cobre o
+  // caso que alguém lembrou de escrever. Isto varre os quatro.
+  const comPublish = agentes
+    .filter((a) => (a.capabilities ?? []).includes("publishing.publish"))
+    .map((a) => a.agent_id);
+  assert.deepEqual(comPublish, [],
+    "publicar e do workflow durável, disparado por decisao humana de agendar");
+});
+
+test("agente que so le nao tem capability de escrita", () => {
+  // modes `{read,simulate}` e capability de escrita juntos seriam uma
+  // contradicao entre o que a linha declara e o que ela permite.
+  for (const a of agentes) {
+    const modos = a.modes ?? [];
+    const soLeitura = modos.every((m) => m === "read" || m === "simulate");
+    if (!soLeitura) continue;
+    const escritas = (a.capabilities ?? []).filter((c) =>
+      c.startsWith("content.create") || c.startsWith("publishing.") || c.startsWith("approval."));
+    assert.deepEqual(escritas, [],
+      `${a.agent_id} declara so leitura em modes mas tem capability de escrita`);
+  }
 });

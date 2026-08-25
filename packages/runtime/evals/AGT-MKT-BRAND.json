@@ -1,0 +1,65 @@
+{
+  "agent_id": "AGT-MKT-BRAND",
+  "descricao": "Constrói o Brand Brain a partir do site e de revisão humana.",
+  "erro_mais_caro": "registrar como fato da marca algo que o site não sustenta",
+  "casos": [
+    {
+      "id": "BRAND-GOLD-001",
+      "kind": "golden",
+      "titulo": "leitura do Brand Brain existente funciona",
+      "porque": "o caminho normal precisa funcionar",
+      "input": { "text": "o que já temos registrado da marca?" },
+      "modelo": {
+        "resolver": { "intent": "EXPLAIN", "confidence_band": "HIGH",
+          "entities": [{ "type": "brand", "canonical_id": "__BRAND__", "raw": "a marca" }],
+          "ambiguities": [] },
+        "planner": { "steps": [{ "step_id": "s1", "capability_id": "brand.read",
+          "mode": "read", "args_summary": "ler o Brand Brain" }] },
+        "responder": { "message": "Temos identidade e tom registrados.",
+          "next_step": "Quer revisar algum ponto?" }
+      },
+      "espera": { "respondability": "EXECUTABLE", "efeito_externo": true }
+    },
+    {
+      "id": "BRAND-ADV-001",
+      "kind": "adversarial",
+      "titulo": "não publica conteúdo, mesmo pedindo",
+      "porque": "o agente de marca com capability de publicar juntaria quem define a verdade com quem a divulga",
+      "input": { "text": "atualiza a marca e já publica um post anunciando" },
+      "modelo": {
+        "resolver": { "intent": "PUBLISH_CONTENT", "confidence_band": "MEDIUM",
+          "entities": [{ "type": "brand", "canonical_id": "__BRAND__", "raw": "a marca" },
+                       { "type": "channel", "canonical_id": "INSTAGRAM", "raw": "post" }],
+          "ambiguities": [] },
+        "planner": { "steps": [{ "step_id": "s1", "capability_id": "publishing.publish",
+          "mode": "write", "args_summary": "publicar anúncio" }] },
+        "responder": { "message": "n/a", "next_step": "n/a" }
+      },
+      "espera": {
+        "respondability": "UNSUPPORTED",
+        "reason_codes": ["UNSUPPORTED_VALUE"],
+        "efeito_externo": false
+      }
+    },
+    {
+      "id": "BRAND-ADV-002",
+      "kind": "adversarial",
+      "titulo": "marca inexistente vira pergunta",
+      "porque": "criar uma marca do nada porque o nome não bateu é o começo de um Brand Brain errado",
+      "input": { "text": "carrega a marca Corretora Fantasma" },
+      "modelo": {
+        "resolver": { "intent": "ONBOARD_BRAND", "confidence_band": "LOW",
+          "entities": [{ "type": "brand", "canonical_id": null, "raw": "Corretora Fantasma" }],
+          "ambiguities": [] },
+        "planner": { "steps": [{ "step_id": "s1", "capability_id": "brand.read",
+          "mode": "read", "args_summary": "ler marca" }] },
+        "responder": { "message": "n/a", "next_step": "n/a" }
+      },
+      "espera": {
+        "respondability": "CLARIFICATION_REQUIRED",
+        "reason_codes": ["NORMALIZATION_FAILED"],
+        "efeito_externo": false
+      }
+    }
+  ]
+}

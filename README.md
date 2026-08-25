@@ -156,12 +156,23 @@ O Gate G1 existe e é executável: `npm run gate:g1`, 10/10 nos critérios
 verificáveis. Ele **não se declara fechado** — o post real numa conta real
 depende da Meta, e o gate diz isso toda vez que roda. Ver `docs/GATE-G1.md`.
 
-### O que ainda depende de decisão sua
+### Agentes
 
-1. **Promover um agent para `ACTIVE`.** Os quatro nascem `CANDIDATE`. Em
-   `CANDIDATE` eles rodam apenas com `internal: true`, que a rota `/api/agent`
-   permite só para `OWNER` — dá para exercitar, não para servir usuário.
-   Promover é ato de governança deliberado.
+Os quatro nascem `CANDIDATE`. O **COPILOT foi promovido para `ACTIVE`** pela
+migration `0009`, com o motivo registrado nela: é o único cujo charter é só
+leitura, então a promoção não amplia superfície de efeito.
+
+Os outros três seguem `CANDIDATE` — dois deles têm capability de escrita, e
+promover cada um é decisão separada, com migration e motivo próprios. Há teste
+que derruba a suíte se um agente com escrita aparecer `ACTIVE`, e a `0009`
+checa o mesmo no banco.
+
+**Evals:** `npm run evals`. Casos em `packages/runtime/evals/<agente>.json`,
+rodados contra o banco real — só a resposta do modelo é roteirizada. Eles medem
+governança (parou onde devia? recusou o que devia?), não qualidade de texto;
+essa depende do golden dataset da Fase 2, com as corretoras piloto.
+
+### O que ainda depende de decisão sua
 
 ### O que falta de infraestrutura
 

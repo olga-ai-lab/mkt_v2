@@ -37,13 +37,30 @@ export class CompileError extends Error {
   }
 }
 
-/** Primeira entidade de um tipo, já resolvida para id canônico. */
+/**
+ * Primeira entidade de um tipo, já resolvida para id canônico.
+ *
+ * Dois motivos diferentes para falhar, e eles não se confundem:
+ *
+ *   nenhuma entidade daquele tipo   -> NORMALIZATION_FAILED  ("não achei")
+ *   existe, mas sem id canônico     -> NORMALIZATION_FAILED  ("achei o texto,
+ *                                       não achei o registro")
+ *   existe mais de uma candidata    -> AMBIGUOUS_ENTITY      ("qual delas?")
+ */
 function exigirEntidade(entities, tipo, oQueE) {
-  const achada = (entities ?? []).find((e) => e.type === tipo && e.canonical_id != null);
-  if (!achada) {
-    throw new CompileError("AMBIGUOUS_ENTITY", `não sei qual ${oQueE} usar`);
+  const candidatas = (entities ?? []).filter((e) => e.type === tipo);
+  const resolvidas = candidatas.filter((e) => e.canonical_id != null);
+
+  if (resolvidas.length > 1) {
+    const ids = [...new Set(resolvidas.map((e) => e.canonical_id))];
+    if (ids.length > 1) {
+      throw new CompileError("AMBIGUOUS_ENTITY", `mais de um ${oQueE} foi indicado`);
+    }
   }
-  return achada.canonical_id;
+  if (resolvidas.length === 0) {
+    throw new CompileError("NORMALIZATION_FAILED", `não encontrei o ${oQueE} indicado`);
+  }
+  return resolvidas[0].canonical_id;
 }
 
 /** Valor simples de uma entidade (canal, por exemplo), sem exigir uuid. */
@@ -116,4 +133,43 @@ export function createPhase1Compilers({ publishing } = {}) {
       };
     },
   };
+}
+
+/**
+ * Compiladores das capabilities de LEITURA.
+ *
+ * O MKT-17 nomeia três capabilities para a Fase 1, e as três são de escrita.
+ * Mas dois dos quatro agentes — COPILOT e COMPLIANCE — só têm capabilities de
+ * leitura no charter. Sem compilador para elas, os dois seriam agentes que
+ * recusam tudo: todo plano cairia em "sem compilador".
+ *
+ * Elas são separadas das de escrita de propósito. Leitura não produz efeito
+ * externo, não emite receipt e não consome idempotência — juntar as duas
+ * famílias num mapa só faria parecer que carregam o mesmo risco.
+ */
+export function createReadCompilers() {
+  return {
+    "brand.read": ({ entities, tenant }) => ({
+      brand_id: exigirEntidade(entities, "brand", "marca"),
+      workspace_id: tenant.workspace_id,
+    }),
+
+    "evidence.read": ({ entities, tenant }) => ({
+      content_version_id: exigirEntidade(entities, "content_version", "conteúdo"),
+      workspace_id: tenant.workspace_id,
+    }),
+
+    "quality.precheck": ({ entities }) => ({
+      content_version_id: exigirEntidade(entities, "content_version", "conteúdo"),
+    }),
+
+    "compliance.review": ({ entities }) => ({
+      content_version_id: exigirEntidade(entities, "content_version", "conteúdo"),
+    }),
+  };
+}
+
+/** Escrita da Fase 1 mais leitura. É este o mapa que a aplicação monta. */
+export function createAllCompilers(ports = {}) {
+  return { ...createReadCompilers(), ...createPhase1Compilers(ports) };
 }

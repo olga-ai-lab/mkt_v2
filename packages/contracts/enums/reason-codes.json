@@ -32,7 +32,8 @@
     "MODEL_ROUTE_NOT_ACTIVE",
     "AGENT_NOT_ACTIVE",
     "MODEL_OUTPUT_INVALID",
-    "BUDGET_NOT_CONFIGURED"
+    "BUDGET_NOT_CONFIGURED",
+    "NORMALIZATION_FAILED"
   ],
   "x-user-message-key": "Cada codigo tem uma chave de microcopy em apps/web/messages/reason-codes.json (MKT-06 §20)."
 }

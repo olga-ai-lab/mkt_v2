@@ -38,7 +38,9 @@
  * importa: checar policy antes de tenant deixaria a policy decidir sobre um
  * escopo que ainda não foi provado.
  */
+import { createHash } from "node:crypto";
 import { assertValid, validate, autonomyRank } from "@olga/contracts";
+import { buildIdempotencyKey } from "@olga/gateway";
 import { evaluate } from "@olga/policy";
 
 export class LoopError extends Error {
@@ -247,10 +249,16 @@ export function createAgentLoop({
       }
 
       // Referência que não resolveu para ID canônico não vira palpite.
+      //
+      // NORMALIZATION_FAILED, e não AMBIGUOUS_ENTITY: os dois casos são
+      // diferentes e pedem coisas diferentes do usuário. Ambíguo é "achei
+      // vários, qual deles?"; normalização falha é "não achei nenhum". Quem
+      // recebe a primeira mensagem escolhe; quem recebe a segunda confere o
+      // nome. Trocar uma pela outra manda a pessoa fazer a coisa errada.
       const semId = (intent.entities ?? []).filter((e) => e.canonical_id == null);
       if (semId.length > 0) {
-        return encerrar("CLARIFICATION_REQUIRED", ["AMBIGUOUS_ENTITY"],
-          `Não consegui identificar: ${semId.map((e) => e.raw ?? e.type).join(", ")}.`);
+        return encerrar("CLARIFICATION_REQUIRED", ["NORMALIZATION_FAILED"],
+          `Não encontrei: ${semId.map((e) => e.raw ?? e.type).join(", ")}.`);
       }
 
       // ── 2. RETRIEVAL ─────────────────────────────────────────────────────
@@ -341,7 +349,8 @@ export function createAgentLoop({
           mode: compilado.mode, args: compilado.args,
           requested_autonomy: autonomy_ceiling,
           approval_id: req.approval_id ?? null,
-          ...(req.idempotency_key ? { idempotency_key: req.idempotency_key } : {}),
+          idempotency_key: req.idempotency_key
+            ?? chaveDeIdempotencia(cap, tenant, compilado, step),
         };
         const saida = await gateway.execute(request, { facts: req.facts ?? {}, actor });
         ultimaExecucao = saida.execution;
@@ -440,3 +449,46 @@ const proximoPasso = (state) => ({
   TEMPORARILY_UNAVAILABLE: "Tente de novo em alguns minutos.",
   HANDOFF_HUMAN: "Alguém do time vai assumir daqui.",
 }[state] ?? "Revise o resultado.");
+
+/**
+ * Chave de idempotência de um passo.
+ *
+ * O contrato exige que ela exista sempre e diz, no próprio schema: "nunca
+ * derivada apenas de texto livre do LLM". Duas formas, nesta ordem:
+ *
+ * 1. O template declarado no registry, quando a capability tem um. É a forma
+ *    preferida porque a chave passa a ser a mesma que o workflow durável
+ *    construiria para o mesmo efeito — e é isso que faz um post agendado pela
+ *    tela e o mesmo post pedido ao agente deduplicarem entre si.
+ *
+ * 2. Um hash dos args compilados, quando não há template. Seguro justamente
+ *    porque os args NÃO são texto do modelo: saíram do compiler, feitos de ids
+ *    canônicos e do tenant confiável. Hashear o `args_summary` do plano, que é
+ *    prosa do LLM, daria uma chave nova a cada frase reescrita — e duas frases
+ *    diferentes para o mesmo efeito viram dois efeitos.
+ */
+function chaveDeIdempotencia(cap, tenant, compilado, step) {
+  const template = cap?.idempotency?.key_template;
+  if (template) {
+    try {
+      return buildIdempotencyKey(template, { ...tenant, ...compilado.args });
+    } catch {
+      // Template com campo que os args não têm: cai no hash, que sempre serve.
+    }
+  }
+  const material = JSON.stringify({
+    org: tenant.org_id, ws: tenant.workspace_id,
+    cap: compilado.capability_id, step: step.step_id,
+    args: ordenar(compilado.args),
+  });
+  return `k_${createHash("sha256").update(material).digest("hex").slice(0, 40)}`;
+}
+
+/** Chaves em ordem: a mesma intenção não pode gerar hashes diferentes. */
+function ordenar(v) {
+  if (Array.isArray(v)) return v.map(ordenar);
+  if (v && typeof v === "object") {
+    return Object.keys(v).sort().reduce((acc, k) => { acc[k] = ordenar(v[k]); return acc; }, {});
+  }
+  return v;
+}

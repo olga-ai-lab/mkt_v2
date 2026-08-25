@@ -105,7 +105,9 @@ export function createModelGateway({ routing, providers, budget, tracer, clock }
 
         // Teto por chamada: estourou, o resultado nao e aproveitado em silencio.
         if (cost_cents != null && cost_cents > ceiling) {
-          await budget.record({ workspace_id: tenant.workspace_id, cost_cents, trace_id, task_class });
+          // Estourou o teto, mas o dinheiro ja saiu: registrar e obrigatorio.
+          await budget.record(gastoDe({ tenant, cost_cents, trace_id, task_class, target, out,
+                                        fallback_used, agent_run_id: req.agent_run_id }));
           throw new ModelError("SPEND_LIMIT_EXCEEDED",
             `chamada custou ${cost_cents} centavos, acima do teto ${ceiling}`, { cost_cents });
         }
@@ -121,7 +123,8 @@ export function createModelGateway({ routing, providers, budget, tracer, clock }
           assertValid(req.schema_ref, parsed);   // lanca SCHEMA_VALIDATION_FAILED
         }
 
-        await budget.record({ workspace_id: tenant.workspace_id, cost_cents, trace_id, task_class });
+        await budget.record(gastoDe({ tenant, cost_cents, trace_id, task_class, target, out,
+                                      fallback_used, agent_run_id: req.agent_run_id }));
 
         const result = {
           trace_id, task_class,
@@ -165,4 +168,32 @@ export function createModelGateway({ routing, providers, budget, tracer, clock }
   }
 
   return { complete };
+}
+
+/**
+ * Uma linha do ledger de gasto.
+ *
+ * `org_id` NAO e opcional: mkt.model_spend o exige, e sem ele o insert
+ * levanta. Ele faltava aqui, e nao aparecia porque os testes de orcamento
+ * usavam uma porta falsa que aceitava qualquer objeto — o ledger real nunca
+ * chegou a receber uma linha. Foi um eval rodando contra Postgres que
+ * mostrou.
+ *
+ * Os tokens e `fallback_used` estao aqui pelo mesmo motivo: as colunas
+ * existem para responder "quanto custou, em que modelo, e foi no primario?".
+ * Gravar so o total responderia a primeira pergunta e deixaria as outras
+ * duas sem resposta justamente quando a conta vier alta.
+ */
+function gastoDe({ tenant, cost_cents, trace_id, task_class, target, out, fallback_used, agent_run_id }) {
+  return {
+    org_id: tenant.org_id,
+    workspace_id: tenant.workspace_id,
+    task_class, cost_cents, trace_id,
+    provider: target?.provider ?? null,
+    model: target?.model ?? null,
+    input_tokens: out?.input_tokens ?? null,
+    output_tokens: out?.output_tokens ?? null,
+    fallback_used: fallback_used === true,
+    agent_run_id: agent_run_id ?? null,
+  };
 }

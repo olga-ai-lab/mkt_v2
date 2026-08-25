@@ -35,7 +35,7 @@ test("create_draft sem marca pergunta, nao assume", () => {
   const c = createPhase1Compilers();
   assert.throws(
     () => c["content.create_draft"]({ entities: [], context: {}, tenant: TENANT }),
-    (e) => e instanceof CompileError && e.reason_code === "AMBIGUOUS_ENTITY");
+    (e) => e instanceof CompileError && e.reason_code === "NORMALIZATION_FAILED");
 });
 
 test("marca sem id canonico nao serve", () => {
@@ -43,7 +43,7 @@ test("marca sem id canonico nao serve", () => {
   assert.throws(
     () => c["content.create_draft"]({
       entities: [ent("brand", null, "a marca nova")], context: {}, tenant: TENANT }),
-    (e) => e.reason_code === "AMBIGUOUS_ENTITY");
+    (e) => e.reason_code === "NORMALIZATION_FAILED");
 });
 
 // ── approval.request ────────────────────────────────────────────────────────
@@ -115,6 +115,13 @@ test("sem canal, pergunta", async () => {
   const c = createPhase1Compilers({ publishing: portaComDestino({ connection_id: "c" }) });
   await assert.rejects(
     () => c["publishing.publish"]({ entities: [ent("content_version", CV)], tenant: TENANT }),
+    (e) => e.reason_code === "AMBIGUOUS_ENTITY");
+
+  // E "achei dois conteudos diferentes" continua sendo ambiguidade de verdade.
+  await assert.rejects(
+    () => c["publishing.publish"]({
+      entities: [ent("content_version", CV), ent("content_version", BRAND), ent("channel", "INSTAGRAM")],
+      tenant: TENANT }),
     (e) => e.reason_code === "AMBIGUOUS_ENTITY");
 });
 

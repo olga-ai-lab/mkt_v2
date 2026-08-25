@@ -111,7 +111,8 @@ export type ReasonCode =
   | "MODEL_ROUTE_NOT_ACTIVE"
   | "AGENT_NOT_ACTIVE"
   | "MODEL_OUTPUT_INVALID"
-  | "BUDGET_NOT_CONFIGURED";
+  | "BUDGET_NOT_CONFIGURED"
+  | "NORMALIZATION_FAILED";
 
 /**
  * Resolucao determinista de referencia para ID canonico.
@@ -188,7 +189,8 @@ export type ReasonCode =
   | "MODEL_ROUTE_NOT_ACTIVE"
   | "AGENT_NOT_ACTIVE"
   | "MODEL_OUTPUT_INVALID"
-  | "BUDGET_NOT_CONFIGURED";
+  | "BUDGET_NOT_CONFIGURED"
+  | "NORMALIZATION_FAILED";
 
 /**
  * Resultado bruto do adapter, ja normalizado quanto ao erro.
@@ -257,7 +259,8 @@ export type ReasonCode =
   | "MODEL_ROUTE_NOT_ACTIVE"
   | "AGENT_NOT_ACTIVE"
   | "MODEL_OUTPUT_INVALID"
-  | "BUDGET_NOT_CONFIGURED";
+  | "BUDGET_NOT_CONFIGURED"
+  | "NORMALIZATION_FAILED";
 
 /**
  * Resposta ao usuario. Sempre carrega estado e proximo passo (MKT-06 §2).
@@ -308,7 +311,8 @@ export type ReasonCode =
   | "MODEL_ROUTE_NOT_ACTIVE"
   | "AGENT_NOT_ACTIVE"
   | "MODEL_OUTPUT_INVALID"
-  | "BUDGET_NOT_CONFIGURED";
+  | "BUDGET_NOT_CONFIGURED"
+  | "NORMALIZATION_FAILED";
 
 /**
  * Saida do resolver. O LLM interpreta; nada aqui autoriza execucao.
@@ -391,7 +395,8 @@ export type ReasonCode =
   | "MODEL_ROUTE_NOT_ACTIVE"
   | "AGENT_NOT_ACTIVE"
   | "MODEL_OUTPUT_INVALID"
-  | "BUDGET_NOT_CONFIGURED";
+  | "BUDGET_NOT_CONFIGURED"
+  | "NORMALIZATION_FAILED";
 /**
  * MKT-17 §5.1. O nivel descreve o que o agente pode fazer sozinho, nao quanto ele acerta.
  */
@@ -490,7 +495,8 @@ export type ReasonCode =
   | "MODEL_ROUTE_NOT_ACTIVE"
   | "AGENT_NOT_ACTIVE"
   | "MODEL_OUTPUT_INVALID"
-  | "BUDGET_NOT_CONFIGURED";
+  | "BUDGET_NOT_CONFIGURED"
+  | "NORMALIZATION_FAILED";
 
 /**
  * Result Validator. Nunca converte erro em sucesso (MKT-09B §5).
@@ -543,7 +549,8 @@ export type ReasonCode =
   | "MODEL_ROUTE_NOT_ACTIVE"
   | "AGENT_NOT_ACTIVE"
   | "MODEL_OUTPUT_INVALID"
-  | "BUDGET_NOT_CONFIGURED";
+  | "BUDGET_NOT_CONFIGURED"
+  | "NORMALIZATION_FAILED";
 
 /**
  * Delta por agente. Tudo que e comum vive em docs/AGT-BASE.md (aprimoramento M1).
@@ -655,7 +662,8 @@ export type ReasonCode =
   | "MODEL_ROUTE_NOT_ACTIVE"
   | "AGENT_NOT_ACTIVE"
   | "MODEL_OUTPUT_INVALID"
-  | "BUDGET_NOT_CONFIGURED";
+  | "BUDGET_NOT_CONFIGURED"
+  | "NORMALIZATION_FAILED";
 
 /**
  * Canal canonico. Nunca o nome livre do provider (MKT-08 §16).
@@ -718,7 +726,8 @@ export type ReasonCode =
   | "MODEL_ROUTE_NOT_ACTIVE"
   | "AGENT_NOT_ACTIVE"
   | "MODEL_OUTPUT_INVALID"
-  | "BUDGET_NOT_CONFIGURED";
+  | "BUDGET_NOT_CONFIGURED"
+  | "NORMALIZATION_FAILED";
 
 /**
  * Policy como dado tipado (aprimoramento M4). O avaliador e deterministico; o LLM nunca interpreta policy.

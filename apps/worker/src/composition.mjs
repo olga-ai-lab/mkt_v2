@@ -22,7 +22,7 @@ import { createApprovalService } from "@olga/runtime/approvals";
 import { createModelGateway } from "@olga/runtime/model-gateway";
 import { createAgentLoop, createCompiler } from "@olga/runtime/agent-loop";
 import { createLlmResolver, createLlmPlanner, createLlmResponder } from "@olga/runtime/agent-stages";
-import { createPhase1Compilers } from "@olga/runtime/capability-compilers";
+import { createAllCompilers } from "@olga/runtime/capability-compilers";
 import { createGateway } from "@olga/gateway";
 import { createWorkerPorts } from "./ports-worker.mjs";
 import { createAdapters, createEnvSecrets } from "./adapters.mjs";
@@ -93,7 +93,7 @@ export function createWorkerApp({ pool, inngest, providers, env = process.env, t
       resolver: createLlmResolver({ modelGateway }),
       planner: createLlmPlanner({ modelGateway }),
       responder: createLlmResponder({ modelGateway }),
-      compiler: createCompiler(createPhase1Compilers({ publishing: ports.publishing })),
+      compiler: createCompiler(createAllCompilers({ publishing: ports.publishing })),
       gateway,
       registry: {
         getAgent: (id) => ports.registry.getAgent(id),

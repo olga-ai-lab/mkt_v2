@@ -13,7 +13,8 @@
     "./agent-loop": "./src/agent-loop.mjs",
     "./agent-stages": "./src/agent-stages.mjs",
     "./capability-compilers": "./src/capability-compilers.mjs",
-    "./agent-deltas": "./src/agent-deltas.mjs"
+    "./agent-deltas": "./src/agent-deltas.mjs",
+    "./eval-runner": "./src/eval-runner.mjs"
   },
   "dependencies": {
     "@olga/contracts": "*",

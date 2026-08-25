@@ -71,6 +71,11 @@ jobs:
       - name: Parsers dos gates cobrem os reporters TAP e spec
         run: npm run test:gates
 
+      # Evals de governanca dos agentes. Deterministicos: so o modelo e
+      # roteirizado; policies, registries e gateways sao os reais.
+      - name: Evals dos agentes
+        run: npm run evals
+
       - name: Gate G0
         run: npm run gate:g0
 
