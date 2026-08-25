@@ -2,8 +2,9 @@
 
 **Para:** a próxima sessão (Claude Code, com acesso a git e ao banco)
 **De:** sessão Cowork de 24–25/08/2026, atualizado pela sessão de 25/08/2026
-**Estado:** Fase 0 fechada, Fase 1 quase toda de pé. 203 testes, 10/10 no Gate G0.
-**Pendências reais:** só duas, e nenhuma é código — ver §4.
+**Estado:** Fase 0 fechada, Fase 1 de pé. 203 testes, 10/10 no Gate G0,
+schema `mkt_v2` aplicado e conferido.
+**Pendência real:** uma só, e não é código — a submissão do app na Meta.
 
 > O LLM interpreta; os contratos decidem; o código calcula; as ferramentas
 > executam; a evidência sustenta.
@@ -71,38 +72,40 @@ encostar no que já está de pé.
 
 **Nunca aplique nada em `mkt` neste projeto.** Nosso alvo é `mkt_v2`, sempre.
 
-Estado: migrations **0001 a 0006 aplicadas** pela Olga, pelo SQL Editor.
-**0007 e 0008 seguem pendentes** — e a sessão de 25/08 não conseguiu
-aplicá-las. O motivo está medido, não suposto:
+Estado: **as 8 migrations estão aplicadas.** A Olga aplicou 0007 e 0008 pelo
+SQL Editor em 25/08/2026, e a conferência bateu nos quatro pontos:
+
+| | esperado | obtido |
+|---|---|---|
+| tabelas em `mkt_v2` | 29 | **29** |
+| tabelas sem RLS | nenhuma | **nenhuma** |
+| rotas em `model_routing` | 7 | **7** |
+| `workspace_budgets` | 0 | **0** |
+
+`workspace_budgets` vazio é o esperado: orçamento é configurado por workspace
+depois. Enquanto não houver linha, o Model Gateway recusa rodar com
+`BUDGET_NOT_CONFIGURED` em vez de gastar às cegas — que é o desenho, não uma
+pendência.
+
+### Por que foi pelo SQL Editor, e não pela linha de comando
+
+Fica registrado porque volta a valer na próxima sessão: **os conectores
+Supabase desta sessão não alcançam o projeto certo.**
 
 | | |
 |---|---|
-| Conector `Supabase` | enxerga **uma** organização: `88i` (`unybbcqvrknnpuqysoma`), com 4 projetos |
-| Conector `Dashboard_supabase` | preso ao projeto `bakjzzdvvkrhdoyihvhf`, que o outro conector nem lista |
+| Conector `Supabase` | enxerga **uma** organização: `88i` (`unybbcqvrknnpuqysoma`) |
+| Conector `Dashboard_supabase` | preso ao projeto `bakjzzdvvkrhdoyihvhf`, que o outro nem lista |
 | `get_project('emumzyejysosywlsridm')` | `You do not have permission to perform this action` |
 
-São **duas credenciais diferentes**, e nenhuma alcança o projeto certo.
-`Olga's Project` vive na org **Sistemas OLGA PRO**; os conectores desta
-sessão só têm 88i. Não é problema de qual projeto escolher — é falta de
+São duas credenciais diferentes e nenhuma chega em `Olga's Project`, que vive
+na org **Sistemas OLGA PRO**. Não é escolher o projeto errado — é falta de
 autorização para a organização.
 
-Isso não é dedução a partir de uma listagem vazia: a API respondeu
-negando o projeto pelo id. A diferença importa, porque uma listagem vazia
-poderia ser filtro e a negação explícita não é.
-
-**Para destravar, escolha uma:**
-
-1. A Olga aplica pelo SQL Editor. O arquivo está versionado em
-   `packages/db/dist/mkt_v2_0007-0008.sql`. É a rota mais segura.
-
-   > O handoff original dizia que esse arquivo "já está gerado no
-   > repositório". Não estava: `dist/` inteiro caía no `.gitignore` e o
-   > bundle nunca foi commitado — o link prometido dava 404. Corrigido com
-   > uma desexclusão no `.gitignore`. Para regerar:
-   > `MKT_SCHEMA=mkt_v2 MKT_ONLY=0007,0008 npm run db:bundle`
-2. A Olga passa a `DATABASE_URL` do projeto e a sessão roda
-   `node packages/db/scripts/migrate.mjs`, que pula 0001–0006.
-3. Alguém autoriza o conector Supabase na org `Sistemas OLGA PRO`.
+Isso não foi deduzido de uma listagem vazia: a API negou o projeto pelo id.
+A diferença importa, porque listagem vazia pode ser filtro e negação
+explícita não é. Se uma sessão futura precisar aplicar migration por linha de
+comando, alguém precisa autorizar o conector nessa organização primeiro.
 
 ### 3.2 O projeto onde a sessão anterior aplicou por engano
 
@@ -198,8 +201,9 @@ Fase 1 e continua não sendo código (ADR-0008). Se ainda não foi submetida,
 **é o item mais urgente do projeto inteiro.** Pergunte à Olga antes de
 investir em qualquer outra coisa.
 
-**T2 — Aplicar 0007 e 0008.** Bloqueado por autorização, não por código.
-Ver §3.1 para o diagnóstico e as três rotas de saída.
+**T2 — Aplicar 0007 e 0008.** Feito, pelo SQL Editor, com a conferência
+registrada em §3.1. O schema `mkt_v2` está completo: 29 tabelas, nenhuma
+sem RLS.
 
 **T6 — Brand Brain a partir de URL (Fase 2).** Não começado. Depende de T3
 de verdade (com a Meta liberada), não do código do adapter.
@@ -324,5 +328,9 @@ O plano completo está no MKT-17, entregue como PDF e como página navegável.
 limpo, 8 migrations, árvore limpa, tudo empurrado para
 `claude/projeto-superpower-plugin-iyj47t`.*
 
-*Só duas coisas seguram a Fase 1, e nenhuma é código: a submissão do app na
-Meta e a autorização do Supabase na org Sistemas OLGA PRO.*
+*O schema `mkt_v2` está completo e conferido: 8 migrations, 29 tabelas,
+nenhuma sem RLS.*
+
+*Sobrou **uma** pendência na Fase 1, e ela não é código: a submissão do app
+na Meta (ADR-0008). Enquanto ela não sair, o produto roda inteiro com
+`META_ADAPTER=fake`.*
