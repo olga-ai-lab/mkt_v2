@@ -92,8 +92,14 @@ poderia ser filtro e a negação explícita não é.
 
 **Para destravar, escolha uma:**
 
-1. A Olga aplica pelo SQL Editor. O arquivo já está pronto e versionado em
+1. A Olga aplica pelo SQL Editor. O arquivo está versionado em
    `packages/db/dist/mkt_v2_0007-0008.sql`. É a rota mais segura.
+
+   > O handoff original dizia que esse arquivo "já está gerado no
+   > repositório". Não estava: `dist/` inteiro caía no `.gitignore` e o
+   > bundle nunca foi commitado — o link prometido dava 404. Corrigido com
+   > uma desexclusão no `.gitignore`. Para regerar:
+   > `MKT_SCHEMA=mkt_v2 MKT_ONLY=0007,0008 npm run db:bundle`
 2. A Olga passa a `DATABASE_URL` do projeto e a sessão roda
    `node packages/db/scripts/migrate.mjs`, que pula 0001–0006.
 3. Alguém autoriza o conector Supabase na org `Sistemas OLGA PRO`.

@@ -7,3 +7,12 @@ dist/
 .env.local
 .pgdata/
 # tipos gerados SAO commitados: o CI compara e quebra se divergirem
+
+# O bundle de migrations e excecao ao `dist/` acima. O handoff manda entregar
+# este arquivo para ser colado no SQL Editor: se ele nao esta no repositorio,
+# o link que o handoff promete da 404 — e foi exatamente o que aconteceu.
+# Precisa da desexclusao do diretorio antes: o git nao reinclui arquivo que
+# esta dentro de um diretorio excluido.
+!packages/db/dist/
+packages/db/dist/*
+!packages/db/dist/*.sql
