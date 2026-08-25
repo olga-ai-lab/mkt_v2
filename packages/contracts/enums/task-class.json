@@ -1,0 +1,15 @@
+{
+  "$id": "olga://enums/task-class",
+  "title": "TaskClass",
+  "description": "Classes de tarefa do Model Gateway (MKT-09B §8). Cada uma tem rota, orcamento e fallback proprios.",
+  "type": "string",
+  "enum": [
+    "reasoning",
+    "extraction",
+    "classification",
+    "copywriting",
+    "vision",
+    "image_generation",
+    "embedding"
+  ]
+}

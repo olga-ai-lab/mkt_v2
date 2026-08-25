@@ -12,13 +12,14 @@
     "test:contracts": "node --test 'packages/contracts/test/**/*.test.mjs'",
     "test:policy": "node --test 'packages/policy/test/**/*.test.mjs'",
     "test:rls": "node --test 'packages/db/test/**/*.test.mjs'",
-    "test": "npm run test:contracts && npm run test:policy && npm run test:gateway && npm run test:worker && npm run test:web && npm run test:rls",
+    "test": "npm run test:contracts && npm run test:policy && npm run test:gateway && npm run test:runtime && npm run test:worker && npm run test:web && npm run test:rls",
     "db:migrate:local": "node packages/db/scripts/migrate.mjs",
     "gate:g0": "node scripts/gate-g0.mjs",
     "test:gateway": "node --test 'packages/gateway/test/**/*.test.mjs'",
     "test:worker": "node --test 'apps/worker/test/**/*.test.mjs'",
     "test:web": "node --test 'apps/web/test/**/*.test.mjs'",
-    "db:bundle": "node packages/db/scripts/bundle.mjs"
+    "db:bundle": "node packages/db/scripts/bundle.mjs",
+    "test:runtime": "node --test 'packages/runtime/test/**/*.test.mjs'"
   },
   "devDependencies": {
     "ajv": "^8.17.1",

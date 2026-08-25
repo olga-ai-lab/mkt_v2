@@ -28,7 +28,11 @@
     "WORKSPACE_FIRST_PUBLISH",
     "SPEND_LIMIT_EXCEEDED",
     "PROVIDER_UNAVAILABLE",
-    "SCHEMA_VALIDATION_FAILED"
+    "SCHEMA_VALIDATION_FAILED",
+    "MODEL_ROUTE_NOT_ACTIVE",
+    "AGENT_NOT_ACTIVE",
+    "MODEL_OUTPUT_INVALID",
+    "BUDGET_NOT_CONFIGURED"
   ],
   "x-user-message-key": "Cada codigo tem uma chave de microcopy em apps/web/messages/reason-codes.json (MKT-06 §20)."
 }

@@ -23,5 +23,9 @@
   "WORKSPACE_FIRST_PUBLISH": "Esta é a primeira publicação deste workspace. Ela sempre passa por você.",
   "SPEND_LIMIT_EXCEEDED": "O limite de gasto do mês foi atingido.",
   "PROVIDER_UNAVAILABLE": "Não conseguimos falar com a rede social agora. Tentaremos novamente.",
-  "SCHEMA_VALIDATION_FAILED": "Algum campo veio fora do formato esperado. Já registramos para investigar."
+  "SCHEMA_VALIDATION_FAILED": "Algum campo veio fora do formato esperado. Já registramos para investigar.",
+  "MODEL_ROUTE_NOT_ACTIVE": "Não há modelo configurado para este tipo de tarefa. Avisamos a equipe.",
+  "AGENT_NOT_ACTIVE": "Este agente ainda não foi liberado para uso. Ele está em preparação.",
+  "MODEL_OUTPUT_INVALID": "A resposta veio fora do formato esperado e foi descartada. Tente de novo.",
+  "BUDGET_NOT_CONFIGURED": "Este workspace ainda não tem limite de uso definido. Configure antes de continuar."
 }

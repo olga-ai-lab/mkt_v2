@@ -21,7 +21,14 @@ if (!/^[a-z][a-z0-9_]*$/.test(SCHEMA)) {
   process.exit(1);
 }
 
-const files = readdirSync(MIGRATIONS).filter((f) => f.endsWith(".sql")).sort();
+// MKT_ONLY filtra por prefixo, para gerar bundle incremental de quem ja aplicou
+// as anteriores. Aceita lista: MKT_ONLY=0007  ou  MKT_ONLY=0001,0002,0003
+const ONLY = process.env.MKT_ONLY?.split(",").map((s) => s.trim()).filter(Boolean);
+const files = readdirSync(MIGRATIONS)
+  .filter((f) => f.endsWith(".sql"))
+  .filter((f) => !ONLY || ONLY.some((p) => f.startsWith(p)))
+  .sort();
+if (files.length === 0) { console.error(`nenhuma migration casa com MKT_ONLY=${ONLY?.join(",")}`); process.exit(1); }
 
 const header = `-- =====================================================================
 -- Olga Marketing OS — schema ${SCHEMA}
@@ -62,6 +69,6 @@ commit;
 `;
 
 mkdirSync(OUT_DIR, { recursive: true });
-const path = join(OUT_DIR, `${SCHEMA}.sql`);
+const path = join(OUT_DIR, ONLY ? `${SCHEMA}_${ONLY.join("-")}.sql` : `${SCHEMA}.sql`);
 writeFileSync(path, header + body + footer);
-console.log(`ok  packages/db/dist/${SCHEMA}.sql  (${files.length} migrations, schema ${SCHEMA})`);
+console.log(`ok  ${path.replace(process.cwd() + "/", "")}  (${files.length} migration(s), schema ${SCHEMA})`);

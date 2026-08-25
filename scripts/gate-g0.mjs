@@ -44,6 +44,12 @@ check("Microcopy cobre todo reason code", () => {
   return `${out.match(/# pass (\d+)/)[1]} testes`;
 });
 
+check("Model Gateway: orcamento antes do gasto, fallback explicito", () => {
+  const out = run("npm run --silent test:runtime");
+  if (/# fail [1-9]/.test(out)) throw new Error("ha teste falhando");
+  return `${out.match(/# pass (\d+)/)[1]} testes`;
+});
+
 check("Isolamento cross-tenant provado contra Postgres", () => {
   if (!process.env.TEST_DATABASE_URL && !process.env.DATABASE_URL) {
     throw new Error("defina TEST_DATABASE_URL para provar o isolamento");
