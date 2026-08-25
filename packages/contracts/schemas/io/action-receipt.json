@@ -1,0 +1,109 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://io/action-receipt",
+  "title": "ActionReceipt",
+  "description": "Comprovante de efeito externo material. Sem receipt nao existe A3 nem A4.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "receipt_id",
+    "trace_id",
+    "tenant",
+    "capability_id",
+    "idempotency_key",
+    "status",
+    "recorded_at"
+  ],
+  "properties": {
+    "receipt_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "trace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tenant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "org_id",
+        "workspace_id"
+      ],
+      "properties": {
+        "org_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspace_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actor_type": {
+          "enum": [
+            "user",
+            "agent",
+            "system",
+            "provider"
+          ]
+        },
+        "actor_id": {
+          "type": "string"
+        },
+        "actor_role": {
+          "enum": [
+            "OWNER",
+            "MARKETING",
+            "APPROVER"
+          ]
+        }
+      }
+    },
+    "capability_id": {
+      "type": "string"
+    },
+    "idempotency_key": {
+      "type": "string"
+    },
+    "provider": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "external_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "request_hash": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Hash do request quando o adapter consegue produzi-lo. null e legitimo; o que nao pode faltar e a idempotency_key."
+    },
+    "status": {
+      "enum": [
+        "EFFECTED",
+        "DEDUPLICATED",
+        "FAILED"
+      ]
+    },
+    "autonomy_used": {
+      "$ref": "olga://enums/autonomy"
+    },
+    "approval_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "recorded_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

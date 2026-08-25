@@ -1,0 +1,16 @@
+{
+  "$id": "olga://enums/risk-tier",
+  "title": "RiskTier",
+  "description": "MKT-17 §5.1. Determina a autonomia maxima permitida.",
+  "type": "string",
+  "enum": [
+    "LOW",
+    "MEDIUM",
+    "HIGH"
+  ],
+  "x-max-autonomy": {
+    "LOW": "A4",
+    "MEDIUM": "A3",
+    "HIGH": "A2"
+  }
+}

@@ -1,0 +1,112 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://io/entity-resolution",
+  "title": "EntityResolution",
+  "description": "Resolucao determinista de referencia para ID canonico.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "trace_id",
+    "tenant",
+    "resolved"
+  ],
+  "properties": {
+    "trace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tenant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "org_id",
+        "workspace_id"
+      ],
+      "properties": {
+        "org_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspace_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actor_type": {
+          "enum": [
+            "user",
+            "agent",
+            "system",
+            "provider"
+          ]
+        },
+        "actor_id": {
+          "type": "string"
+        },
+        "actor_role": {
+          "enum": [
+            "OWNER",
+            "MARKETING",
+            "APPROVER"
+          ]
+        }
+      }
+    },
+    "resolved": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "entity_type",
+          "canonical_id",
+          "method"
+        ],
+        "properties": {
+          "entity_type": {
+            "type": "string"
+          },
+          "canonical_id": {
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "exact_id",
+              "unique_natural_key",
+              "user_confirmed"
+            ],
+            "description": "Fuzzy merge irrestrito e proibido no caminho principal (MKT-08 §8)."
+          },
+          "confidence_band": {
+            "enum": [
+              "HIGH",
+              "MEDIUM",
+              "LOW"
+            ]
+          }
+        }
+      }
+    },
+    "unresolved": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "entity_type",
+          "reason_code"
+        ],
+        "properties": {
+          "entity_type": {
+            "type": "string"
+          },
+          "raw": {
+            "type": "string"
+          },
+          "reason_code": {
+            "$ref": "olga://enums/reason-codes"
+          }
+        }
+      }
+    }
+  }
+}

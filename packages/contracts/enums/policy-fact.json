@@ -1,0 +1,21 @@
+{
+  "$id": "olga://enums/policy-fact",
+  "title": "PolicyFact",
+  "description": "Fatos avaliaveis pelo Policy Engine. O avaliador nunca le texto livre.",
+  "type": "string",
+  "enum": [
+    "consent_status",
+    "channel_connected",
+    "content_status",
+    "risk_tier",
+    "actor_role",
+    "claim_types",
+    "audience_size",
+    "autonomy_requested",
+    "brand_brain_status",
+    "evidence_coverage",
+    "workspace_first_publish",
+    "capability_mode",
+    "estimated_cost_cents"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "@olga/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.mjs",
+  "dependencies": { "@olga/contracts": "*", "@olga/policy": "*" }
+}

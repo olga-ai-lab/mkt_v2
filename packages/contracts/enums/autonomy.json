@@ -1,0 +1,80 @@
+{
+  "$id": "olga://enums/autonomy",
+  "title": "AutonomyLevel",
+  "description": "MKT-17 §5.1. O nivel descreve o que o agente pode fazer sozinho, nao quanto ele acerta.",
+  "type": "string",
+  "enum": [
+    "A0",
+    "A1",
+    "A2",
+    "A3",
+    "A4"
+  ],
+  "x-semantics": {
+    "A0": {
+      "name": "Observe",
+      "agent": "Ler, analisar e explicar. Nenhuma proposta de acao.",
+      "human": "Tudo",
+      "writes": false,
+      "external_effect": false,
+      "requires": [
+        "evidence_for_material_claims"
+      ]
+    },
+    "A1": {
+      "name": "Suggest",
+      "agent": "Propor acao descrita em linguagem natural, sem criar objeto.",
+      "human": "Executa manualmente",
+      "writes": false,
+      "external_effect": false,
+      "requires": [
+        "evidence_for_material_claims",
+        "reason_code"
+      ]
+    },
+    "A2": {
+      "name": "Draft",
+      "agent": "Criar objeto de dominio em DRAFT ou CANDIDATE.",
+      "human": "Revisa e promove para ACTIVE",
+      "writes": true,
+      "external_effect": false,
+      "requires": [
+        "schema_validated",
+        "immutable_after_active",
+        "audit_actor"
+      ]
+    },
+    "A3": {
+      "name": "ExecuteWithApproval",
+      "agent": "Preparar e executar efeito externo apos aprovacao humana explicita item a item.",
+      "human": "Aprova cada item",
+      "writes": true,
+      "external_effect": true,
+      "requires": [
+        "policy_gate",
+        "idempotency_key",
+        "action_receipt",
+        "approval_bound_to_version",
+        "trace"
+      ]
+    },
+    "A4": {
+      "name": "Autopilot",
+      "agent": "Executar dentro de um envelope declarado, sem aprovacao por item.",
+      "human": "E notificado; pode reverter e parar",
+      "writes": true,
+      "external_effect": true,
+      "requires": [
+        "policy_gate",
+        "idempotency_key",
+        "action_receipt",
+        "trace",
+        "declared_envelope",
+        "kill_switch",
+        "post_effect_notification",
+        "reversal_path",
+        "spend_limit"
+      ]
+    }
+  }
+}

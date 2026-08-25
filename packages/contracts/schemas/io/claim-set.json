@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://io/claim-set",
+  "title": "ClaimSet",
+  "description": "Toda afirmacao material precisa de mapeamento claim -> evidence. Sem isso o conteudo nao passa do gate de qualidade.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "trace_id",
+    "claims"
+  ],
+  "properties": {
+    "trace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "claim_id",
+          "text",
+          "material",
+          "evidence_ids"
+        ],
+        "properties": {
+          "claim_id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "material": {
+            "type": "boolean",
+            "description": "Material = afirma cobertura, preco, prazo, sinistro ou resultado."
+          },
+          "claim_type": {
+            "enum": [
+              "COVERAGE",
+              "PRICE",
+              "DEADLINE",
+              "PERFORMANCE",
+              "GENERAL"
+            ]
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

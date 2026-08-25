@@ -1,0 +1,28 @@
+{
+  "name": "olga-marketing-os",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "npm@10.9.7",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "contracts:generate": "node packages/contracts/scripts/generate.mjs",
+    "test:contracts": "node --test 'packages/contracts/test/**/*.test.mjs'",
+    "test:policy": "node --test 'packages/policy/test/**/*.test.mjs'",
+    "test:rls": "node --test 'packages/db/test/**/*.test.mjs'",
+    "test": "npm run test:contracts && npm run test:policy && npm run test:gateway && npm run test:worker && npm run test:web && npm run test:rls",
+    "db:migrate:local": "node packages/db/scripts/migrate.mjs",
+    "gate:g0": "node scripts/gate-g0.mjs",
+    "test:gateway": "node --test 'packages/gateway/test/**/*.test.mjs'",
+    "test:worker": "node --test 'apps/worker/test/**/*.test.mjs'",
+    "test:web": "node --test 'apps/web/test/**/*.test.mjs'"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "json-schema-to-typescript": "^15.0.4",
+    "pg": "^8.13.1"
+  }
+}

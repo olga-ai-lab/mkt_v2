@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://io/validated-result",
+  "title": "ValidatedResult",
+  "description": "Result Validator. Nunca converte erro em sucesso (MKT-09B §5).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "trace_id",
+    "valid",
+    "checks"
+  ],
+  "properties": {
+    "trace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "valid": {
+      "type": "boolean"
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "check",
+          "passed"
+        ],
+        "properties": {
+          "check": {
+            "enum": [
+              "schema",
+              "freshness",
+              "cardinality",
+              "tenant_scope",
+              "failure_normalized"
+            ]
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "detail": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "reason_codes": {
+      "type": "array",
+      "items": {
+        "$ref": "olga://enums/reason-codes"
+      }
+    }
+  }
+}

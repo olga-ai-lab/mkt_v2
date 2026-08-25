@@ -1,0 +1,130 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://io/intent-resolution",
+  "title": "IntentResolution",
+  "description": "Saida do resolver. O LLM interpreta; nada aqui autoriza execucao.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "trace_id",
+    "tenant",
+    "intent",
+    "confidence_band",
+    "entities",
+    "ambiguities"
+  ],
+  "properties": {
+    "trace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tenant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "org_id",
+        "workspace_id"
+      ],
+      "properties": {
+        "org_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workspace_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actor_type": {
+          "enum": [
+            "user",
+            "agent",
+            "system",
+            "provider"
+          ]
+        },
+        "actor_id": {
+          "type": "string"
+        },
+        "actor_role": {
+          "enum": [
+            "OWNER",
+            "MARKETING",
+            "APPROVER"
+          ]
+        }
+      }
+    },
+    "intent": {
+      "type": "string",
+      "enum": [
+        "CREATE_CONTENT",
+        "PLAN_EDITORIAL",
+        "PUBLISH_CONTENT",
+        "REVIEW_CONTENT",
+        "CONNECT_CHANNEL",
+        "ONBOARD_BRAND",
+        "EXPLAIN",
+        "UNKNOWN"
+      ]
+    },
+    "confidence_band": {
+      "type": "string",
+      "enum": [
+        "HIGH",
+        "MEDIUM",
+        "LOW"
+      ],
+      "description": "Banda, nunca percentual. MKT-06A §7 proibe 'confianca 92%' como substituto de reason code."
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "canonical_id"
+        ],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "canonical_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "raw": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ambiguities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "field",
+          "reason_code"
+        ],
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "reason_code": {
+            "$ref": "olga://enums/reason-codes"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

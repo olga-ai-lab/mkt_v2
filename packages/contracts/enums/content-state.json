@@ -1,0 +1,66 @@
+{
+  "$id": "olga://enums/content-state",
+  "title": "ContentState",
+  "description": "State machine da J11 (MKT-04-05 §6.1).",
+  "type": "string",
+  "enum": [
+    "DRAFT",
+    "AI_REVIEW",
+    "HUMAN_REVIEW",
+    "COMPLIANCE_REVIEW",
+    "APPROVED",
+    "SCHEDULED",
+    "PUBLISHING",
+    "PUBLISHED",
+    "REJECTED",
+    "FAILED",
+    "CANCELLED"
+  ],
+  "x-transitions": {
+    "DRAFT": [
+      "AI_REVIEW",
+      "CANCELLED"
+    ],
+    "AI_REVIEW": [
+      "HUMAN_REVIEW",
+      "COMPLIANCE_REVIEW",
+      "APPROVED",
+      "REJECTED",
+      "DRAFT"
+    ],
+    "HUMAN_REVIEW": [
+      "COMPLIANCE_REVIEW",
+      "APPROVED",
+      "REJECTED",
+      "DRAFT"
+    ],
+    "COMPLIANCE_REVIEW": [
+      "APPROVED",
+      "REJECTED"
+    ],
+    "APPROVED": [
+      "SCHEDULED",
+      "PUBLISHING",
+      "DRAFT",
+      "CANCELLED"
+    ],
+    "SCHEDULED": [
+      "PUBLISHING",
+      "CANCELLED"
+    ],
+    "PUBLISHING": [
+      "PUBLISHED",
+      "FAILED"
+    ],
+    "PUBLISHED": [],
+    "REJECTED": [
+      "DRAFT"
+    ],
+    "FAILED": [
+      "PUBLISHING",
+      "CANCELLED"
+    ],
+    "CANCELLED": []
+  },
+  "x-rule": "Alteracao de versao apos APPROVED invalida a aprovacao anterior (MKT-04-05 §6.2)."
+}

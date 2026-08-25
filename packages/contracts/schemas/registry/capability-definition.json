@@ -1,0 +1,164 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://registry/capability-definition",
+  "title": "CapabilityDefinition",
+  "description": "Fecha o G7. O Capability Gateway so executa o que esta ACTIVE neste registry.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "capability_id",
+    "version",
+    "status",
+    "mode",
+    "side_effect",
+    "risk_tier",
+    "input_schema_ref",
+    "output_schema_ref",
+    "error_codes",
+    "permissions"
+  ],
+  "properties": {
+    "capability_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "enum": [
+        "DRAFT",
+        "CANDIDATE",
+        "ACTIVE",
+        "DEPRECATED",
+        "BLOCKED"
+      ]
+    },
+    "mode": {
+      "$ref": "olga://enums/capability-mode"
+    },
+    "side_effect": {
+      "enum": [
+        "none",
+        "internal",
+        "external"
+      ]
+    },
+    "risk_tier": {
+      "$ref": "olga://enums/risk-tier"
+    },
+    "input_schema_ref": {
+      "type": "string"
+    },
+    "output_schema_ref": {
+      "type": "string"
+    },
+    "error_codes": {
+      "type": "array",
+      "items": {
+        "$ref": "olga://enums/reason-codes"
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "enum": [
+          "OWNER",
+          "MARKETING",
+          "APPROVER"
+        ]
+      }
+    },
+    "idempotency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required"
+      ],
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "key_template": {
+          "type": "string",
+          "description": "Ex: {workspace_id}:{content_version_id}:{channel}:{connection_id}"
+        }
+      }
+    },
+    "provider_adapter": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "minimum": 100
+    },
+    "retry_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "backoff": {
+          "enum": [
+            "none",
+            "linear",
+            "exponential"
+          ]
+        },
+        "retry_on": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "TRANSIENT"
+            ]
+          }
+        }
+      }
+    },
+    "owner": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "side_effect": {
+            "const": "external"
+          }
+        },
+        "required": [
+          "side_effect"
+        ]
+      },
+      "then": {
+        "required": [
+          "idempotency",
+          "provider_adapter"
+        ],
+        "properties": {
+          "idempotency": {
+            "properties": {
+              "required": {
+                "const": true
+              }
+            },
+            "required": [
+              "required",
+              "key_template"
+            ]
+          }
+        },
+        "description": "Efeito externo exige idempotencia declarada. Regra do MKT-09B §10."
+      }
+    }
+  ]
+}

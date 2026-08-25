@@ -1,0 +1,10 @@
+{
+  "$id": "olga://enums/capability-mode",
+  "title": "CapabilityMode",
+  "type": "string",
+  "enum": [
+    "read",
+    "simulate",
+    "write"
+  ]
+}

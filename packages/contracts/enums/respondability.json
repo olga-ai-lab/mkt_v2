@@ -1,0 +1,16 @@
+{
+  "$id": "olga://enums/respondability",
+  "title": "RespondabilityState",
+  "description": "MKT-SPEC-STANDARD-01 §10. Os oito estados sao fechados; nenhum estado pode ser inventado em texto livre.",
+  "type": "string",
+  "enum": [
+    "EXECUTABLE",
+    "CLARIFICATION_REQUIRED",
+    "UNSUPPORTED",
+    "POLICY_BLOCKED",
+    "QUALITY_BLOCKED",
+    "TEMPORARILY_UNAVAILABLE",
+    "APPROVAL_REQUIRED",
+    "HANDOFF_HUMAN"
+  ]
+}

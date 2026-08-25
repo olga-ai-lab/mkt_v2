@@ -1,0 +1,46 @@
+/*
+ * Tokens do MKT-06A §3, um-para-um. Nenhum valor foi inventado aqui.
+ * Se o brand source-of-truth mudar, muda neste arquivo e em nenhum outro.
+ */
+:root {
+  --ink-950:   #0B2630;  /* texto primario, sidebar, headings */
+  --teal-700:  #0A5D5A;  /* navegacao, active states, confianca */
+  --teal-600:  #0A6F6B;  /* acoes primarias e destaques */
+  --emerald-500: #159A79; /* sucesso, execucao de IA, sinal positivo */
+  --mint-50:   #EAF7F3;  /* background de callout, IA, evidence leve */
+  --surface:   #FFFFFF;
+  --canvas:    #F5F8F7;
+  --border:    #D8E5E2;
+  --text-muted:#5B6B72;
+  --warning:   #9A6B00;  /* needs attention, pending approval */
+  --danger:    #A94442;  /* blocked, error, destructive */
+  --info:      #285E8E;  /* info neutra, sync, provider state */
+
+  --space-1: 4px; --space-2: 8px; --space-3: 12px;
+  --space-4: 16px; --space-6: 24px; --space-8: 32px;
+  --radius-sm: 10px; --radius-md: 12px; --radius-lg: 16px;
+}
+
+/*
+ * Estados semanticos obrigatorios — MKT-06A §6.
+ * REJECTED e deliberadamente neutro, nao vermelho: rejeicao editorial nao e
+ * erro tecnico (MKT-04-05 §6.2).
+ */
+.state-draft, .state-candidate { color: var(--text-muted); background: var(--canvas); }
+.state-ai-review        { color: var(--teal-700);    background: var(--mint-50); }
+.state-human-review     { color: var(--warning);     background: #FBF4E4; }
+.state-compliance-review{ color: var(--warning);     background: #FBF4E4; font-weight: 600; }
+.state-approved         { color: var(--emerald-500); background: #E7F5EF; }
+.state-scheduled        { color: var(--info);        background: #EDF3F8; }
+.state-publishing       { color: var(--teal-600);    background: var(--mint-50); }
+.state-published        { color: var(--emerald-500); background: #E7F5EF; }
+.state-rejected         { color: var(--text-muted);  background: var(--canvas); }
+.state-failed           { color: var(--danger);      background: #FAEEED; }
+.state-blocked          { color: var(--danger);      background: #FAEEED; }
+.state-temporarily-unavailable { color: var(--info); background: #EDF3F8; }
+
+/* Modo de autonomia sempre visivel na acao — MKT-06A §7. */
+.autonomy-suggest  { border-left: 3px solid var(--text-muted); }
+.autonomy-draft    { border-left: 3px solid var(--teal-600); }
+.autonomy-governed { border-left: 3px solid var(--emerald-500); }
+.autonomy-autopilot{ border-left: 3px solid var(--emerald-500); background: var(--mint-50); }

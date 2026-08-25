@@ -1,0 +1,14 @@
+{
+  "$id": "olga://enums/channel",
+  "title": "Channel",
+  "description": "Canal canonico. Nunca o nome livre do provider (MKT-08 §16).",
+  "type": "string",
+  "enum": [
+    "INSTAGRAM",
+    "FACEBOOK",
+    "LINKEDIN",
+    "BLOG",
+    "EMAIL",
+    "WHATSAPP"
+  ]
+}

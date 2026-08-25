@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://io/final-response",
+  "title": "FinalResponse",
+  "description": "Resposta ao usuario. Sempre carrega estado e proximo passo (MKT-06 §2).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "trace_id",
+    "respondability",
+    "message",
+    "next_step"
+  ],
+  "properties": {
+    "trace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "respondability": {
+      "$ref": "olga://enums/respondability"
+    },
+    "message": {
+      "type": "string"
+    },
+    "next_step": {
+      "type": "string"
+    },
+    "autonomy_mode": {
+      "oneOf": [
+        {
+          "enum": [
+            "SUGGEST",
+            "DRAFT",
+            "GOVERNED_EXECUTE",
+            "AUTOPILOT"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "MKT-06A §7: toda acao da Olga carrega modo visivel."
+    },
+    "reason_codes": {
+      "type": "array",
+      "items": {
+        "$ref": "olga://enums/reason-codes"
+      }
+    },
+    "evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "receipt_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

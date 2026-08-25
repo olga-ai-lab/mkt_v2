@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://io/respondability-result",
+  "title": "RespondabilityResult",
+  "description": "Decisao do gate. Nenhuma capability de escrita executa sem um EXECUTABLE aqui.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "trace_id",
+    "state",
+    "evaluated_at",
+    "policy_versions"
+  ],
+  "properties": {
+    "trace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "state": {
+      "$ref": "olga://enums/respondability"
+    },
+    "reason_codes": {
+      "type": "array",
+      "items": {
+        "$ref": "olga://enums/reason-codes"
+      }
+    },
+    "granted_autonomy": {
+      "oneOf": [
+        {
+          "$ref": "olga://enums/autonomy"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "required_approval": {
+      "type": "boolean"
+    },
+    "user_message_key": {
+      "type": "string"
+    },
+    "evaluated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "policy_versions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "policy_id",
+          "version"
+        ],
+        "properties": {
+          "policy_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  }
+}

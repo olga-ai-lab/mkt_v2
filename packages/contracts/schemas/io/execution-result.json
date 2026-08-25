@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://io/execution-result",
+  "title": "ExecutionResult",
+  "description": "Resultado bruto do adapter, ja normalizado quanto ao erro.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "trace_id",
+    "capability_id",
+    "status",
+    "started_at",
+    "finished_at"
+  ],
+  "properties": {
+    "trace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "capability_id": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "SUCCEEDED",
+        "FAILED",
+        "DEDUPLICATED",
+        "BLOCKED"
+      ]
+    },
+    "provider": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "external_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "error": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "class",
+            "reason_code",
+            "retryable"
+          ],
+          "properties": {
+            "class": {
+              "enum": [
+                "TRANSIENT",
+                "PERMANENT",
+                "POLICY",
+                "VALIDATION"
+              ]
+            },
+            "reason_code": {
+              "$ref": "olga://enums/reason-codes"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "provider_message": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "attempts": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Zero quando a execucao foi bloqueada por policy ou deduplicada por idempotencia — nesses casos o provider nunca foi chamado."
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "finished_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

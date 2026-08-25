@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://domain/channel-variant-draft",
+  "title": "ChannelVariantDraft",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "channel",
+    "body",
+    "claim_set_ref"
+  ],
+  "properties": {
+    "channel": {
+      "$ref": "olga://enums/channel"
+    },
+    "headline": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "body": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cta": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "hashtags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "asset_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "claim_set_ref": {
+      "type": "string"
+    },
+    "risk_tier": {
+      "$ref": "olga://enums/risk-tier"
+    },
+    "char_count": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

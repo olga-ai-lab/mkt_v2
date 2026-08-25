@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://io/evidence-package",
+  "title": "EvidencePackage",
+  "description": "Provenance. Evidence sem origem e proibida (MKT-09B §5).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "trace_id",
+    "items"
+  ],
+  "properties": {
+    "trace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evidence_id",
+          "source_kind",
+          "locator",
+          "hash"
+        ],
+        "properties": {
+          "evidence_id": {
+            "type": "string"
+          },
+          "source_kind": {
+            "enum": [
+              "BRAND_BRAIN",
+              "SOURCE_ARTIFACT",
+              "UPLOADED_FILE",
+              "PROVIDER_RESPONSE",
+              "DOMAIN_RECORD"
+            ]
+          },
+          "locator": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string"
+          },
+          "retrieved_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "quality": {
+            "enum": [
+              "HIGH",
+              "MEDIUM",
+              "LOW"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

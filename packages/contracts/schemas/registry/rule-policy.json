@@ -1,0 +1,130 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://registry/rule-policy",
+  "title": "RulePolicy",
+  "description": "Policy como dado tipado (aprimoramento M4). O avaliador e deterministico; o LLM nunca interpreta policy.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "policy_id",
+    "version",
+    "status",
+    "priority",
+    "scope",
+    "conditions",
+    "effect"
+  ],
+  "properties": {
+    "policy_id": {
+      "type": "string"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "enum": [
+        "DRAFT",
+        "CANDIDATE",
+        "ACTIVE",
+        "DEPRECATED",
+        "BLOCKED"
+      ]
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Menor vence. Primeira correspondencia decide."
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "capability_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "channel": {
+          "oneOf": [
+            {
+              "$ref": "olga://enums/channel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "agent_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "risk_tier": {
+          "oneOf": [
+            {
+              "$ref": "olga://enums/risk-tier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "conditions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "fact",
+          "op",
+          "value"
+        ],
+        "properties": {
+          "fact": {
+            "$ref": "olga://enums/policy-fact"
+          },
+          "op": {
+            "enum": [
+              "eq",
+              "neq",
+              "in",
+              "not_in",
+              "gt",
+              "gte",
+              "lt",
+              "lte",
+              "contains_any",
+              "is_true",
+              "is_false"
+            ]
+          },
+          "value": {}
+        }
+      }
+    },
+    "effect": {
+      "enum": [
+        "ALLOW",
+        "REQUIRE_APPROVAL",
+        "BLOCK"
+      ]
+    },
+    "max_autonomy": {
+      "$ref": "olga://enums/autonomy"
+    },
+    "reason_code": {
+      "$ref": "olga://enums/reason-codes"
+    },
+    "message_key": {
+      "type": "string"
+    },
+    "note": {
+      "type": "string"
+    }
+  }
+}

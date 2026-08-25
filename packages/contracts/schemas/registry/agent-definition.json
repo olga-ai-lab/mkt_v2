@@ -1,0 +1,118 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://registry/agent-definition",
+  "title": "AgentDefinition",
+  "description": "Delta por agente. Tudo que e comum vive em docs/AGT-BASE.md (aprimoramento M1).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "agent_id",
+    "version",
+    "status",
+    "mission",
+    "modes",
+    "baseline_autonomy",
+    "capabilities",
+    "primary_schemas",
+    "reason_codes",
+    "owner"
+  ],
+  "properties": {
+    "agent_id": {
+      "type": "string",
+      "pattern": "^AGT-MKT-[A-Z]+$"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "enum": [
+        "DRAFT",
+        "CANDIDATE",
+        "ACTIVE",
+        "DEPRECATED",
+        "BLOCKED"
+      ]
+    },
+    "mission": {
+      "type": "string"
+    },
+    "most_expensive_failure": {
+      "type": "string"
+    },
+    "modes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "olga://enums/capability-mode"
+      }
+    },
+    "baseline_autonomy": {
+      "$ref": "olga://enums/autonomy"
+    },
+    "max_autonomy": {
+      "$ref": "olga://enums/autonomy"
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "primary_schemas": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "reason_codes": {
+      "type": "array",
+      "items": {
+        "$ref": "olga://enums/reason-codes"
+      }
+    },
+    "model_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "task_class": {
+          "enum": [
+            "reasoning",
+            "extraction",
+            "classification",
+            "copywriting",
+            "vision",
+            "image_generation",
+            "embedding"
+          ]
+        },
+        "primary": {
+          "type": "string"
+        },
+        "fallback": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "max_cost_cents_per_run": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "owner": {
+      "type": "string"
+    },
+    "deviates_from_base": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Unico lugar onde o agente pode divergir do AGT-BASE. Lista vazia = segue a base."
+    }
+  }
+}

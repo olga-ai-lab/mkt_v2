@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.next/
+.turbo/
+*.log
+.env
+.env.local
+.pgdata/
+# tipos gerados SAO commitados: o CI compara e quebra se divergirem
