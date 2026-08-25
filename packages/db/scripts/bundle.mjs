@@ -57,6 +57,8 @@ create table if not exists ${SCHEMA}.schema_migrations (
   name text primary key,
   applied_at timestamptz not null default now()
 );
+-- Nenhuma tabela do schema fica alcancavel pela anon key, nem o ledger do runner.
+alter table ${SCHEMA}.schema_migrations enable row level security;
 insert into ${SCHEMA}.schema_migrations (name) values
 ${files.map((f) => `  ('${f}')`).join(",\n")}
 on conflict (name) do nothing;

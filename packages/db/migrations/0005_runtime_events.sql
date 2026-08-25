@@ -90,3 +90,20 @@ select mkt.enable_org_rls('mkt.agent_runs');
 select mkt.enable_org_rls('mkt.workflow_runs');
 select mkt.enable_org_rls('mkt.outbox');
 select mkt.enable_org_rls('mkt.marketing_events');
+
+-- processed_events nao tem org_id de proposito: e um ledger de deduplicacao do
+-- consumidor, nao um dado de tenant. Por isso nao passa por enable_org_rls().
+--
+-- Mas "sem org_id" nao pode virar "sem RLS": no Supabase toda tabela alcancavel
+-- pelo PostgREST fica exposta a anon e authenticated quando a RLS esta desligada.
+-- Ligamos a RLS SEM policy nenhuma. O efeito e o correto para esta tabela:
+--   anon / authenticated -> zero linhas, zero escrita (nao ha policy que permita)
+--   service_role         -> acesso total (tem BYPASSRLS)
+-- Ou seja, so o worker escreve aqui, que e exatamente o contrato.
+--
+-- Nao usamos FORCE aqui, ao contrario das tabelas tenant-owned: FORCE tambem
+-- valeria para o dono da tabela e, sem policy, trancaria ate a manutencao
+-- administrativa. Sem FORCE o dono continua com saida de emergencia.
+alter table mkt.processed_events enable row level security;
+comment on table mkt.processed_events is
+  'Ledger de deduplicacao por consumidor. Sem org_id de proposito. RLS ligada sem policy: so service_role (BYPASSRLS) alcanca.';

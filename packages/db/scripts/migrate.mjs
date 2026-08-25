@@ -59,6 +59,10 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
       name text primary key,
       applied_at timestamptz not null default now()
     )`);
+  // Mesma regra que vale para as tabelas das migrations vale para o ledger do
+  // proprio runner: nenhuma tabela do schema fica alcancavel pela anon key.
+  // Sem policy, so quem tem BYPASSRLS (service_role) chega aqui. Idempotente.
+  await client.query(`alter table ${SCHEMA}.schema_migrations enable row level security`);
 
   const done = new Set(
     (await client.query(`select name from ${SCHEMA}.schema_migrations`)).rows.map((r) => r.name),

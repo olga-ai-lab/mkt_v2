@@ -19,14 +19,14 @@ um PDF aprovado.
 | `packages/contracts` | JSON Schema dos 10 objetos de I/O, dos 3 registries e dos enums fechados. Tipos TS gerados | 15 testes |
 | `packages/policy` | Policy engine determinístico: invariantes de código + regras como dado, default deny | 19 testes |
 | `packages/gateway` | Capability Gateway com os 8 passos do MKT-09B §10 | 19 testes |
-| `packages/db` | 6 migrations, 25 tabelas, RLS forçada, state machine no banco | 18 testes |
+| `packages/db` | 8 migrations, 28 tabelas, RLS forçada, state machine no banco | 35 testes |
 | `packages/runtime` | Model Gateway (rota por task class, orçamento antes do gasto, fallback explícito) e Agent Runtime (tenant fora do LLM, custo por run) | 29 testes |
 | `apps/worker` | Workflow durável de publicação, replay-safe | 5 testes |
 | `apps/web` | Tokens do MKT-06A e microcopy de todo reason code | 4 testes |
 | `docs/adr` | 11 ADRs fechando o que o MKT-09B deixava OPEN | — |
 | `docs/AGT-BASE.md` | O contrato comum que os 13 pacotes repetiam | — |
 
-**124 testes.** `npm run gate:g0` verifica os nove critérios do Gate G0 executando
+**126 testes.** `npm run gate:g0` verifica os dez critérios do Gate G0 executando
 cada um deles.
 
 ## As três decisões que este código materializa
@@ -95,6 +95,15 @@ Reverter é uma operação: `drop schema mkt cascade`.
 
 Ver `docs/adr/0011-schema-mkt.md` para o porquê.
 
+**Nenhuma tabela do schema fica sem RLS** — e isso é testado, não combinado.
+`mkt.processed_events` nasceu sem: não tem `org_id`, então não passou pelo helper
+`enable_org_rls()`, e ninguém ligou na mão. No Supabase isso significa tabela
+legível e gravável por qualquer um com a anon key. O advisor encontrou depois de
+o schema já estar aplicado em banco. A correção pontual está em `0005` e `0008`;
+o que impede a repetição é o teste que varre `pg_class` e falha se qualquer
+tabela do schema tiver `relrowsecurity = false`. Sem `org_id` não é desculpa:
+liga-se a RLS sem policy, e só `service_role` (que tem `BYPASSRLS`) passa.
+
 ### Schemas paralelos
 
 Os `.sql` são a fonte única e usam `mkt.` literalmente, para continuarem
@@ -122,7 +131,7 @@ MKT_SCHEMA=mkt_v2 npm run db:bundle
 # -> packages/db/dist/mkt_v2.sql
 
 # Incremental, para quem já aplicou as anteriores:
-MKT_SCHEMA=mkt_v2 MKT_ONLY=0007 npm run db:bundle
+MKT_SCHEMA=mkt_v2 MKT_ONLY=0007,0008 npm run db:bundle
 ```
 
 O bundle roda inteiro dentro de uma transação: ou entra completo, ou não entra
@@ -135,9 +144,9 @@ que já tinha `mkt` e `rh` populados: nenhum dos dois foi tocado.
 1. **Submeter o app na Meta** — caminho crítico, duas a seis semanas (ADR-0008).
    Até lá, o adapter falso implementa o mesmo contrato e o gateway não distingue.
 2. Adapter real do Meta Graph em `packages/gateway/src/adapters/`.
-3. Rota de agente e Model Gateway com custo por run no trace.
-4. Tela de aprovação com decisão vinculada à versão.
-5. Ligar `mkt.outbox` ao Inngest.
+3. Tela de aprovação com decisão vinculada à versão.
+4. Ligar `mkt.outbox` ao Inngest.
+5. Brand Brain a partir de URL (Fase 2).
 
 ## Rastreabilidade
 

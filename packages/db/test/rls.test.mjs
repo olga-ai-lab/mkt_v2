@@ -301,3 +301,51 @@ test("receipt emitido nao pode ser reescrito pela aplicacao", async () => {
     assert.equal(del.rowCount, 0, "receipt nao pode ser apagado");
   });
 });
+
+// ---------------------------------------------------------------------
+// Invariante estrutural, nao caso particular.
+//
+// mkt.processed_events nasceu sem RLS porque nao tem org_id e por isso nao
+// passou pelo helper mkt.enable_org_rls(). O advisor do Supabase encontrou
+// depois de o schema ja estar aplicado em banco: no Supabase, tabela sem RLS
+// e tabela publica para quem tem a anon key.
+//
+// A correcao pontual esta em 0005 e 0008. Este teste e o que impede a
+// repeticao: qualquer tabela nova que entre no schema sem RLS quebra o Gate G0,
+// tenha ela org_id ou nao.
+// ---------------------------------------------------------------------
+test("nenhuma tabela do schema fica sem RLS", async () => {
+  const { rows } = await admin.query(`
+    select c.relname
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'mkt'
+       and c.relkind = 'r'
+       and c.relrowsecurity = false
+     order by c.relname`);
+  assert.deepEqual(
+    rows.map((r) => r.relname), [],
+    "toda tabela em mkt precisa de RLS ligada — sem org_id nao e desculpa, " +
+    "ligue sem policy para deixar so service_role passar",
+  );
+});
+
+// Ligar RLS sem policy nao adianta se a tabela nao negar de fato.
+test("processed_events nega leitura e escrita para o papel da aplicacao", async () => {
+  await admin.query(
+    `insert into mkt.processed_events (consumer, event_key) values ('worker','ev-rls-check')
+     on conflict do nothing`);
+
+  await asUser(ids.user_a, async () => {
+    const sel = await appDb.query(`select * from mkt.processed_events where event_key = 'ev-rls-check'`);
+    assert.equal(sel.rows.length, 0, "anon/authenticated nao pode ler o ledger de dedup");
+
+    await assert.rejects(
+      () => appDb.query(`insert into mkt.processed_events (consumer, event_key) values ('x','y')`),
+      /row-level security/i,
+      "anon/authenticated nao pode escrever no ledger de dedup",
+    );
+  });
+
+  await admin.query(`delete from mkt.processed_events where event_key = 'ev-rls-check'`);
+});
