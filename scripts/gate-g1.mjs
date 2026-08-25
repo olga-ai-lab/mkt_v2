@@ -23,6 +23,7 @@
  */
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { requirePassingTest, testSummary } from "./test-output.mjs";
 
 const checks = [];
 const check = (nome, fn) => {
@@ -34,10 +35,7 @@ const run = (cmd) => execSync(cmd, { stdio: "pipe", encoding: "utf8" });
 /** Roda um arquivo de teste e exige que um teste com este nome tenha passado. */
 function exigeTeste(script, trecho) {
   const out = run(`npm run --silent ${script}`);
-  if (/# fail [1-9]/.test(out)) throw new Error("ha teste falhando na suite");
-  const linha = out.split("\n").find((l) => /^ok \d+ - /.test(l) && l.includes(trecho));
-  if (!linha) throw new Error(`nenhum teste passando contem "${trecho}"`);
-  return linha.replace(/^ok \d+ - /, "").slice(0, 58);
+  return requirePassingTest(out, trecho);
 }
 
 const precisaDeBanco = () => {
@@ -87,9 +85,9 @@ check("As tres capabilities da Fase 1 estao ACTIVE no registry", () => {
 
 // --- O efeito externo tem uma porta so -----------------------------------
 check("Efeito externo passa pelo Capability Gateway", () => {
-  const out = run("npm run --silent test:gateway");
-  if (/# fail [1-9]/.test(out)) throw new Error("ha teste falhando");
-  return `${out.match(/# pass (\d+)/)[1]} testes`;
+  const summary = testSummary(run("npm run --silent test:gateway"));
+  if (summary.fail > 0) throw new Error("ha teste falhando");
+  return `${summary.pass} testes`;
 });
 
 check("O adapter real e o falso entram pela mesma porta", () =>
