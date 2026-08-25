@@ -406,6 +406,12 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
      * nosso — e por isso viramos isso em CONTENT_NOT_APPROVED em vez de
      * reimplementar a tabela de transicoes num if.
      */
+    /**
+     * @param {{ org_id: string, workspace_id: string, content_version_id: string,
+     *           channel: string, connection_id: string, channel_variant_id: string,
+     *           approval_id?: string|null, autonomy_used?: string|null,
+     *           trace_id?: string|null, scheduled_at?: string|null }} args
+     */
     async schedule({ org_id, workspace_id, content_version_id, channel, connection_id,
                      channel_variant_id, approval_id = null, autonomy_used = null,
                      trace_id = null, scheduled_at = null }) {
@@ -457,6 +463,10 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
      * escolher abriria caminho para um claim material ser revisado como se
      * fosse texto qualquer.
      */
+    /**
+     * @param {{ org_id: string, workspace_id: string, content_version_id: string,
+     *           reason_codes?: string[], trace_id?: string|null }} args
+     */
     async requestApproval({ org_id, workspace_id, content_version_id, reason_codes = [],
                             trace_id = null }) {
       const compliance = reason_codes.includes("COMPLIANCE_REVIEW_REQUIRED");
@@ -495,6 +505,69 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
     },
   };
 
+  /**
+   * Leitura para as telas.
+   *
+   * Consultas de listagem, separadas das de decisao de proposito: o que a tela
+   * mostra e o que o gateway avalia nao sao a mesma pergunta, e misturar as
+   * duas faria uma mudanca de layout mexer no caminho que autoriza efeito.
+   */
+  const content = {
+    /**
+     * Versao corrente de cada conteudo do workspace, com o que a tela precisa
+     * para decidir o que oferecer: estado, canal ja publicado, e se ha
+     * variante para publicar.
+     */
+    async listByWorkspace(org_id, workspace_id, { limit = 50 } = {}) {
+      const { rows } = await pool.query(
+        `select
+           ct.id            as content_id,
+           ct.title,
+           cv.id            as content_version_id,
+           cv.version,
+           cv.state::text   as state,
+           cv.risk_tier::text as risk_tier,
+           cv.master_body,
+           cv.approved_at,
+           cv.created_at,
+           coalesce((
+             select json_agg(json_build_object(
+                      'id', v.id, 'channel', v.channel::text, 'body', v.body))
+               from ${S}.channel_variants v where v.content_version_id = cv.id
+           ), '[]'::json) as variants,
+           coalesce((
+             select json_agg(json_build_object(
+                      'channel', p.channel::text, 'status', p.status::text,
+                      'external_id', p.external_id))
+               from ${S}.publications p where p.content_version_id = cv.id
+           ), '[]'::json) as publications
+         from ${S}.contents ct
+         join lateral (
+           -- A versao corrente e a maior. Join lateral porque precisamos de
+           -- uma linha por conteudo, nao do produto com todas as versoes.
+           select * from ${S}.content_versions x
+            where x.content_id = ct.id
+            order by x.version desc limit 1
+         ) cv on true
+         where ct.org_id = $1 and ct.workspace_id = $2
+         order by ct.created_at desc
+         limit $3`,
+        [org_id, workspace_id, limit]);
+      return rows;
+    },
+
+    /** Conexoes do workspace, para a tela saber o que da para publicar. */
+    async listConnections(org_id, workspace_id) {
+      const { rows } = await pool.query(
+        `select id, channel::text as channel, status::text as status,
+                display_name, external_account_id, expires_at
+           from ${S}.connections
+          where org_id = $1 and workspace_id = $2
+          order by channel`, [org_id, workspace_id]);
+      return rows;
+    },
+  };
+
   return { routing, budget, registry, runs, policies, receipts, outbox, approvals,
-           connections, variants, publishing };
+           connections, variants, publishing, content };
 }

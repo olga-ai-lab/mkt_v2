@@ -86,3 +86,23 @@ body {
   padding: 0; margin: -1px; overflow: hidden;
   clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
+
+/* Home */
+.numeros { list-style: none; margin: var(--space-6) 0; padding: 0;
+           display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.numero { display: grid; gap: var(--space-1); }
+.numero strong { font-size: 34px; line-height: 1.1; }
+.numero span { color: var(--text-muted); font-size: 14px; }
+.numero a { color: var(--teal-600); font-size: 14px; font-weight: 600; }
+
+.callout.aviso { background: #FBF4E4; border-color: #E8D9B0; }
+
+.linha { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; padding: var(--space-4) var(--space-6); }
+
+h2 { font-size: 18px; margin: var(--space-8) 0 var(--space-3); }
+
+nav.topo {
+  display: flex; gap: var(--space-4); padding: var(--space-4);
+  border-bottom: 1px solid var(--border); background: var(--surface);
+}
+nav.topo a { color: var(--ink-950); font-weight: 600; font-size: 14px; }

@@ -326,3 +326,72 @@ test("conteudo editado depois de aprovado nao chega a publicar", async () => {
     (e) => e.reason_code === "CONTENT_NOT_APPROVED",
     "a edicao tem de barrar o agendamento, nao so a publicacao");
 });
+
+// ── Leitura para as telas ───────────────────────────────────────────────────
+
+test("a listagem traz a versao corrente, com variantes e publicacoes", async () => {
+  const { content_version_id } = await conteudo();
+  const lista = await ports.content.listByWorkspace(ids.org, ids.ws);
+
+  assert.equal(lista.length, 1);
+  assert.equal(lista[0].content_version_id, content_version_id);
+  assert.equal(lista[0].state, "DRAFT");
+  assert.equal(lista[0].variants.length, 1, "a tela precisa saber que ha variante para publicar");
+  assert.equal(lista[0].variants[0].channel, "INSTAGRAM");
+  assert.deepEqual(lista[0].publications, [], "sem publicacao ainda");
+});
+
+test("a listagem mostra so a versao mais recente de cada conteudo", async () => {
+  const c = await db.query(
+    `insert into mkt.contents (org_id, workspace_id, brand_id, title)
+     values ($1,$2,$3,'Multi') returning id`, [ids.org, ids.ws, ids.brand]);
+  for (const v of [1, 2, 3]) {
+    await db.query(
+      `insert into mkt.content_versions (org_id, content_id, version, master_body, state)
+       values ($1,$2,$3::int,'v' || $3::text,'DRAFT')`, [ids.org, c.rows[0].id, v]);
+  }
+
+  const lista = await ports.content.listByWorkspace(ids.org, ids.ws);
+  const linha = lista.find((x) => x.content_id === c.rows[0].id);
+  assert.equal(lista.filter((x) => x.content_id === c.rows[0].id).length, 1,
+    "uma linha por conteudo, nao uma por versao");
+  assert.equal(linha.version, 3);
+});
+
+test("a listagem nao atravessa workspace", async () => {
+  await conteudo();
+  const vazio = await ports.content.listByWorkspace(ids.org, "00000000-0000-4000-8000-000000000000");
+  assert.deepEqual(vazio, []);
+});
+
+test("as conexoes do workspace saem com status legivel", async () => {
+  const conns = await ports.content.listConnections(ids.org, ids.ws);
+  assert.equal(conns.length, 1);
+  assert.equal(conns[0].channel, "INSTAGRAM");
+  assert.equal(conns[0].status, "ACTIVE");
+});
+
+test("depois de publicar, a listagem mostra o canal publicado", async () => {
+  const { content_version_id, channel_variant_id } = await conteudo();
+  await db.query(`update mkt.content_versions set state = 'AI_REVIEW' where id = $1`, [content_version_id]);
+  const { approval_id } = await ports.publishing.requestApproval({
+    org_id: ids.org, workspace_id: ids.ws, content_version_id, reason_codes: [],
+  });
+  await svc.decide({ tenant: { org_id: ids.org, workspace_id: ids.ws },
+                     approval_id, decision: "APPROVED", actor: { id: ids.user } });
+  await ports.publishing.schedule({
+    org_id: ids.org, workspace_id: ids.ws, content_version_id,
+    channel: "INSTAGRAM", connection_id: ids.conn, channel_variant_id, approval_id, trace_id: "tr_lista",
+  });
+
+  const p = pipeline();
+  await p.relay();
+  await p.handler({ ...p.entregues[0].data, trace_id: "tr_lista", requested_autonomy: "A3",
+                    approval_id, actor: { role: "OWNER", org_id: ids.org } }, durableStep());
+
+  const lista = await ports.content.listByWorkspace(ids.org, ids.ws);
+  const linha = lista.find((x) => x.content_version_id === content_version_id);
+  assert.equal(linha.state, "PUBLISHED");
+  assert.equal(linha.publications[0].status, "PUBLISHED");
+  assert.ok(linha.publications[0].external_id);
+});

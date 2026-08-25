@@ -63,5 +63,10 @@ jobs:
       - name: Tipos do app web
         run: npm run typecheck
 
+      # O app web ja esteve num estado em que nao compilava — lib/auth.ts era
+      # importada e nao existia. Teste passando nao pega isso; build pega.
+      - name: App web compila
+        run: npm run build:web
+
       - name: Gate G0
         run: npm run gate:g0
