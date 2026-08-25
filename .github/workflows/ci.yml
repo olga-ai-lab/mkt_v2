@@ -70,3 +70,6 @@ jobs:
 
       - name: Gate G0
         run: npm run gate:g0
+
+      - name: Gate G1
+        run: npm run gate:g1

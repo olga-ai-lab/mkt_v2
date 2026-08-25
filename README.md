@@ -152,15 +152,16 @@ Já fechado: schema aplicado (8 migrations, 29 tabelas, nenhuma sem RLS),
 adapter real do Meta Graph, tela de aprovação, outbox ligado ao Inngest, e os
 produtores que alimentam as duas filas.
 
+O Gate G1 existe e é executável: `npm run gate:g1`, 10/10 nos critérios
+verificáveis. Ele **não se declara fechado** — o post real numa conta real
+depende da Meta, e o gate diz isso toda vez que roda. Ver `docs/GATE-G1.md`.
+
 ### O que ainda depende de decisão sua
 
-1. **Promover um agent para `ACTIVE`.** Os quatro nascem `CANDIDATE`, então o
-   runtime recusa qualquer execução com `AGENT_NOT_ACTIVE`. Promover é ato de
-   governança deliberado, não passo técnico — por isso não foi feito sozinho.
-2. **Definir o Gate G1.** A Fase 0 fechou com um gate executável
-   (`scripts/gate-g0.mjs`, 10/10). A Fase 1 ainda não tem o dela, e este
-   repositório inteiro é construído sobre "gate executável, não checklist em
-   prosa".
+1. **Promover um agent para `ACTIVE`.** Os quatro nascem `CANDIDATE`. Em
+   `CANDIDATE` eles rodam apenas com `internal: true`, que a rota `/api/agent`
+   permite só para `OWNER` — dá para exercitar, não para servir usuário.
+   Promover é ato de governança deliberado.
 
 ### O que falta de infraestrutura
 

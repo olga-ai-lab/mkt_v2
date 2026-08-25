@@ -395,3 +395,63 @@ test("depois de publicar, a listagem mostra o canal publicado", async () => {
   assert.equal(linha.publications[0].status, "PUBLISHED");
   assert.ok(linha.publications[0].external_id);
 });
+
+// ── Critérios do Gate G1 (MKT-17, Fase 1) ───────────────────────────────────
+
+test("G1 — receipt carrega o external ID do provider, e o trace liga pedido a efeito", async () => {
+  // O MKT-17 pede, para fechar a Fase 1: "receipt com external ID do provider;
+  // trace completo do pedido ao efeito". Aqui os dois são medidos numa
+  // passagem só, porque é assim que eles importam: um trace que não chega até
+  // o receipt não prova nada, e um receipt sem external_id não prova efeito.
+  const trace = `tr_g1_${Date.now()}`;
+  const { content_version_id, channel_variant_id } = await conteudo();
+  await db.query(`update mkt.content_versions set state = 'AI_REVIEW' where id = $1`, [content_version_id]);
+
+  const { approval_id } = await ports.publishing.requestApproval({
+    org_id: ids.org, workspace_id: ids.ws, content_version_id,
+    reason_codes: ["WORKSPACE_FIRST_PUBLISH"], trace_id: trace,
+  });
+  await svc.decide({ tenant: { org_id: ids.org, workspace_id: ids.ws },
+                     approval_id, decision: "APPROVED", actor: { id: ids.user }, trace_id: trace });
+  await ports.publishing.schedule({
+    org_id: ids.org, workspace_id: ids.ws, content_version_id,
+    channel: "INSTAGRAM", connection_id: ids.conn, channel_variant_id,
+    approval_id, trace_id: trace, autonomy_used: "A3",
+  });
+
+  const p = pipeline();
+  await p.relay();
+  const out = await p.handler(
+    { ...p.entregues[0].data, trace_id: trace, requested_autonomy: "A3", approval_id,
+      actor: { role: "OWNER", org_id: ids.org } },
+    durableStep());
+  assert.equal(out.status, "SUCCEEDED");
+
+  // 1. O receipt existe e carrega o id que o PROVIDER devolveu — não um id nosso.
+  const receipt = await db.query(
+    `select external_id, trace_id, provider, status::text as status, approval_id
+       from mkt.action_receipts where trace_id = $1`, [trace]);
+  assert.equal(receipt.rows.length, 1, "um efeito externo, um receipt");
+  assert.equal(receipt.rows[0].external_id, p.adapter.calls.length ? "ig_1" : null,
+    "o external_id tem de ser o que o adapter devolveu");
+  assert.equal(receipt.rows[0].status, "EFFECTED");
+  assert.equal(receipt.rows[0].approval_id, approval_id,
+    "o receipt aponta para a aprovacao que autorizou");
+
+  // 2. O MESMO trace liga as quatro pontas: pedido, execucao, efeito e aviso.
+  const [pedido, run, aviso] = await Promise.all([
+    db.query(`select 1 from mkt.outbox
+               where trace_id = $1 and event_type = 'olga/content.publish.requested'`, [trace]),
+    db.query(`select current_state from mkt.workflow_runs where trace_id = $1`, [trace]),
+    db.query(`select 1 from mkt.outbox
+               where trace_id = $1 and event_type = 'olga/content.published'`, [trace]),
+  ]);
+
+  assert.equal(pedido.rows.length, 1, "o pedido tem de estar no trace");
+  assert.equal(run.rows.length, 1, "a execucao tem de estar no trace");
+  assert.equal(run.rows[0].current_state, "PUBLISHED");
+  assert.equal(aviso.rows.length, 1, "o aviso de publicado tem de estar no trace");
+
+  // Sem isto, "trace completo" seria uma coluna preenchida em lugares soltos.
+  // Com isto, uma auditoria parte do pedido e chega ao id do post.
+});
