@@ -1,7 +1,9 @@
 # Olga Marketing OS
 
-Implementação da **Fase 0 (Fundação)** e do núcleo da **Fase 1 (Walking skeleton)**
-do plano MKT-17.
+Implementação da **Fase 0 (Fundação)** e da **Fase 1 (Walking skeleton)** do
+plano MKT-17. O esqueleto anda de ponta a ponta: pedir aprovação → aprovar →
+agendar → outbox → workflow → gateway → adapter → publicado, provado contra
+Postgres em `packages/db/test/pipeline.test.mjs`.
 
 > O LLM interpreta; os contratos decidem; o código calcula; as ferramentas
 > executam; a evidência sustenta.
@@ -141,12 +143,34 @@ que já tinha `mkt` e `rh` populados: nenhum dos dois foi tocado.
 
 ## O que falta para fechar a Fase 1
 
-1. **Submeter o app na Meta** — caminho crítico, duas a seis semanas (ADR-0008).
-   Até lá, o adapter falso implementa o mesmo contrato e o gateway não distingue.
-2. Adapter real do Meta Graph em `packages/gateway/src/adapters/`.
-3. Tela de aprovação com decisão vinculada à versão.
-4. Ligar `mkt.outbox` ao Inngest.
-5. Brand Brain a partir de URL (Fase 2).
+**Uma coisa, e ela não é código: submeter o app na Meta.** Caminho crítico,
+duas a seis semanas (ADR-0008). Até lá o produto roda inteiro com
+`META_ADAPTER=fake` — o adapter falso implementa o mesmo contrato e o gateway
+não distingue um do outro. Foi para isso que essa fronteira existe.
+
+Já fechado: schema aplicado (8 migrations, 29 tabelas, nenhuma sem RLS),
+adapter real do Meta Graph, tela de aprovação, outbox ligado ao Inngest, e os
+produtores que alimentam as duas filas.
+
+### O que ainda depende de decisão sua
+
+1. **Promover um agent para `ACTIVE`.** Os quatro nascem `CANDIDATE`, então o
+   runtime recusa qualquer execução com `AGENT_NOT_ACTIVE`. Promover é ato de
+   governança deliberado, não passo técnico — por isso não foi feito sozinho.
+2. **Definir o Gate G1.** A Fase 0 fechou com um gate executável
+   (`scripts/gate-g0.mjs`, 10/10). A Fase 1 ainda não tem o dela, e este
+   repositório inteiro é construído sobre "gate executável, não checklist em
+   prosa".
+
+### O que falta de infraestrutura
+
+3. **Endpoint HTTP do Inngest.** `registerFunctions()` existe e está testada,
+   mas ninguém a serve ainda — falta a dependência `inngest` e a decisão de
+   onde hospedar (rota no app Next é o caminho natural).
+4. **App web além da tela de aprovação.** Sem home, sem login, sem listagem de
+   conteúdo. `SUPABASE_JWT_SECRET` precisa estar configurado para a sessão
+   funcionar.
+5. **Brand Brain a partir de URL** — Fase 2, depois da Meta liberada.
 
 ## Rastreabilidade
 
