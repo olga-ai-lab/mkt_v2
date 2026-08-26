@@ -67,7 +67,7 @@ const AMBIGUIDADE_MATERIAL = new Set([
 export function createCompiler(builders = {}) {
   return {
     /** @returns {{ capability_id: string, mode: string, args: object }} */
-    async compile(step, { entities, context, tenant, agent }) {
+    async compile(step, { entities, context, tenant, agent, produzido }) {
       const builder = builders[step.capability_id];
       if (!builder) {
         // Sem builder não há compilação possível. A alternativa seria aceitar
@@ -75,7 +75,7 @@ export function createCompiler(builders = {}) {
         throw new LoopError("SCHEMA_VALIDATION_FAILED", "UNSUPPORTED",
           `sem compilador para ${step.capability_id}: os args teriam de vir do modelo`);
       }
-      const args = await builder({ entities, context, tenant, agent, step });
+      const args = await builder({ entities, context, tenant, agent, produzido, step });
       if (args == null || typeof args !== "object") {
         throw new LoopError("SCHEMA_VALIDATION_FAILED", "UNSUPPORTED",
           `compilador de ${step.capability_id} nao devolveu args`);
@@ -90,7 +90,14 @@ export function createCompiler(builders = {}) {
  * Validator: cinco checagens fixadas pelo contrato ValidatedResult.
  * Nunca converte erro em sucesso (MKT-09B §5).
  */
-export function validateResult({ trace_id, execution, tenant, freshness_ok = true }) {
+/**
+ * @param {{ trace_id: string, execution: any, tenant: any,
+ *           freshness_ok?: boolean, side_effect?: string }} args
+ *   `side_effect` vem do registry da capability. Sem ele o check de
+ *   cardinalidade fica mais rigoroso do que deveria — ver o comentário nele.
+ */
+export function validateResult({ trace_id, execution, tenant, freshness_ok = true,
+                                 side_effect = "external" }) {
   const checks = [];
   const reason_codes = [];
   const add = (check, passed, detail) => checks.push(detail ? { check, passed, detail } : { check, passed });
@@ -108,7 +115,19 @@ export function validateResult({ trace_id, execution, tenant, freshness_ok = tru
   if (falhou && execution.error?.reason_code) reason_codes.push(execution.error.reason_code);
 
   // 3. Efeito externo sem id do provider não é efeito comprovado.
-  const precisaId = execution.status === "SUCCEEDED" && execution.provider != null;
+  //
+  // A pergunta é sobre o EFEITO, não sobre qual adapter atendeu. Enquanto esta
+  // linha olhava só para `execution.provider`, ela reprovava
+  // `brand.extract_from_url`: o web_fetch devolve `external_id: null` porque
+  // buscar uma página não cria nada que tenha id — e não criar nada é o
+  // comportamento certo de uma leitura, não uma falha.
+  //
+  // O bug ficou escondido enquanto o adapter interno dos evals era um
+  // createFakeMetaAdapter, que inventava um id para tudo. Vale registrar: o
+  // dublê não mascarou um caminho só; mascarou também a checagem que julgava
+  // aquele caminho.
+  const precisaId = execution.status === "SUCCEEDED" &&
+                    execution.provider != null && side_effect === "external";
   const temId = execution.external_id != null && execution.external_id !== "";
   add("cardinality", !precisaId || temId,
     precisaId && !temId ? "provider respondeu sem external_id" : undefined);
@@ -299,6 +318,22 @@ export function createAgentLoop({
       let ultimaExecucao = null;
       let ultimaRespondability = null;
 
+      /**
+       * O que cada passo já executado produziu, por capability_id.
+       *
+       * Sem isto, um plano de vários passos era só N passos independentes. O
+       * caso concreto é o AGT-MKT-BRAND: `brand.extract_from_url` busca a
+       * página do cliente e `brand.propose_version` precisa daquele texto —
+       * mas o segundo compilador não tinha de onde lê-lo, e a extração morria
+       * ali.
+       *
+       * A chave é o capability_id, não o step_id. O step_id é escolhido pelo
+       * MODELO ("s1", "passo_um", o que ele quiser); um compilador que
+       * dependesse dele dependeria de o modelo nomear os passos do jeito que o
+       * código espera. O capability_id vem do registry.
+       */
+      const produzido = {};
+
       for (const step of plan.steps) {
         const cap = await registry.getCapability(step.capability_id, 1);
         if (!cap) return encerrar("UNSUPPORTED", ["CAPABILITY_NOT_ACTIVE"],
@@ -343,7 +378,7 @@ export function createAgentLoop({
         // isso, `request.args.agent_id` que o gateway le no passo 3 era sempre
         // nulo, e toda policy com escopo por agente nunca casava.
         const compilado = await compiler.compile(step, {
-          entities: intent.entities, context: recuperado, tenant, agent,
+          entities: intent.entities, context: recuperado, tenant, agent, produzido,
         });
 
         // ── 6. EXECUTOR ────────────────────────────────────────────────────
@@ -358,6 +393,7 @@ export function createAgentLoop({
         };
         const saida = await gateway.execute(request, { facts: req.facts ?? {}, actor });
         ultimaExecucao = saida.execution;
+        if (saida.output != null) produzido[cap.capability_id] = saida.output;
         if (saida.receipt?.receipt_id) receipt_ids.push(saida.receipt.receipt_id);
         emitir("loop.executed", { step: step.step_id, status: saida.execution.status });
 
@@ -365,6 +401,7 @@ export function createAgentLoop({
         const validado = validateResult({
           trace_id, execution: saida.execution, tenant,
           freshness_ok: !recuperado.stale,
+          side_effect: cap.side_effect,
         });
         if (!validado.valid) {
           // Nunca converte erro em sucesso.

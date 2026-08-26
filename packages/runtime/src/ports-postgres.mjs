@@ -644,6 +644,22 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
       return rows[0] ?? null;
     },
 
+    /**
+     * O cadastro da marca: nome e site.
+     *
+     * Existe para o compilador de brand.extract_from_url, e por isso e uma
+     * consulta e nao um campo de contexto. A URL que o servidor vai buscar nao
+     * pode vir do modelo nem do texto do usuario — e exatamente o vetor que a
+     * defesa de SSRF do web_fetch existe para conter, e o melhor jeito de
+     * conter e nao deixar chegar la.
+     */
+    async brandSite(org_id, brand_id) {
+      const { rows } = await pool.query(
+        `select id as brand_id, name, website_url from ${S}.brands
+          where id = $2 and org_id = $1`, [org_id, brand_id]);
+      return rows[0] ?? null;
+    },
+
     /** O Brand Brain da marca de um conteudo, quando so se tem o conteudo. */
     async brandBrainForContent(org_id, content_version_id) {
       const { rows } = await pool.query(
@@ -835,8 +851,23 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
      * contamina todo conteudo gerado depois, e ninguem percebe a origem.
      */
     async proposeBrandVersion({ org_id, brand_id, identity, tone, claims_allowed,
-                               prohibitions, disclaimers, source_refs, actor_id }) {
+                               prohibitions, disclaimers, source_refs, actor_id,
+                               workspace_id = null, fonte = null }) {
       return emTransacao(async (c) => {
+        // A fonte vira EVIDENCE na mesma transacao, e source_refs aponta para
+        // a linha criada. Gravar a versao primeiro e a evidence depois abriria
+        // um instante em que o Brand Brain cita procedencia que nao existe —
+        // e procedencia que nao da para abrir e o mesmo que nenhuma.
+        let refs = source_refs ?? [];
+        if (fonte?.url && fonte?.hash && workspace_id) {
+          const ev = await c.query(
+            `insert into ${S}.evidence (org_id, workspace_id, source_kind, locator, hash, fact, quality)
+             values ($1,$2,'SOURCE_ARTIFACT',$3,$4,$5,'MEDIUM') returning id`,
+            [org_id, workspace_id, fonte.url, fonte.hash,
+             `Pagina de ${fonte.url} lida em ${new Date().toISOString()}`]);
+          refs = [...refs, { evidence_id: ev.rows[0].id, url: fonte.url, hash: fonte.hash }];
+        }
+
         const prox = await c.query(
           `select coalesce(max(version), 0) + 1 as v from ${S}.brand_brain_versions
             where org_id = $1 and brand_id = $2`, [org_id, brand_id]);
@@ -854,8 +885,8 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
            returning id, version, status::text as status`,
           [org_id, brand_id, prox.rows[0].v,
            json(identity), json(tone), json(claims_allowed), json(prohibitions),
-           json(disclaimers), json(source_refs), actor_id ?? null]);
-        return rows[0];
+           json(disclaimers), json(refs), actor_id ?? null]);
+        return { ...rows[0], source_refs: refs };
       });
     },
   };

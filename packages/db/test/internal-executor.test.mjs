@@ -24,9 +24,17 @@ let ports, adapter;
 const limpar = () => db.query(`delete from mkt.organizations where slug = 'exec-test'`);
 
 /** Redator roteirizado: devolve o que o teste mandar. */
-const redatorFixo = (draft, variant) => ({
+const redatorFixo = (draft, variant, proposta) => ({
   async draft() { return draft; },
   async variant() { return variant ?? { headline: "H", body: "Corpo do canal.", cta: null }; },
+  async brandBrain() {
+    return proposta ?? {
+      identity: { nome: "Corretora", o_que_faz: "seguros para familias" },
+      tone: { descricao: "direto e sem jargao" },
+      claims_allowed: [], prohibitions: ["milagre"], disclaimers: [],
+      nao_encontrado: ["disclaimer de cobertura"],
+    };
+  },
 });
 
 const pedido = (args, extra = {}) => ({
@@ -313,21 +321,48 @@ test("publishing.schedule aprovado agenda e enfileira no outbox, numa transacao"
 
 // ── brand.propose_version ───────────────────────────────────────────────────
 
-test("propose_version cria CANDIDATE e nao encosta na ACTIVE", async () => {
+test("propose_version cria CANDIDATE, com a fonte virada evidence, e nao encosta na ACTIVE", async () => {
   const r = await adapter.call({
     capability: cap("brand.propose_version"),
-    request: pedido({ brand_id: ids.brand, identity: { nome: "Corretora" },
-                      prohibitions: ["milagre"], source_refs: [{ url: "https://corretora.test" }] }),
+    request: pedido({
+      brand_id: ids.brand, workspace_id: ids.ws,
+      source_url: "https://corretora.test/sobre",
+      source_text: "Somos a Corretora. Cuidamos do seguro da sua familia.",
+      source_hash: "hpagina",
+    }),
   });
   assert.equal(r.output.status, "CANDIDATE");
   assert.equal(r.output.version, 2);
+  assert.deepEqual(r.output.nao_encontrado, ["disclaimer de cobertura"]);
 
   const { rows } = await db.query(
-    `select status::text as status, version from mkt.brand_brain_versions
-      where brand_id = $1 order by version`, [ids.brand]);
+    `select status::text as status, version, prohibitions, source_refs
+       from mkt.brand_brain_versions where brand_id = $1 order by version`, [ids.brand]);
   assert.deepEqual(rows.map((x) => x.status), ["ACTIVE", "CANDIDATE"]);
+  assert.deepEqual(rows[1].prohibitions, ["milagre"]);
+
+  // A procedencia aponta para uma linha de evidence que EXISTE. Um Brand Brain
+  // que cita fonte que ninguem consegue abrir e o mesmo que um sem fonte.
+  const ref = rows[1].source_refs[0];
+  assert.equal(ref.url, "https://corretora.test/sobre");
+  const ev = await db.query(
+    `select source_kind, locator, hash from mkt.evidence where id = $1`, [ref.evidence_id]);
+  assert.equal(ev.rows[0].source_kind, "SOURCE_ARTIFACT");
+  assert.equal(ev.rows[0].hash, "hpagina");
 
   // A ACTIVE continua sendo a que o resto do sistema le.
   const ativa = await ports.knowledge.brandBrain(ids.org, ids.brand);
   assert.equal(ativa.version, 1);
+});
+
+test("propose_version sem pagina lida nao grava versao nenhuma", async () => {
+  const antes = await db.query(
+    `select count(*) as n from mkt.brand_brain_versions where brand_id = $1`, [ids.brand]);
+  await assert.rejects(
+    () => adapter.call({ capability: cap("brand.propose_version"),
+                         request: pedido({ brand_id: ids.brand }) }),
+    (e) => e.reason_code === "EVIDENCE_INSUFFICIENT");
+  const depois = await db.query(
+    `select count(*) as n from mkt.brand_brain_versions where brand_id = $1`, [ids.brand]);
+  assert.equal(depois.rows[0].n, antes.rows[0].n);
 });

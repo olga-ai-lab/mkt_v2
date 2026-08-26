@@ -128,8 +128,8 @@ test("redirect para outro endereco publico e seguido", async () => {
       : resposta("<h1>Corretora B</h1>"),
   });
   const r = await adapter.call({ capability: CAP, request: pedido("https://a.com") });
-  assert.equal(r.url_final, "https://b.com/home");
-  assert.match(r.texto, /Corretora B/);
+  assert.equal(r.output.url_final, "https://b.com/home");
+  assert.match(r.output.texto, /Corretora B/);
 });
 
 test("cadeia longa de redirect para", async () => {
@@ -211,9 +211,9 @@ test("o retorno carrega hash do texto e a url final", async () => {
     fetch: async () => resposta("<h1>Olá</h1>"),
   });
   const r = await adapter.call({ capability: CAP, request: pedido("https://c.com/sobre") });
-  assert.equal(r.texto, "Olá");
-  assert.equal(r.hash.length, 64, "sem hash o texto nao tem procedencia");
-  assert.equal(r.url_final, "https://c.com/sobre");
+  assert.equal(r.output.texto, "Olá");
+  assert.equal(r.output.hash.length, 64, "sem hash o texto nao tem procedencia");
+  assert.equal(r.output.url_final, "https://c.com/sobre");
 });
 
 test("sem url, recusa antes de qualquer rede", async () => {
@@ -225,4 +225,16 @@ test("sem url, recusa antes de qualquer rede", async () => {
     () => adapter.call({ capability: CAP, request: { trace_id: "t", args: {} } }),
     /sem url/);
   assert.equal(buscou, false);
+});
+
+test("o texto sai em `output`, que e o unico campo que o gateway repassa", async () => {
+  // Enquanto ele saia solto no topo do retorno, o gateway montava o
+  // ExecutionResult e descartava tudo: a pagina era buscada e jogada fora.
+  const adapter = createWebFetchAdapter({
+    resolver: resolverFixo({ "d.com": ["8.8.8.8"] }),
+    fetch: async () => resposta("<h1>Marca D</h1>"),
+  });
+  const r = await adapter.call({ capability: CAP, request: pedido("https://d.com") });
+  assert.equal(r.texto, undefined, "nada de texto solto no topo");
+  assert.deepEqual(Object.keys(r.output).sort(), ["bytes", "hash", "texto", "url_final"]);
 });

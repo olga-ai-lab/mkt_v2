@@ -384,19 +384,58 @@ export function createInternalAdapter({ authoring, knowledge, publishing, compos
     return { external_id: String(v.id), output: { channel_variant_id: String(v.id), channel: v.channel } };
   }
 
-  /** brand.propose_version. Sempre CANDIDATE — a porta nao aceita outro status. */
-  async function brandProposeVersion({ args, tenant }) {
+  /**
+   * brand.propose_version — sempre CANDIDATE.
+   *
+   * Recebe o TEXTO da pagina que brand.extract_from_url buscou e o estrutura.
+   * O modelo entra aqui porque ler uma home e dizer "isto e o tom de voz" e
+   * interpretacao; o que ele NAO decide e o status da versao, que a porta
+   * escreve como literal. Nao ha argumento que faca esta funcao criar ACTIVE.
+   *
+   * O motivo e o erro mais caro deste papel: um Brand Brain errado promovido
+   * contamina todo conteudo gerado depois, e ninguem percebe a origem.
+   */
+  async function brandProposeVersion({ args, tenant, trace_id }) {
     const a = exigirPorta(authoring, "authoring", "brand.propose_version");
+    const k = exigirPorta(knowledge, "knowledge", "brand.propose_version");
+    const redator = exigirRedator("brand.propose_version");
+
+    if (!args.source_text) {
+      throw new CapabilityError("EVIDENCE_INSUFFICIENT",
+        "nao proponho Brand Brain sem ter lido a pagina da marca");
+    }
+
+    const marca = await k.brandBrain(tenant.org_id, args.brand_id).catch(() => null);
+
+    const proposta = await redator.brandBrain({
+      tenant, trace_id,
+      brand_name: marca?.brand_name ?? null,
+      source_url: args.source_url,
+      source_text: args.source_text,
+    });
+
     const nova = await a.proposeBrandVersion({
-      org_id: tenant.org_id, brand_id: args.brand_id,
-      identity: args.identity, tone: args.tone,
-      claims_allowed: args.claims_allowed, prohibitions: args.prohibitions,
-      disclaimers: args.disclaimers, source_refs: args.source_refs,
+      org_id: tenant.org_id, workspace_id: args.workspace_id ?? tenant.workspace_id,
+      brand_id: args.brand_id,
+      identity: proposta.identity, tone: proposta.tone,
+      claims_allowed: proposta.claims_allowed,
+      prohibitions: proposta.prohibitions,
+      disclaimers: proposta.disclaimers,
+      fonte: args.source_url && args.source_hash
+        ? { url: args.source_url, hash: args.source_hash }
+        : null,
       actor_id: tenant.actor_id ?? null,
     });
+
     return {
       external_id: String(nova.id),
-      output: { brand_brain_version_id: String(nova.id), version: nova.version, status: nova.status },
+      output: {
+        brand_brain_version_id: String(nova.id), version: nova.version, status: nova.status,
+        source_refs: nova.source_refs ?? [],
+        // O que a pagina NAO disse viaja junto: e o que a pessoa que for
+        // promover precisa saber antes de promover.
+        nao_encontrado: proposta.nao_encontrado ?? [],
+      },
     };
   }
 

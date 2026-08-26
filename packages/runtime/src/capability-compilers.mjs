@@ -185,9 +185,10 @@ export function createReadCompilers() {
  * `channel.connect` está aqui por simetria e falha sempre, de propósito: ver o
  * comentário no próprio builder.
  *
- * @param {{ publishing?: { findDestination: Function } }} ports
+ * @param {{ publishing?: { findDestination: Function },
+ *           knowledge?: { brandSite: Function } }} ports
  */
-export function createInternalCompilers({ publishing } = {}) {
+export function createInternalCompilers({ publishing, knowledge } = {}) {
   return {
     /**
      * Extração do site. A URL não vem do modelo: vem do cadastro da marca.
@@ -197,36 +198,55 @@ export function createInternalCompilers({ publishing } = {}) {
      * usuário é exatamente o vetor que a defesa de SSRF daquele adapter existe
      * para conter. Melhor não deixar chegar lá.
      */
-    "brand.extract_from_url": async ({ entities, context, tenant }) => {
+    "brand.extract_from_url": async ({ entities, tenant }) => {
+      if (!knowledge?.brandSite) {
+        throw new CompileError("SCHEMA_VALIDATION_FAILED",
+          "compilador de extração exige a porta knowledge.brandSite");
+      }
       const brand_id = exigirEntidade(entities, "brand", "marca");
-      const url = context?.brand?.website_url ?? context?.website_url ?? null;
-      if (!url) {
+      const marca = await knowledge.brandSite(tenant.org_id, brand_id);
+      if (!marca?.website_url) {
+        // Não é falha técnica: é cadastro incompleto, e quem resolve é uma
+        // pessoa. Pedir a URL ao usuário aqui seria aceitar do usuário
+        // justamente o que este compilador existe para não aceitar.
         throw new CompileError("NORMALIZATION_FAILED",
           "esta marca não tem site cadastrado para eu ler");
       }
-      return { brand_id, url: String(url), workspace_id: tenant.workspace_id };
+      return { brand_id, url: String(marca.website_url), workspace_id: tenant.workspace_id };
     },
 
     /**
      * Proposta de Brand Brain.
      *
-     * O conteúdo proposto vem do passo anterior — a extração — e chega pelo
-     * contexto, já do lado de cá. `status` não é argumento: a porta escreve
-     * CANDIDATE literal, porque promover para ACTIVE é ato humano (o próprio
-     * AGT-MKT-BRAND declara isso em deviates_from_base).
+     * Os args são o TEXTO da página que o passo anterior buscou, não uma
+     * proposta pronta. Estruturar aquele texto é trabalho de modelo, e modelo
+     * não roda em compilador — roda dentro da capability, atrás do gateway,
+     * com orçamento e contrato.
+     *
+     * `status` não é argumento nenhum: a porta escreve CANDIDATE literal,
+     * porque promover para ACTIVE é ato humano — o próprio AGT-MKT-BRAND
+     * declara esse desvio em `deviates_from_base`.
+     *
+     * `produzido` vem do loop, com o que cada passo já executado devolveu.
+     * Sem ele a extração morria: a página era buscada e nada a recebia.
      */
-    "brand.propose_version": ({ entities, context }) => {
+    "brand.propose_version": ({ entities, tenant, produzido }) => {
       const brand_id = exigirEntidade(entities, "brand", "marca");
-      const p = context?.proposta ?? context?.brand_proposal ?? null;
-      if (!p) {
+      const extraido = produzido?.["brand.extract_from_url"];
+      if (!extraido?.texto) {
+        // Não é falha técnica: é falta de lastro. Propor um Brand Brain sem
+        // ter lido nada seria escrever sobre a marca do cliente por conta
+        // própria — e um Brand Brain errado contamina todo conteúdo gerado
+        // depois, sem que ninguém perceba a origem.
         throw new CompileError("EVIDENCE_INSUFFICIENT",
-          "não tenho o que propor: falta a extração que sustenta a versão");
+          "não tenho o que propor: nenhuma página foi lida nesta execução");
       }
       return {
         brand_id,
-        identity: p.identity ?? {}, tone: p.tone ?? {},
-        claims_allowed: p.claims_allowed ?? [], prohibitions: p.prohibitions ?? [],
-        disclaimers: p.disclaimers ?? [], source_refs: p.source_refs ?? [],
+        workspace_id: tenant.workspace_id,
+        source_url: extraido.url_final,
+        source_text: extraido.texto,
+        source_hash: extraido.hash,
       };
     },
 

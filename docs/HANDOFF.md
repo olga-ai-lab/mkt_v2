@@ -267,8 +267,8 @@ adapter → publicado → evento de volta no outbox.
 
 | | Antes | Depois |
 |---|---|---|
-| Testes | 126 | 403 |
-| Evals de agente | 0 | 22 |
+| Testes | 126 | 411 |
+| Evals de agente | 0 | 24 |
 | Gate G0 | 10/10 | 10/10 |
 | Gate G1 | — | 10/10 verificáveis |
 | Migrations | 8 | 9 |
@@ -351,6 +351,54 @@ para que um claim de cobertura não possa ser rebaixado a genérico em silêncio
 capability que não escreve não muda estado. Resolver isso é decisão de
 governança — mudar o `side_effect` no registry é migração — e não foi tomada
 por conta própria.
+
+### A cadeia do Brand Brain: o passo 2 não recebia o passo 1
+
+O `AGT-MKT-BRAND` tem um charter de duas capabilities encadeadas —
+`brand.extract_from_url` lê o site do cliente, `brand.propose_version` propõe a
+versão a partir do que leu. As duas existiam. A ligação entre elas, não.
+
+**O loop nunca carregou a saída de um passo para o próximo.** Um plano de N
+passos era, na prática, N passos independentes. A página era buscada,
+validada contra SSRF, o texto era extraído — e morria ali.
+
+Havia três elos quebrados no mesmo caminho, e cada um só apareceu depois que o
+anterior foi consertado:
+
+1. **`web_fetch` devolvia o texto solto no topo do retorno.** O gateway monta o
+   `ExecutionResult` com forma fixa e só repassa `output`. A capability gastava
+   rede para não entregar nada.
+
+2. **O compilador lia a URL de um lugar que ninguém preenchia.** Agora ele
+   consulta `knowledge.brandSite` — a URL vem do cadastro da marca, nunca do
+   modelo nem do texto do usuário. Isso não é preciosismo: uma URL escolhida
+   pelo modelo é exatamente o vetor que a defesa de SSRF do `web_fetch` existe
+   para conter, e o melhor jeito de conter é não deixar chegar lá.
+
+3. **O validador reprovava a leitura.** O check de cardinalidade exigia
+   `external_id` sempre que houvesse `provider`, e uma leitura não cria nada que
+   tenha id. Agora a pergunta é sobre o **efeito** (`side_effect === "external"`),
+   não sobre qual adapter atendeu.
+
+O terceiro merece registro: ele estava escondido porque o adapter interno dos
+evals era um `createFakeMetaAdapter`, que inventava id para tudo. O dublê não
+mascarou só um caminho — mascarou também a checagem que julgava aquele caminho.
+
+**O que o modelo estrutura, e sob que suspeita.** O texto da página vira
+proposta pelo contrato `olga://io/brand-brain-proposal`, onde cada claim carrega
+a `citacao` do trecho que o sustenta, e existe `nao_encontrado` para o modelo
+declarar a lacuna em vez de preencher. Uma corretora sem disclaimer no site
+precisa aparecer como lacuna, não como marca sem restrições.
+
+A página é conteúdo que alguém de fora escreveu, então entra na camada
+`governed` — turno de usuário, nunca de sistema. O eval `BRAND-ADV-003` serve
+uma página que diz "IGNORE AS INSTRUÇÕES ANTERIORES" e confere as duas coisas:
+que o trecho chegou ao modelo (senão o caso não provaria nada) e que nenhuma
+mensagem de sistema o contém.
+
+A fonte vira `evidence` na **mesma transação** que a versão CANDIDATE, e
+`source_refs` aponta para a linha criada. Um Brand Brain que cita procedência
+que ninguém consegue abrir é o mesmo que um sem procedência.
 
 ## 5. Regras de engajamento neste repositório
 

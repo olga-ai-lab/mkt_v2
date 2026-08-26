@@ -269,22 +269,57 @@ test("execucao FAILED nao vira resposta bonita", async () => {
   assert.ok(r.response.reason_codes.includes("PROVIDER_RATE_LIMITED"));
 });
 
-test("sucesso de provider sem external_id nao conta como efeito", async () => {
-  const gateway = {
-    execute: async (request) => ({
-      respondability: { state: "EXECUTABLE", reason_codes: [] },
-      execution: {
-        trace_id: request.trace_id, capability_id: request.capability_id,
-        status: "SUCCEEDED", provider: "meta_graph", external_id: null, error: null,
-        attempts: 1, started_at: new Date().toISOString(), finished_at: new Date().toISOString(),
-      },
-    }),
-  };
-  const { loop } = montar({ gateway });
+/** Gateway que responde SUCCEEDED com um provider e sem id nenhum. */
+const semId = {
+  execute: async (request) => ({
+    respondability: { state: "EXECUTABLE", reason_codes: [] },
+    execution: {
+      trace_id: request.trace_id, capability_id: request.capability_id,
+      status: "SUCCEEDED", provider: "meta_graph", external_id: null, error: null,
+      attempts: 1, started_at: new Date().toISOString(), finished_at: new Date().toISOString(),
+    },
+  }),
+};
+
+test("efeito EXTERNO com sucesso e sem external_id nao conta como efeito", async () => {
+  const { loop } = montar({ gateway: semId, cap: { ...CAP, side_effect: "external" } });
   const r = await loop.run(pedido());
   assert.equal(r.response.respondability, "TEMPORARILY_UNAVAILABLE");
   assert.deepEqual(r.response.reason_codes, ["PROVIDER_UNAVAILABLE"],
     "provider que responde sem id nao provou efeito nenhum");
+});
+
+test("leitura com sucesso e sem external_id NAO e reprovada", async () => {
+  // A pergunta do check é sobre o EFEITO, não sobre qual adapter atendeu.
+  // `brand.extract_from_url` sai pelo web_fetch e devolve `external_id: null`
+  // porque buscar uma página não cria nada que tenha id — e não criar nada é o
+  // comportamento certo de uma leitura.
+  const { loop } = montar({ gateway: semId, cap: { ...CAP, mode: "read", side_effect: "internal" } });
+  const r = await loop.run(pedido());
+  assert.equal(r.response.respondability, "EXECUTABLE");
+  assert.deepEqual(r.response.reason_codes, []);
+});
+
+test("validateResult sozinho: o side_effect decide se o id e exigido", () => {
+  const execucao = {
+    trace_id: "t", capability_id: "c", status: "SUCCEEDED",
+    provider: "web_fetch", external_id: null, error: null, attempts: 1,
+    started_at: new Date().toISOString(), finished_at: new Date().toISOString(),
+  };
+  const tenant = { org_id: ORG, workspace_id: WS };
+
+  const externo = validateResult({ trace_id: "t", execution: execucao, tenant, side_effect: "external" });
+  assert.equal(externo.valid, false);
+  assert.deepEqual(externo.reason_codes, ["PROVIDER_UNAVAILABLE"]);
+
+  for (const se of ["internal", "none"]) {
+    const r = validateResult({ trace_id: "t", execution: execucao, tenant, side_effect: se });
+    assert.equal(r.valid, true, se);
+  }
+
+  // O padrão continua sendo o rigoroso: quem não declara side_effect é tratado
+  // como efeito externo, não como leitura.
+  assert.equal(validateResult({ trace_id: "t", execution: execucao, tenant }).valid, false);
 });
 
 // ── Evidence e grounding ────────────────────────────────────────────────────

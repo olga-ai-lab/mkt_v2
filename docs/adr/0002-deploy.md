@@ -1,6 +1,6 @@
 # ADR-0002 — Deploy: Vercel para a web, Inngest Cloud para o worker
 
-- **Status:** ACEITA
+- **Status:** ACEITA — ver ADR-0012, que propõe revisão e ainda não foi decidida
 - **Data:** 24/08/2026
 - **Fecha:** achado G9 do MKT-17 (excesso de decisões em aberto)
 

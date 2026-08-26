@@ -201,13 +201,23 @@ export function createWebFetchAdapter({
       const texto = await lerAteOLimite(resposta, maxBytes);
 
       const conteudo = extrairTexto(texto);
+
+      // O texto vai em `output`, e nao solto no topo do retorno.
+      //
+      // O gateway monta o ExecutionResult com forma fixa e so repassa
+      // `output` a quem chamou. Enquanto isto devolvia `texto` no topo, a
+      // pagina era buscada, validada, lida — e jogada fora antes de chegar ao
+      // loop. brand.extract_from_url era uma capability que gastava rede para
+      // nao entregar nada.
       return {
         external_id: null,
         request_hash: createHash("sha256").update(atual).digest("hex"),
-        url_final: atual,
-        texto: conteudo,
-        hash: createHash("sha256").update(conteudo).digest("hex"),
-        bytes: texto.length,
+        output: {
+          url_final: atual,
+          texto: conteudo,
+          hash: createHash("sha256").update(conteudo).digest("hex"),
+          bytes: texto.length,
+        },
       };
     },
   };

@@ -32,6 +32,44 @@ export interface ActionReceipt {
   recorded_at: string;
 }
 
+/**
+ * Enum fechado. Classifica o que uma peca de conteudo AFIRMA. COVERAGE, PRICE e DEADLINE sao os tres que a policy global POL_COMPLIANCE_ON_MATERIAL_CLAIM trata como materiais: afirmacao sobre cobertura, preco ou prazo sempre passa por humano. A mesma lista esta no CHECK de mkt.claims.claim_type (migracao 0002) — mudar aqui exige mudar la, e vice-versa.
+ */
+export type ClaimType = "COVERAGE" | "PRICE" | "DEADLINE" | "PERFORMANCE" | "GENERAL";
+
+/**
+ * Saida do extrator para brand.propose_version: o que o site do cliente diz, ja estruturado. Nunca vira ACTIVE por este caminho — a promocao e sempre humana, e o AGT-MKT-BRAND declara esse desvio no proprio registry. Cada item traz `citacao`, o trecho da pagina que o sustenta: sem ela nao ha como conferir se a marca disse aquilo ou se o modelo completou.
+ */
+export interface BrandBrainProposal {
+  identity: {
+    nome: string;
+    o_que_faz: string;
+    publico?: string | null;
+    diferenciais?: string[];
+  };
+  tone: {
+    descricao: string;
+    evitar?: string[];
+  };
+  /**
+   * O que a marca ja afirma no proprio site, com a citacao que sustenta.
+   */
+  claims_allowed: {
+    texto: string;
+    claim_type?: ClaimType;
+    citacao: string;
+  }[];
+  /**
+   * Termos e promessas que o conteudo nao deve usar. Conteudo, nao policy: o que precisa BLOQUEAR mora em mkt.rule_policies.
+   */
+  prohibitions: string[];
+  disclaimers: string[];
+  /**
+   * O que a pagina nao diz. Existe para o modelo ter onde declarar a lacuna em vez de preencher: uma corretora sem disclaimer no site precisa aparecer como lacuna, nao como marca sem restricoes.
+   */
+  nao_encontrado?: string[];
+}
+
 export type CapabilityMode = "read" | "simulate" | "write";
 /**
  * MKT-17 §5.1. O nivel descreve o que o agente pode fazer sozinho, nao quanto ele acerta.

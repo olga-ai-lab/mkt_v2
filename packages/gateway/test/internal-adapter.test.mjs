@@ -45,6 +45,10 @@ function portas(over = {}) {
     compose: over.compose ?? {
       async draft() { return { title: "T", master_body: "Corpo.", claims: [] }; },
       async variant() { return { headline: "H", body: "B", cta: "C" }; },
+      async brandBrain() {
+        return { identity: { nome: "M", o_que_faz: "x" }, tone: { descricao: "d" },
+                 claims_allowed: [], prohibitions: [], disclaimers: [] };
+      },
     },
   };
 }
@@ -206,20 +210,31 @@ test("create_draft grava a versao do Brand Brain que usou", async () => {
   assert.equal(r.external_id, "cv7");
 });
 
-test("sem redator, as duas capabilities de texto recusam nomeadas", async () => {
+test("sem redator, as tres capabilities que produzem texto recusam nomeadas", async () => {
   const a = createInternalAdapter({ ...portas(), compose: null });
-  for (const c of ["content.create_draft", "content.create_variant"]) {
+  const args = { brand_id: "b1", content_version_id: "cv1", channel: "BLOG",
+                 source_text: "x", source_url: "https://a.test", source_hash: "h" };
+  for (const c of ["content.create_draft", "content.create_variant", "brand.propose_version"]) {
     await assert.rejects(
-      () => a.call({ capability: cap(c), request: pedido({ brand_id: "b1", content_version_id: "cv1", channel: "BLOG" }) }),
+      () => a.call({ capability: cap(c), request: pedido(args) }),
       (e) => e.reason_code === "PROVIDER_UNAVAILABLE", c);
   }
 });
 
-test("as outras sete continuam funcionando sem redator", async () => {
+test("as outras seis continuam funcionando sem redator", async () => {
   const a = createInternalAdapter({ ...portas(), compose: null });
   const r = await a.call({ capability: cap("brand.read"), request: pedido({ brand_id: "b1" }) });
   assert.equal(r.external_id, "bb1");
 });
+
+// ── brand.propose_version: a cadeia que sai do site do cliente ─────────────
+
+const PAGINA = {
+  brand_id: "b1", workspace_id: "ws-1",
+  source_url: "https://corretora.test/sobre",
+  source_text: "Somos a Corretora. Cuidamos do seu seguro residencial.",
+  source_hash: "h0",
+};
 
 test("propose_version nao tem como escrever ACTIVE: o status vem da porta", async () => {
   let recebido = null;
@@ -227,9 +242,50 @@ test("propose_version nao tem como escrever ACTIVE: o status vem da porta", asyn
     async proposeBrandVersion(x) { recebido = x; return { id: "bb2", version: 4, status: "CANDIDATE" }; },
   }});
   const r = await a.call({ capability: cap("brand.propose_version"),
-                           request: pedido({ brand_id: "b1", identity: { x: 1 }, status: "ACTIVE" }) });
+                           request: pedido({ ...PAGINA, status: "ACTIVE" }) });
   assert.equal(r.output.status, "CANDIDATE");
   assert.equal(recebido.status, undefined, "status nao pode ser repassado como argumento");
+});
+
+test("propose_version recusa quando nenhuma pagina foi lida", async () => {
+  // Propor um Brand Brain sem ter lido nada seria escrever sobre a marca do
+  // cliente por conta propria.
+  let gravou = false;
+  const a = montar({ authoring: { async proposeBrandVersion() { gravou = true; return {}; } } });
+  await assert.rejects(
+    () => a.call({ capability: cap("brand.propose_version"), request: pedido({ brand_id: "b1" }) }),
+    (e) => e.reason_code === "EVIDENCE_INSUFFICIENT");
+  assert.equal(gravou, false);
+});
+
+test("propose_version leva a fonte para virar evidence, e devolve as lacunas", async () => {
+  let recebido = null;
+  const a = montar({
+    authoring: { async proposeBrandVersion(x) {
+      recebido = x;
+      return { id: "bb2", version: 2, status: "CANDIDATE",
+               source_refs: [{ evidence_id: "e1", url: x.fonte.url, hash: x.fonte.hash }] };
+    }},
+    compose: {
+      async draft() { return { title: "T", master_body: "B", claims: [] }; },
+      async variant() { return { body: "B" }; },
+      async brandBrain({ source_text }) {
+        assert.match(source_text, /Corretora/, "o texto da pagina precisa chegar ao extrator");
+        return {
+          identity: { nome: "Corretora", o_que_faz: "seguros" },
+          tone: { descricao: "direto" },
+          claims_allowed: [], prohibitions: ["garantido"], disclaimers: [],
+          nao_encontrado: ["disclaimer de cobertura"],
+        };
+      },
+    },
+  });
+  const r = await a.call({ capability: cap("brand.propose_version"), request: pedido(PAGINA) });
+
+  assert.deepEqual(recebido.fonte, { url: PAGINA.source_url, hash: "h0" });
+  assert.deepEqual(recebido.prohibitions, ["garantido"]);
+  assert.deepEqual(r.output.nao_encontrado, ["disclaimer de cobertura"]);
+  assert.equal(r.output.source_refs[0].evidence_id, "e1");
 });
 
 test("schedule leva o approval_id do pedido, nao dos args", async () => {

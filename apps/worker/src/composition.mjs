@@ -103,7 +103,7 @@ export function createWorkerApp({ pool, inngest, providers, env = process.env, t
       planner: createLlmPlanner({ modelGateway }),
       responder: createLlmResponder({ modelGateway }),
       retrieval: createRetrieval({ knowledge: ports.knowledge }),
-      compiler: createCompiler(createAllCompilers({ publishing: ports.publishing })),
+      compiler: createCompiler(createAllCompilers({ publishing: ports.publishing, knowledge: ports.knowledge })),
       gateway,
       registry: {
         getAgent: (id) => ports.registry.getAgent(id),

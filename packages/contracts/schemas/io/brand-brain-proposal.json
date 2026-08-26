@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://io/brand-brain-proposal",
+  "title": "BrandBrainProposal",
+  "description": "Saida do extrator para brand.propose_version: o que o site do cliente diz, ja estruturado. Nunca vira ACTIVE por este caminho — a promocao e sempre humana, e o AGT-MKT-BRAND declara esse desvio no proprio registry. Cada item traz `citacao`, o trecho da pagina que o sustenta: sem ela nao ha como conferir se a marca disse aquilo ou se o modelo completou.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["identity", "tone", "claims_allowed", "prohibitions", "disclaimers"],
+  "properties": {
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nome", "o_que_faz"],
+      "properties": {
+        "nome": { "type": "string", "minLength": 1 },
+        "o_que_faz": { "type": "string", "minLength": 1 },
+        "publico": { "type": ["string", "null"] },
+        "diferenciais": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "tone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descricao"],
+      "properties": {
+        "descricao": { "type": "string", "minLength": 1 },
+        "evitar": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "claims_allowed": {
+      "type": "array",
+      "description": "O que a marca ja afirma no proprio site, com a citacao que sustenta.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["texto", "citacao"],
+        "properties": {
+          "texto": { "type": "string", "minLength": 1 },
+          "claim_type": { "$ref": "olga://enums/claim-type" },
+          "citacao": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "prohibitions": {
+      "type": "array",
+      "description": "Termos e promessas que o conteudo nao deve usar. Conteudo, nao policy: o que precisa BLOQUEAR mora em mkt.rule_policies.",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "disclaimers": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "nao_encontrado": {
+      "type": "array",
+      "description": "O que a pagina nao diz. Existe para o modelo ter onde declarar a lacuna em vez de preencher: uma corretora sem disclaimer no site precisa aparecer como lacuna, nao como marca sem restricoes.",
+      "items": { "type": "string" }
+    }
+  }
+}
