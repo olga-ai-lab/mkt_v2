@@ -25,6 +25,7 @@ import { createLlmResolver, createLlmPlanner, createLlmResponder } from "@olga/r
 import { createAllCompilers } from "@olga/runtime/capability-compilers";
 import { createRetrieval } from "@olga/runtime/retrieval";
 import { createComposer } from "@olga/runtime/composer";
+import { createBrandExtractor } from "@olga/runtime/extractor";
 import { createGateway } from "@olga/gateway";
 import { createWorkerPorts } from "./ports-worker.mjs";
 import { createAdapters, createEnvSecrets } from "./adapters.mjs";
@@ -68,6 +69,7 @@ export function createWorkerApp({ pool, inngest, providers, env = process.env, t
     secrets: createEnvSecrets(env),
     mode: env.META_ADAPTER ?? "fake",
     compose: modelGateway ? createComposer({ modelGateway }) : null,
+    extract: modelGateway ? createBrandExtractor({ modelGateway }) : null,
   });
 
   const gateway = createGateway({

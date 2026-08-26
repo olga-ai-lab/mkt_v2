@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import pg from "pg";
 import { createPostgresPorts } from "@olga/runtime/ports-postgres";
 import { createInternalAdapter } from "@olga/gateway/adapters";
+import { createAdapters } from "../../../apps/worker/src/adapters.mjs";
 
 const url = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const db = new pg.Client({ connectionString: url });
@@ -86,13 +87,22 @@ test("toda capability que o registry manda para 'internal' tem executor", async 
     `  so no codigo:   ${doCodigo.filter((x) => !doRegistry.includes(x))}`);
 });
 
-test("toda capability com provider_adapter aponta para um adapter que existe", async () => {
+test("toda capability com provider_adapter aponta para um adapter que a producao monta", async () => {
   const { rows } = await db.query(
     `select distinct provider_adapter from mkt.capability_registry
       where provider_adapter is not null`);
-  const conhecidos = new Set(["meta_graph", "web_fetch", "brand_extract", "internal"]);
+
+  // A lista NAO e escrita a mao aqui. Ela sai de createAdapters — o mesmo
+  // arquivo que o worker e o app web usam para subir. Uma lista literal neste
+  // teste passaria verde enquanto a producao respondia PROVIDER_UNAVAILABLE,
+  // que e exatamente o que aconteceu com "internal" por tres migrations.
+  const { adapters } = createAdapters({ ports, mode: "fake" });
+  const montados = new Set(Object.keys(adapters));
+
   for (const { provider_adapter } of rows) {
-    assert.ok(conhecidos.has(provider_adapter), `adapter desconhecido no registry: ${provider_adapter}`);
+    assert.ok(montados.has(provider_adapter),
+      `o registry manda para "${provider_adapter}" e a composicao nao monta esse adapter ` +
+      `(monta: ${[...montados].join(", ")})`);
   }
 });
 

@@ -22,7 +22,8 @@ import { createPostgresPorts } from "@olga/runtime/ports-postgres";
 import { createApprovalService } from "@olga/runtime/approvals";
 import { runEvalCase } from "@olga/runtime/eval-runner";
 import { createGateway } from "@olga/gateway";
-import { createFakeMetaAdapter, createInternalAdapter } from "@olga/gateway/adapters";
+import { createFakeMetaAdapter, createInternalAdapter,
+         createBrandExtractAdapter } from "@olga/gateway/adapters";
 import { createWorkerPorts } from "../../../apps/worker/src/ports-worker.mjs";
 
 const url = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
@@ -31,6 +32,20 @@ const EVALS_DIR = new URL("../../runtime/evals/", import.meta.url);
 
 const ids = {};
 let ports, workerPorts, criarGateway, casos = [];
+
+/**
+ * A pagina que o eval "busca". Fixa de proposito: os casos citam trechos dela,
+ * e e a conferencia de citacao contra ESTE texto que separa o item com lastro
+ * do inventado.
+ */
+const PAGINA =
+  "Marca Corretora de Seguros. Atendemos enchente e alagamento desde 1998, " +
+  "em todo o estado. Nossa equipe acompanha o cliente do orcamento ate a " +
+  "regulacao do sinistro, e nao vendemos apolice sem entender o risco do " +
+  "imovel. Trabalhamos com residencial, empresarial e frota. Atendimento de " +
+  "segunda a sexta, das 8h as 18h, com plantao para sinistro em evento " +
+  "climatico. Consulte as condicoes gerais da apolice. Susep 12.345. " +
+  "As coberturas descritas aqui sao um resumo e nao substituem o contrato.";
 
 const limpar = () => db.query(`delete from mkt.organizations where slug = 'eval-test'`);
 
@@ -41,8 +56,9 @@ before(async () => {
   const r = await db.query(`
     with o as (insert into mkt.organizations (name, slug) values ('Eval','eval-test') returning id),
          w as (insert into mkt.workspaces (org_id, name) select id, 'Principal' from o returning id, org_id)
-    insert into mkt.brands (org_id, workspace_id, name)
-    select w.org_id, w.id, 'Marca' from w returning id, org_id, workspace_id`);
+    insert into mkt.brands (org_id, workspace_id, name, website_url)
+    select w.org_id, w.id, 'Marca', 'https://marca.example' from w
+    returning id, org_id, workspace_id`);
   ids.brand = r.rows[0].id; ids.org = r.rows[0].org_id; ids.ws = r.rows[0].workspace_id;
 
   await db.query(`insert into mkt.brand_brain_versions (org_id, brand_id, version, status)
@@ -99,7 +115,7 @@ before(async () => {
   //
   // So o meta_graph continua falso, e por motivo declarado: o app review da
   // Meta nao saiu (ADR-0008).
-  criarGateway = ({ compose }) => createGateway({
+  criarGateway = ({ compose, extract }) => createGateway({
     registry: {
       getCapability: (id, v) => workerPorts.getCapability(id, v),
       newId: () => crypto.randomUUID(),
@@ -112,6 +128,16 @@ before(async () => {
       internal: createInternalAdapter({
         authoring: ports.authoring, knowledge: ports.knowledge,
         publishing: ports.publishing, compose,
+      }),
+      // A busca e roteirizada; o resto do adapter e o de verdade. O que fica
+      // sob prova aqui e a conferencia de citacao contra a pagina — e ela so
+      // prova alguma coisa se a pagina for a mesma para todos os casos.
+      brand_extract: createBrandExtractAdapter({
+        knowledge: ports.knowledge, extract,
+        fetcher: { async call() {
+          return { texto: PAGINA, hash: "hash-pagina-eval",
+                   url_final: "https://marca.example/", request_hash: "rh" };
+        } },
       }),
     },
   });

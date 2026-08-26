@@ -1,9 +1,16 @@
 # Olga Marketing OS
 
-Implementação da **Fase 0 (Fundação)** e da **Fase 1 (Walking skeleton)** do
-plano MKT-17. O esqueleto anda de ponta a ponta: pedir aprovação → aprovar →
-agendar → outbox → workflow → gateway → adapter → publicado, provado contra
-Postgres em `packages/db/test/pipeline.test.mjs`.
+Implementação das **Fases 0 (Fundação)**, **1 (Walking skeleton)** e do primeiro
+bloco da **Fase 2 (Brand Brain)** do plano MKT-17.
+
+O esqueleto anda de ponta a ponta: pedir aprovação → aprovar → agendar → outbox
+→ workflow → gateway → adapter → publicado, provado contra Postgres em
+`packages/db/test/pipeline.test.mjs`.
+
+E o onboarding de uma marca também: ler o site cadastrado → conferir o que a
+página sustenta → propor uma versão candidata → uma pessoa ativar, em
+`packages/db/test/brand-onboarding.test.mjs` e
+`packages/db/test/brand-activation.test.mjs`.
 
 > O LLM interpreta; os contratos decidem; o código calcula; as ferramentas
 > executam; a evidência sustenta.
@@ -18,18 +25,19 @@ um PDF aprovado.
 
 | Peça | O que faz | Prova |
 |---|---|---|
-| `packages/contracts` | JSON Schema dos 10 objetos de I/O, dos 3 registries e dos enums fechados. Tipos TS gerados | 15 testes |
+| `packages/contracts` | JSON Schema dos 15 contratos de I/O, dos 3 registries e dos enums fechados. Tipos TS gerados | 15 testes |
 | `packages/policy` | Policy engine determinístico: invariantes de código + regras como dado, default deny | 19 testes |
-| `packages/gateway` | Capability Gateway com os 8 passos do MKT-09B §10 | 19 testes |
-| `packages/db` | 8 migrations, 28 tabelas, RLS forçada, state machine no banco | 35 testes |
-| `packages/runtime` | Model Gateway (rota por task class, orçamento antes do gasto, fallback explícito) e Agent Runtime (tenant fora do LLM, custo por run) | 29 testes |
-| `apps/worker` | Workflow durável de publicação, replay-safe | 5 testes |
-| `apps/web` | Tokens do MKT-06A e microcopy de todo reason code | 4 testes |
+| `packages/gateway` | Capability Gateway com os 8 passos do MKT-09B §10, e os adapters: meta_graph, web_fetch, brand_extract e internal | 107 testes |
+| `packages/db` | 10 migrations, 29 tabelas, RLS forçada, state machine no banco | 146 testes |
+| `packages/runtime` | Model Gateway, Agent Runtime, loop de agente, retrieval, redator, extrator de marca e ativação de Brand Brain | 129 testes |
+| `apps/worker` | Workflow durável de publicação, replay-safe | 25 testes |
+| `apps/web` | Home, login, conteúdo, fila de aprovação e revisão de Brand Brain. Tokens do MKT-06A e microcopy de todo reason code | 24 testes |
 | `docs/adr` | 11 ADRs fechando o que o MKT-09B deixava OPEN | — |
 | `docs/AGT-BASE.md` | O contrato comum que os 13 pacotes repetiam | — |
 
-**126 testes.** `npm run gate:g0` verifica os dez critérios do Gate G0 executando
-cada um deles.
+**465 testes e 23 evals de agente.** `npm run gate:g0` e `npm run gate:g1`
+verificam os critérios de cada gate executando cada um deles — e o G1 nunca se
+declara fechado sozinho, porque o que falta nele não é código.
 
 ## As três decisões que este código materializa
 
@@ -60,6 +68,43 @@ Capability Gateway e numa constraint de unicidade. O workflow pode ser
 reexecutado do zero quantas vezes for — o teste faz isso dez vezes e verifica
 que o provider foi chamado uma única vez.
 
+## O onboarding de uma marca, e onde ele para de propósito
+
+A Fase 2 começa pela pergunta que decide se o produto serve para alguém novo:
+como uma corretora que nunca usou nada disso ganha um Brand Brain sem preencher
+formulário? A resposta é ler o site dela. E ler o site de alguém é onde as
+coisas costumam dar errado em silêncio.
+
+```
+brand.extract_from_url ──> brand.propose_version ──> uma pessoa ativa
+   busca + leitura            versão CANDIDATE          versão ACTIVE
+```
+
+**Interpretação e permissão não correm no mesmo trilho.** `identity` e `tone`
+são síntese: ninguém espera achar a frase na página. Já cada item de
+`claims_allowed` autoriza o redator a repetir aquilo depois — então cada um
+exige a citação literal que o sustenta, e quem confere a citação contra a página
+é código. Item sem lastro não entra, e aparece em `discarded` com o motivo.
+Descartar em silêncio seria pior que aceitar: quem revisa precisa saber que
+houve invenção, porque isso diz algo sobre a extração inteira.
+
+**Procedência é produzida por código.** O contrato que o modelo responde
+(`olga://io/brand-extraction`) não tem campo para `source_refs`, e o
+`additionalProperties: false` recusa a tentativa. A fonte sai da busca: URL final
+depois dos redirecionamentos, hash do texto lido, hora. É ela que responde, seis
+meses depois, de onde aquela versão da marca veio.
+
+**`prohibitions` sai sempre vazia**, e o contrato garante isso com
+`maxItems: 0`. Uma página diz o que a marca fala, não o que ela se recusa a
+falar. Proibição extraída de site seria invenção com aparência de regra — e é
+ela que alimenta o `compliance.review`.
+
+**Ativar não é capability, e não vai virar uma.** Quem propõe não pode ser quem
+aceita: se o agente que leu a página pudesse ativá-la, a única coisa entre "um
+modelo leu um site" e "a marca autoriza estes claims" seria ele mesmo. A
+ativação é ato de dono, acontece em `/brands/[id]/brain`, e diz na hora o que a
+versão não tem.
+
 ## Rodar
 
 ```bash
@@ -70,8 +115,10 @@ createdb olga_test
 export TEST_DATABASE_URL=postgres://postgres@localhost:5432/olga_test
 npm run db:migrate:local
 
-npm test          # todos os testes
+npm test          # todos os testes, e o typecheck junto
 npm run gate:g0   # verificação do Gate G0
+npm run gate:g1   # verificação do Gate G1
+npm run evals     # evals de governança dos agentes
 ```
 
 ## Estrutura
@@ -80,10 +127,11 @@ npm run gate:g0   # verificação do Gate G0
 packages/contracts   schemas, enums, validadores, tipos gerados
 packages/policy      engine determinístico de autonomia e policy
 packages/gateway     única porta de efeito colateral
-packages/db          migrations e testes de isolamento
+packages/db          migrations e testes de isolamento, pipeline e onboarding
 apps/web             Next.js — tokens e microcopy
 apps/worker          Inngest — workflow durável de publicação
 docs/adr             decisões técnicas com ponto de revisão
+packages/runtime     model gateway, loop de agente, extrator e ativação de marca
 scripts/gate-g0.mjs  verificação executável do gate
 ```
 

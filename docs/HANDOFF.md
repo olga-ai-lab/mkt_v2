@@ -1,10 +1,13 @@
 # HANDOFF — Olga Marketing OS
 
 **Para:** a próxima sessão (Claude Code, com acesso a git e ao banco)
-**De:** sessão Cowork de 24–25/08/2026, atualizado pela sessão de 25/08/2026
-**Estado:** Fase 0 fechada, Fase 1 de pé e andando de ponta a ponta.
-221 testes, 10/10 no Gate G0, schema `mkt_v2` aplicado, CI verde.
-**Pendência real:** uma só, e não é código — a submissão do app na Meta.
+**De:** sessões de 24–26/08/2026
+**Estado:** Fases 0 e 1 fechadas em código; o primeiro bloco da Fase 2
+(onboarding de marca a partir da URL) anda de ponta a ponta.
+465 testes, 23 evals, 10/10 no G0, 10/10 verificáveis no G1, 10 migrations.
+**Pendências reais:** a submissão do app na Meta, que segura o G1 e não é
+código, e a migration **0010, que ainda não foi aplicada em `mkt_v2`** —
+ver §4.
 
 > O LLM interpreta; os contratos decidem; o código calcula; as ferramentas
 > executam; a evidência sustenta.
@@ -24,11 +27,11 @@ Um monorepo npm workspaces, JavaScript com ESM, sem framework de teste externo
 |---|---|---|
 | `packages/contracts` | JSON Schema dos objetos de I/O, registries e enums fechados. Tipos TS gerados e commitados | 15 |
 | `packages/policy` | Engine determinístico de autonomia. Invariantes hard-coded + regras como dado. Default deny | 19 |
-| `packages/gateway` | Capability Gateway — os 8 passos do MKT-09B §10. Única porta de efeito colateral | 19 |
-| `packages/db` | 8 migrations, 28 tabelas, RLS forçada, state machine em trigger | 35 |
-| `packages/runtime` | Model Gateway e Agent Runtime | 29 |
-| `apps/worker` | Workflow durável de publicação, replay-safe (Inngest) | 5 |
-| `apps/web` | Next.js — tokens do MKT-06A e microcopy de todo reason code | 4 |
+| `packages/gateway` | Capability Gateway — os 8 passos do MKT-09B §10. Única porta de efeito colateral. Adapters: `meta_graph`, `web_fetch`, `brand_extract`, `internal` | 107 |
+| `packages/db` | 10 migrations, 29 tabelas, RLS forçada, state machine em trigger | 146 |
+| `packages/runtime` | Model Gateway, Agent Runtime, loop de agente, retrieval, redator, extrator de marca, ativação de Brand Brain | 129 |
+| `apps/worker` | Workflow durável de publicação, replay-safe (Inngest) | 25 |
+| `apps/web` | Next.js — home, login, conteúdo, fila de aprovação, revisão de Brand Brain | 24 |
 
 Mais `docs/adr/` (11 ADRs), `docs/AGT-BASE.md`, `docs/GATE-G0.md` e
 `scripts/gate-g0.mjs` — que é a verificação executável do gate, não uma
@@ -72,8 +75,16 @@ encostar no que já está de pé.
 
 **Nunca aplique nada em `mkt` neste projeto.** Nosso alvo é `mkt_v2`, sempre.
 
-Estado: **as 8 migrations estão aplicadas.** A Olga aplicou 0007 e 0008 pelo
-SQL Editor em 25/08/2026, e a conferência bateu nos quatro pontos:
+Estado: **9 das 10 migrations estão aplicadas.** A Olga aplicou 0007 e 0008
+pelo SQL Editor em 25/08/2026, e a conferência bateu nos quatro pontos abaixo.
+
+> **A 0010 ainda não foi aplicada.** O bundle pronto para colar no SQL Editor
+> está em `packages/db/dist/mkt_v2_0010.sql`. Enquanto ela não entrar,
+> `brand.extract_from_url` continua apontando para o adapter `web_fetch` naquele
+> banco — e o adapter `brand_extract` do código nunca será chamado, então o
+> onboarding de marca não funciona lá. A migration é um `update` numa linha do
+> `capability_registry` e derruba a própria transação se não casar exatamente
+> uma linha.
 
 | | esperado | obtido |
 |---|---|---|
@@ -205,8 +216,8 @@ investir em qualquer outra coisa.
 registrada em §3.1. O schema `mkt_v2` está completo: 29 tabelas, nenhuma
 sem RLS.
 
-**T6 — Brand Brain a partir de URL (Fase 2).** Não começado. Depende de T3
-de verdade (com a Meta liberada), não do código do adapter.
+**T6 — Brand Brain a partir de URL (Fase 2).** Feito, e ver §8. Não dependia
+do T3: ler o site público de um cliente não passa pela Meta.
 
 ### As peças agora estão ligadas
 
@@ -236,6 +247,9 @@ adapter → publicado → evento de volta no outbox.
 
 ### O que falta, e de quem depende
 
+> Esta lista é da sessão de 25/08 e ficou aqui como histórico. **A lista viva
+> está em §9**, e é ela que a próxima sessão deve ler primeiro.
+
 **Depende de você, não de código:**
 
 1. ~~**Promover um agent para `ACTIVE`.**~~ Feito na 0009, para o
@@ -260,7 +274,8 @@ adapter → publicado → evento de volta no outbox.
 
    Falta configurar `INNGEST_EVENT_KEY` e `INNGEST_SIGNING_KEY` no deploy.
 
-5. **App web além da tela de aprovação:** home, login, listagem de conteúdo.
+5. ~~**App web além da tela de aprovação:** home, login, listagem de conteúdo.~~
+   Feito. Somou-se a revisão de Brand Brain em `/brands/[id]/brain`.
    `SUPABASE_JWT_SECRET` precisa estar configurado.
 
 ### O que esta sessão acrescentou, em números
@@ -351,6 +366,7 @@ para que um claim de cobertura não possa ser rebaixado a genérico em silêncio
 capability que não escreve não muda estado. Resolver isso é decisão de
 governança — mudar o `side_effect` no registry é migração — e não foi tomada
 por conta própria.
+
 
 ## 5. Regras de engajamento neste repositório
 
@@ -445,13 +461,107 @@ O plano completo está no MKT-17, entregue como PDF e como página navegável.
 
 ---
 
-*Última verificação: 25/08/2026. 221 testes, 10/10 no Gate G0, typecheck
-limpo, 8 migrations, árvore limpa, tudo empurrado para
-`claude/projeto-superpower-plugin-iyj47t`.*
+## 8. Fase 2 — onboarding de marca a partir da URL
 
-*O schema `mkt_v2` está completo e conferido: 8 migrations, 29 tabelas,
-nenhuma sem RLS.*
+Feito e verde. A cadeia inteira:
 
-*Sobrou **uma** pendência na Fase 1, e ela não é código: a submissão do app
-na Meta (ADR-0008). Enquanto ela não sair, o produto roda inteiro com
-`META_ADAPTER=fake`.*
+```
+brand.extract_from_url ──> brand.propose_version ──> uma pessoa ativa
+   busca + leitura            versão CANDIDATE          versão ACTIVE
+```
+
+### O que estava quebrado, e não parecia
+
+Os dois cortes tinham aparência de coisa pronta, que é o que os tornava caros:
+
+1. **`brand.extract_from_url` apontava para o adapter `web_fetch`.** Aquele
+   adapter busca a página com toda a defesa de SSRF e devolve
+   `{ texto, hash, url_final }` — sem a chave `output`, a única que o gateway
+   entrega a quem chamou. A página era buscada e o texto era jogado fora. A
+   capability chamada *extract* não extraía nada.
+
+2. **Nada alimentava o passo seguinte.** O compilador de
+   `brand.propose_version` lia `context.proposta`, e o loop compilava todo passo
+   contra o mesmo `recuperado` do retrieval. A saída do passo N não chegava ao
+   passo N+1, então propor a versão falhava sempre com `EVIDENCE_INSUFFICIENT` —
+   um reason code correto para um defeito, que é o pior jeito de falhar.
+
+3. **Não havia caminho de ativação.** `brand_brain_versions` nascia CANDIDATE
+   desde a 0002 e nenhuma linha de código fazia CANDIDATE → ACTIVE. O
+   onboarding terminava num beco: a marca seguia sem Brand Brain, com
+   `brand.read` e `content.create_draft` recusando para sempre.
+
+### As decisões que valem revisão da Olga
+
+**Interpretação e permissão não correm no mesmo trilho.** `identity` e `tone`
+são síntese. Cada item de `claims_allowed` e `disclaimers` exige a citação
+literal da página que o sustenta, conferida por código; item sem lastro vai para
+`discarded` com motivo, em vez de reprovar a extração inteira.
+
+**`prohibitions` sai sempre vazia**, com `maxItems: 0` no contrato garantindo.
+Uma página diz o que a marca fala, não o que ela se recusa a falar. **Isto
+deixa uma lacuna real:** hoje não existe tela para preencher proibição, então
+toda marca vinda de site é ativada sem nenhuma — e o `compliance.review` passa a
+conferir lista vazia. A ativação avisa; ninguém é impedido. É o próximo pedaço
+natural (ver §9).
+
+**Ativar não é capability, e a recomendação é que não vire.** Quem propõe não
+pode ser quem aceita. A ativação exige papel `OWNER` e acontece em
+`/brands/[id]/brain`.
+
+**Promover o `AGT-MKT-BRAND` para ACTIVE é decisão sua, não desta sessão.** Ele
+tem capability de escrita (`brand.propose_version`, MEDIUM), e a 0009 declarou
+que promover quem escreve merece a própria migration e o próprio motivo. Os
+evals agora cobrem o caminho de onboarding — inclusive claim sem lastro,
+procedência forjada pelo modelo e URL vinda do plano — então a decisão tem em
+que se apoiar.
+
+---
+
+## 9. O que ficou aberto
+
+**Não é código, e é o mais lento:**
+
+1. **Submeter o app na Meta** (ADR-0008). Continua segurando o G1.
+2. **Aplicar a migration 0010 em `mkt_v2`** — `packages/db/dist/mkt_v2_0010.sql`.
+   Sem ela o onboarding não funciona naquele banco (§3.1).
+3. **Apagar o projeto órfão `ogmypcbaqcamguqbhxjo`**, que custa dinheiro (§3.3).
+
+**Decisões de governança, esperando quem manda:**
+
+4. **Nada move `DRAFT` para `AI_REVIEW`.** `quality.precheck` é a revisão de IA
+   em intenção, mas o `side_effect` dela é `none` no registry, e capability que
+   não escreve não muda estado. Mudar isso é migração.
+5. **Promover `AGT-MKT-BRAND`** (ver §8).
+
+**Código, em ordem de quanto dói:**
+
+6. **Editar uma candidata antes de ativar.** Hoje a tela mostra o que falta e
+   não deixa preencher. É o que fecha a lacuna das proibições.
+7. **Versionar capability não funciona na prática.** O loop chama
+   `registry.getCapability(id, 1)` com o `1` literal: uma v2 ACTIVE seria escrita
+   no registry e ignorada em execução. Foi por isso que a 0010 atualizou a v1 em
+   vez de criar uma v2 — está declarado na própria migration. Resolver é trocar
+   por "a ACTIVE desta capability", e mexe nos dublês de vários testes.
+8. **Contrato de fonte.** `createRetrieval` tem `maxAgeDays = 90` configurável
+   porque a resposta certa depende de um contrato de fonte que o MKT-17 coloca na
+   Fase 2 e que ainda não existe. Um Brand Brain montado a partir de uma página
+   lida há um ano ainda não é considerado vencido por causa da fonte — só pela
+   idade da própria versão.
+9. **Golden dataset e evals de qualidade** (achado G11). Depende das três
+   corretoras piloto, não de código. Os evals de hoje medem governança, e a
+   separação é deliberada.
+
+---
+
+*Última verificação: 26/08/2026. 465 testes, 23 evals, 10/10 no Gate G0,
+10/10 verificáveis no G1, typecheck limpo, build do web limpo, 10 migrations,
+árvore limpa, tudo empurrado para `claude/novo-modulo-marketing-5l992o`.*
+
+*O schema `mkt_v2` está com 9 das 10 migrations: falta a 0010, e o bundle dela
+está pronto em `packages/db/dist/mkt_v2_0010.sql`.*
+
+*Na Fase 1 sobrou **uma** pendência, e ela não é código: a submissão do app na
+Meta (ADR-0008). Enquanto ela não sair, o produto roda inteiro com
+`META_ADAPTER=fake` — e o onboarding de marca, que não passa pela Meta, roda de
+verdade.*

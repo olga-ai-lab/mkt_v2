@@ -36,6 +36,7 @@ import { createModelGateway } from "./model-gateway.mjs";
 import { createAllCompilers } from "./capability-compilers.mjs";
 import { createRetrieval } from "./retrieval.mjs";
 import { createComposer } from "./composer.mjs";
+import { createBrandExtractor } from "./extractor.mjs";
 
 /**
  * Provider roteirizado. Devolve o que o caso mandou, por ponta.
@@ -82,7 +83,7 @@ function defaultsPara(ponta, { trace_id, tenant, agent_id, agent_version }) {
   // O redator e o adaptador respondem contratos que NAO tem trace_id nem
   // tenant, e os dois sao additionalProperties: false. Preencher ali faria o
   // proprio Model Gateway recusar a saida do script.
-  if (ponta === "redator" || ponta === "adaptador") return {};
+  if (ponta === "redator" || ponta === "adaptador" || ponta === "extrator") return {};
   return { trace_id: trace_id ?? "tr_eval", tenant };
 }
 
@@ -100,6 +101,7 @@ function detectarPonta(messages) {
   if (texto.includes("olga://io/task-plan")) return "planner";
   if (texto.includes("olga://io/draft-composition")) return "redator";
   if (texto.includes("olga://io/variant-composition")) return "adaptador";
+  if (texto.includes("olga://io/brand-extraction")) return "extrator";
   return "responder";
 }
 
@@ -127,7 +129,13 @@ export function createEvalLoop({ ports, workerPorts, criarGateway, modelo, onCal
     tracer,
   });
 
-  const gateway = criarGateway({ compose: createComposer({ modelGateway }) });
+  // As duas pontas que precisam de modelo entram por aqui, e nao pelo teste,
+  // porque o Model Gateway e roteirizado POR CASO: montar la fora faria todos
+  // os casos compartilharem o mesmo redator e o mesmo extrator.
+  const gateway = criarGateway({
+    compose: createComposer({ modelGateway }),
+    extract: createBrandExtractor({ modelGateway }),
+  });
 
   return createAgentLoop({
     resolver: createLlmResolver({ modelGateway }),
@@ -230,6 +238,26 @@ export async function runEvalCase(caso, { ports, workerPorts, criarGateway, tena
     const usado = efeitos[0]?.args?.[campo];
     if (String(usado) !== String(esperado)) {
       falhas.push(`args.${campo}: esperava ${esperado}, foi usado ${usado}`);
+    }
+  }
+
+  // Args de um passo especifico. `args_usados` olha o primeiro efeito; num
+  // plano encadeado o que importa e o que o SEGUNDO passo recebeu — e provar
+  // que aquilo veio do primeiro, e nao do modelo.
+  for (const [cap, campos] of Object.entries(e.args_por_capability ?? {})) {
+    const efeito = efeitos.find((x) => x.capability_id === cap);
+    if (!efeito) { falhas.push(`${cap} nao foi executada`); continue; }
+    for (const [campo, esperado] of Object.entries(campos)) {
+      const usado = efeito.args?.[campo];
+      if (String(usado) !== String(esperado)) {
+        falhas.push(`${cap}.args.${campo}: esperava "${esperado}", foi usado "${usado}"`);
+      }
+    }
+  }
+
+  for (const cap of e.nao_executou ?? []) {
+    if (efeitos.some((x) => x.capability_id === cap)) {
+      falhas.push(`${cap} foi executada e nao devia`);
     }
   }
 
