@@ -22,7 +22,7 @@ import { createPostgresPorts } from "@olga/runtime/ports-postgres";
 import { createApprovalService } from "@olga/runtime/approvals";
 import { runEvalCase } from "@olga/runtime/eval-runner";
 import { createGateway } from "@olga/gateway";
-import { createFakeMetaAdapter } from "@olga/gateway/adapters";
+import { createFakeMetaAdapter, createInternalAdapter } from "@olga/gateway/adapters";
 import { createWorkerPorts } from "../../../apps/worker/src/ports-worker.mjs";
 
 const url = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
@@ -30,7 +30,7 @@ const db = new pg.Client({ connectionString: url });
 const EVALS_DIR = new URL("../../runtime/evals/", import.meta.url);
 
 const ids = {};
-let ports, workerPorts, gateway, casos = [];
+let ports, workerPorts, criarGateway, casos = [];
 
 const limpar = () => db.query(`delete from mkt.organizations where slug = 'eval-test'`);
 
@@ -89,7 +89,17 @@ before(async () => {
   workerPorts = createWorkerPorts(db, { schema: "mkt" });
   const svc = createApprovalService({ approvals: ports.approvals });
 
-  gateway = createGateway({
+  // O adapter interno aqui e o DE VERDADE, ligado nas portas de verdade.
+  //
+  // Ele ja foi um createFakeMetaAdapter com outro prefixo de id, e isso fazia
+  // os evals mentirem sobre nove das doze capabilities: brand.read "passava"
+  // sem tocar em Brand Brain nenhum, e content.create_draft "passava" sem
+  // gravar linha nenhuma. Um eval que aprova o caminho que ninguem montou e
+  // pior que nenhum eval, porque da confianca.
+  //
+  // So o meta_graph continua falso, e por motivo declarado: o app review da
+  // Meta nao saiu (ADR-0008).
+  criarGateway = ({ compose }) => createGateway({
     registry: {
       getCapability: (id, v) => workerPorts.getCapability(id, v),
       newId: () => crypto.randomUUID(),
@@ -97,12 +107,41 @@ before(async () => {
     },
     policies: ports.policies,
     receipts: ports.receipts,
-    adapters: { meta_graph: createFakeMetaAdapter(), internal: createFakeMetaAdapter({ idPrefix: "int" }) },
+    adapters: {
+      meta_graph: createFakeMetaAdapter(),
+      internal: createInternalAdapter({
+        authoring: ports.authoring, knowledge: ports.knowledge,
+        publishing: ports.publishing, compose,
+      }),
+    },
   });
+
+  // Uma versao cujo claim material perdeu o lastro.
+  //
+  // Nao da para inserir um claim material com array vazio: a constraint
+  // claim_material_requires_evidence recusa, e faz bem. O jeito de o lastro
+  // sumir e o real: a evidence e APAGADA depois, e evidence_ids nao tem
+  // foreign key para impedir. O id continua no array, apontando para nada.
+  const cSemLastro = await db.query(
+    `insert into mkt.contents (org_id, workspace_id, brand_id, title)
+     values ($1,$2,$3,'Promessa') returning id`, [ids.org, ids.ws, ids.brand]);
+  const cvSemLastro = await db.query(
+    `insert into mkt.content_versions (org_id, content_id, version, master_body, state)
+     values ($1,$2,1,'Cobrimos tudo, sem excecao.','DRAFT') returning id`,
+    [ids.org, cSemLastro.rows[0].id]);
+  ids.cv_sem_lastro = cvSemLastro.rows[0].id;
+  const evTmp = await db.query(
+    `insert into mkt.evidence (org_id, workspace_id, source_kind, locator, hash)
+     values ($1,$2,'SOURCE_ARTIFACT','tmp','h') returning id`, [ids.org, ids.ws]);
+  await db.query(
+    `insert into mkt.claims (org_id, content_version_id, text, material, claim_type, evidence_ids)
+     values ($1,$2,'Cobrimos tudo, sem excecao.',true,'COVERAGE',array[$3::uuid])`,
+    [ids.org, ids.cv_sem_lastro, evTmp.rows[0].id]);
+  await db.query(`delete from mkt.evidence where id = $1`, [evTmp.rows[0].id]);
 
   // Substitui os marcadores dos arquivos pelos ids reais do fixture.
   const subs = {
-    __BRAND__: ids.brand, __CV__: ids.cv,
+    __BRAND__: ids.brand, __CV__: ids.cv, __CV_SEM_LASTRO__: ids.cv_sem_lastro,
     __CONN__: ids.conn, __CONN_INTRUSA__: ids.conn_intrusa,
   };
   for (const f of readdirSync(EVALS_DIR).filter((x) => x.endsWith(".json"))) {
@@ -143,7 +182,7 @@ test("EVALS", async (t) => {
 
   for (const caso of casos) {
     await t.test(`${caso.id} — ${caso.titulo}`, async () => {
-      const r = await runEvalCase(caso, { ports, workerPorts, gateway, tenant });
+      const r = await runEvalCase(caso, { ports, workerPorts, criarGateway, tenant });
       if (!r.ok) {
         falhados.push({ id: caso.id, falhas: r.falhas, obtido: r.obtido });
         // Mostrar o que VEIO junto com o que faltou: um eval que so diz

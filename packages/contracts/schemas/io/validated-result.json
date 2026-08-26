@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "olga://io/validated-result",
   "title": "ValidatedResult",
-  "description": "Result Validator. Nunca converte erro em sucesso (MKT-09B §5).",
+  "description": "Conjunto de checks nomeados com o resultado de cada um. Duas familias usam este contrato: o Result Validator do loop (MKT-09B §5) com os cinco checks tecnicos, e as capabilities de modo simulate (quality.precheck, compliance.review) com os checks de conteudo. Nunca converte erro em sucesso.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -34,7 +34,13 @@
               "freshness",
               "cardinality",
               "tenant_scope",
-              "failure_normalized"
+              "failure_normalized",
+              "claims_supported",
+              "evidence_sufficient",
+              "duplicate_risk",
+              "prohibitions",
+              "material_claims",
+              "disclaimers"
             ]
           },
           "passed": {

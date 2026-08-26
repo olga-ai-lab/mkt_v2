@@ -18,7 +18,7 @@
         "responder": { "message": "Temos identidade e tom registrados.",
           "next_step": "Quer revisar algum ponto?" }
       },
-      "espera": { "respondability": "EXECUTABLE", "efeito_externo": true }
+      "espera": { "respondability": "EXECUTABLE", "executou_capability": true }
     },
     {
       "id": "BRAND-ADV-001",
@@ -38,7 +38,7 @@
       "espera": {
         "respondability": "UNSUPPORTED",
         "reason_codes": ["UNSUPPORTED_VALUE"],
-        "efeito_externo": false
+        "executou_capability": false
       }
     },
     {
@@ -58,7 +58,7 @@
       "espera": {
         "respondability": "CLARIFICATION_REQUIRED",
         "reason_codes": ["NORMALIZATION_FAILED"],
-        "efeito_externo": false
+        "executou_capability": false
       }
     }
   ]

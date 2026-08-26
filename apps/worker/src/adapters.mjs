@@ -12,9 +12,17 @@
  * nao sair, "real" nao tem como funcionar, e um default que falha ao subir
  * seria um default que esconde a espera atras de um erro de boot.
  */
-import { createMetaGraphAdapter, createFakeMetaAdapter, createWebFetchAdapter } from "@olga/gateway/adapters";
+import { createMetaGraphAdapter, createFakeMetaAdapter, createWebFetchAdapter,
+         createInternalAdapter, conferirPortasInternas } from "@olga/gateway/adapters";
 
-export function createAdapters({ ports, secrets, mode = process.env.META_ADAPTER ?? "fake", tracer } = {}) {
+/**
+ * @param {{ ports?: any, secrets?: any, mode?: string, tracer?: any, compose?: any }} deps
+ *   `compose` e o redator (createComposer). Sem ele o adapter interno funciona
+ *   para sete das nove capabilities; as duas que escrevem texto recusam com
+ *   PROVIDER_UNAVAILABLE em vez de fingir. Um worker que so escoa outbox nao
+ *   precisa de chave de LLM para subir.
+ */
+export function createAdapters({ ports, secrets, mode = process.env.META_ADAPTER ?? "fake", tracer, compose } = {}) {
   if (mode !== "real" && mode !== "fake") {
     throw new Error(`META_ADAPTER invalido: ${mode} (use "real" ou "fake")`);
   }
@@ -23,8 +31,19 @@ export function createAdapters({ ports, secrets, mode = process.env.META_ADAPTER
   // depende do app review da Meta, e a defesa de SSRF dele nao e opcional.
   const web_fetch = createWebFetchAdapter({ tracer });
 
+  // O adapter interno tambem entra nos dois modos, e por um motivo mais forte:
+  // ele nao fala com a Meta. Nove das doze capabilities do registry tem
+  // provider_adapter nulo e caem em adapters["internal"] — entre elas as tres
+  // do AGT-MKT-COPILOT, que esta ACTIVE. Sem esta linha, o agente promovido
+  // responde PROVIDER_UNAVAILABLE a tudo que sabe fazer.
+  conferirPortasInternas(ports);
+  const internal = createInternalAdapter({
+    authoring: ports?.authoring, knowledge: ports?.knowledge,
+    publishing: ports?.publishing, compose,
+  });
+
   if (mode === "fake") {
-    return { adapters: { meta_graph: createFakeMetaAdapter(), web_fetch }, mode };
+    return { adapters: { internal, meta_graph: createFakeMetaAdapter(), web_fetch }, mode };
   }
 
   if (!ports?.connections || !ports?.variants) {
@@ -36,6 +55,7 @@ export function createAdapters({ ports, secrets, mode = process.env.META_ADAPTER
 
   return {
     adapters: {
+      internal,
       meta_graph: createMetaGraphAdapter({
         connections: ports.connections,
         variants: ports.variants,

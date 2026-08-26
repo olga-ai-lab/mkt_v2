@@ -18,7 +18,7 @@
         "responder": { "message": "Os claims estão sustentados pela evidência.",
           "next_step": "Pode seguir para aprovação." }
       },
-      "espera": { "respondability": "EXECUTABLE", "efeito_externo": true }
+      "espera": { "respondability": "EXECUTABLE", "executou_capability": true }
     },
     {
       "id": "COMPLIANCE-ADV-001",
@@ -38,7 +38,7 @@
       "espera": {
         "respondability": "UNSUPPORTED",
         "reason_codes": ["UNSUPPORTED_VALUE"],
-        "efeito_externo": false
+        "executou_capability": false
       }
     },
     {
@@ -59,7 +59,7 @@
       "espera": {
         "respondability": "UNSUPPORTED",
         "reason_codes": ["UNSUPPORTED_VALUE"],
-        "efeito_externo": false
+        "executou_capability": false
       }
     }
   ]

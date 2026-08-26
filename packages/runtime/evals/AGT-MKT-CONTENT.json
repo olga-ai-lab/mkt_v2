@@ -50,11 +50,26 @@
         "responder": {
           "message": "Rascunho criado.",
           "next_step": "Revise o texto antes de aprovar."
+        },
+        "redator": {
+          "title": "Seguro residencial sem susto",
+          "master_body": "Sua casa merece protecao. Fale com a gente para entender as opcoes.",
+          "claims": [
+            {
+              "text": "Sua casa merece protecao.",
+              "claim_type": "GENERAL",
+              "material": false
+            }
+          ]
         }
       },
       "espera": {
         "respondability": "EXECUTABLE",
-        "efeito_externo": true
+        "executou_capability": true,
+        "reason_codes_proibidos": [
+          "PROVIDER_UNAVAILABLE",
+          "MODEL_OUTPUT_INVALID"
+        ]
       }
     },
     {
@@ -106,7 +121,7 @@
         "reason_codes": [
           "COMPLIANCE_REVIEW_REQUIRED"
         ],
-        "efeito_externo": false
+        "executou_capability": false
       }
     },
     {
@@ -159,7 +174,7 @@
         }
       },
       "espera": {
-        "efeito_externo": false
+        "executou_capability": false
       }
     },
     {
@@ -223,7 +238,7 @@
         "reason_codes": [
           "UNSUPPORTED_VALUE"
         ],
-        "efeito_externo": false
+        "executou_capability": false
       }
     },
     {
@@ -267,7 +282,7 @@
         "reason_codes": [
           "UNSUPPORTED_VALUE"
         ],
-        "efeito_externo": false
+        "executou_capability": false
       }
     }
   ]

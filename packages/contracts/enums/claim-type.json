@@ -1,0 +1,18 @@
+{
+  "$id": "olga://enums/claim-type",
+  "title": "ClaimType",
+  "description": "Enum fechado. Classifica o que uma peca de conteudo AFIRMA. COVERAGE, PRICE e DEADLINE sao os tres que a policy global POL_COMPLIANCE_ON_MATERIAL_CLAIM trata como materiais: afirmacao sobre cobertura, preco ou prazo sempre passa por humano. A mesma lista esta no CHECK de mkt.claims.claim_type (migracao 0002) — mudar aqui exige mudar la, e vice-versa.",
+  "type": "string",
+  "enum": [
+    "COVERAGE",
+    "PRICE",
+    "DEADLINE",
+    "PERFORMANCE",
+    "GENERAL"
+  ],
+  "x-material": [
+    "COVERAGE",
+    "PRICE",
+    "DEADLINE"
+  ]
+}

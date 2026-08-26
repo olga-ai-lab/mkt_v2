@@ -29,3 +29,5 @@
 export { createMetaGraphAdapter } from "./meta-graph.mjs";
 export { createFakeMetaAdapter } from "./fake-meta.mjs";
 export { createWebFetchAdapter, ehPublico, validarAlvo, extrairTexto } from "./web-fetch.mjs";
+export { createInternalAdapter, conferirPortasInternas, SUPERFICIE_INTERNA,
+         normalizarTexto, CLAIM_TYPES_MATERIAIS } from "./internal.mjs";

@@ -5,6 +5,10 @@
  *
  * O schema e injetavel para o codigo servir tanto `mkt` quanto `mkt_v2`.
  */
+import { canTransition } from "@olga/contracts";
+
+const json = (v) => (v == null ? null : JSON.stringify(v));
+
 export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "mkt" } = {}) {
   if (!/^[a-z][a-z0-9_]*$/.test(schema)) throw new Error(`schema invalido: ${schema}`);
   const S = schema;
@@ -62,7 +66,8 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
       const { rows } = await pool.query(
         `select capability_id, version, status::text, mode::text, side_effect::text,
                 risk_tier::text, permissions, idempotency_required,
-                idempotency_key_template, provider_adapter, timeout_ms, max_attempts
+                idempotency_key_template, provider_adapter, timeout_ms, max_attempts,
+                output_schema_ref
            from ${S}.capability_registry
           where capability_id = $1 and version = $2`, [capability_id, version]);
       const c = rows[0];
@@ -511,7 +516,27 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
         // machine recusaria COMPLIANCE_REVIEW -> COMPLIANCE_REVIEW... na verdade
         // ela deixa passar por `new.state = old.state`, mas evitar o update
         // deixa claro que reabrir revisao nao e mover conteudo.
+        //
+        // Fora esse caso, a transicao e conferida ANTES do update, contra a
+        // mesma tabela que o trigger usa. Nao e redundancia: sem isso, pedir
+        // aprovacao de um DRAFT estourava com INVALID_STATE_TRANSITION cru —
+        // excecao de banco vazando como se fosse defeito nosso — em vez de uma
+        // recusa que diz o que falta fazer.
+        //
+        // E o que falta e real: DRAFT so alcanca revisao passando por
+        // AI_REVIEW. Quem escreve conteudo passa pelo quality.precheck antes
+        // de pedir olho humano, e a state machine da J11 nao deixa pular.
         if (cv.rows[0].state !== destino) {
+          if (!canTransition(cv.rows[0].state, destino)) {
+            const e = new Error(
+              `conteudo em ${cv.rows[0].state} nao pode ir para ${destino}` +
+              (cv.rows[0].state === "DRAFT" ? ": falta passar por AI_REVIEW" : ""));
+            // O registry declara CONTENT_NOT_APPROVED como o codigo desta
+            // capability. Inventar um codigo novo aqui deixaria o codigo e o
+            // registry dizendo coisas diferentes sobre a mesma falha.
+            e.reason_code = "CONTENT_NOT_APPROVED";
+            throw e;
+          }
           await c.query(
             `update ${S}.content_versions set state = $2::${S}.content_state where id = $1`,
             [content_version_id, destino]);
@@ -650,17 +675,191 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
       return rows;
     },
 
-    /** Claims de uma versao, com o que a materialidade exige. */
+    /**
+     * A versao de conteudo em si, com o que decide sobre ela.
+     *
+     * Separada de `content.listByWorkspace` de proposito: aquela monta tela,
+     * esta alimenta check. Uma mudanca de layout nao pode mexer no que o
+     * compliance le.
+     */
+    async contentVersion(org_id, content_version_id) {
+      const { rows } = await pool.query(
+        `select cv.id, cv.content_id, cv.version, cv.state::text as state,
+                cv.master_body, cv.risk_tier::text as risk_tier,
+                cv.brand_brain_version_id, cv.trace_id,
+                ct.workspace_id, ct.brand_id, ct.title, ct.objective
+           from ${S}.content_versions cv
+           join ${S}.contents ct on ct.id = cv.content_id
+          where cv.id = $2 and cv.org_id = $1`, [org_id, content_version_id]);
+      return rows[0] ?? null;
+    },
+
+    /**
+     * Outra versao do mesmo workspace com o MESMO texto.
+     *
+     * Igualdade normalizada, nao semelhanca: minusculas e espaco colapsado, e
+     * so. "Parecido" seria um limiar arbitrario que ninguem consegue defender
+     * numa auditoria — e CONTENT_DUPLICATE_RISK precisa ser reproduzivel.
+     * Deteccao por similaridade e trabalho de outra fase, com dado de embedding
+     * e limiar declarado.
+     */
+    async duplicateOf(org_id, workspace_id, content_version_id) {
+      const norm = `lower(regexp_replace(btrim(%s), '\\s+', ' ', 'g'))`;
+      const { rows } = await pool.query(
+        `with alvo as (
+           select cv.id, cv.master_body
+             from ${S}.content_versions cv
+             join ${S}.contents ct on ct.id = cv.content_id
+            where cv.id = $3 and cv.org_id = $1 and ct.workspace_id = $2
+         )
+         select cv.id as content_version_id, cv.state::text as state, ct.title
+           from ${S}.content_versions cv
+           join ${S}.contents ct on ct.id = cv.content_id
+           join alvo a on a.id <> cv.id
+          where cv.org_id = $1 and ct.workspace_id = $2
+            and ${norm.replace("%s", "cv.master_body")} = ${norm.replace("%s", "a.master_body")}
+          order by cv.created_at
+          limit 1`, [org_id, workspace_id, content_version_id]);
+      return rows[0] ?? null;
+    },
+
+    /**
+     * Claims de uma versao, com o que a materialidade exige.
+     *
+     * `evidencias` conta evidence que EXISTE, nao id citado.
+     *
+     * A diferenca decide se o check de claim sem lastro serve para alguma
+     * coisa. A constraint claim_material_requires_evidence ja garante que
+     * nenhum claim material entra com o array vazio — contra o tamanho do
+     * array, o check nunca reprovaria nada e seria decoracao.
+     *
+     * Mas `evidence_ids` e uuid[] e nao tem foreign key: Postgres nao tem como
+     * ter, e por isso apagar uma evidence deixa o id pendurado no claim. O
+     * conteudo continua afirmando cobertura, e o que sustentava a afirmacao
+     * sumiu sem que nada reclamasse. E esse o caso que o precheck pega.
+     */
     async claimsFor(org_id, content_version_id) {
       const { rows } = await pool.query(
-        `select id, text, material, claim_type, cardinality(evidence_ids) as evidencias
-           from ${S}.claims
-          where content_version_id = $2 and org_id = $1
-          order by material desc, created_at`, [org_id, content_version_id]);
+        `select c.id, c.text, c.material, c.claim_type,
+                cardinality(c.evidence_ids) as citadas,
+                (select count(*) from ${S}.evidence e
+                  where e.id = any(c.evidence_ids) and e.org_id = c.org_id) as evidencias
+           from ${S}.claims c
+          where c.content_version_id = $2 and c.org_id = $1
+          order by c.material desc, c.created_at`, [org_id, content_version_id]);
       return rows;
     },
   };
 
+  /**
+   * Autoria: as escritas internas que as capabilities executam.
+   *
+   * Separadas de `publishing` porque criam CONTEUDO, e de `knowledge` porque
+   * nao leem. O que elas tem em comum e o que importa: nenhuma decide
+   * autorizacao. Quem autorizou foi o Capability Gateway, antes de chamar.
+   */
+  const authoring = {
+    /**
+     * Conteudo novo nasce DRAFT. A state machine cuida do resto.
+     *
+     * Os claims entram na MESMA transacao que o corpo, e nao logo depois. Se
+     * fossem dois commits, existiria um instante em que a versao ja esta
+     * gravada e o que ela afirma ainda nao — e um precheck que rodasse nesse
+     * instante aprovaria conteudo material como se fosse texto qualquer.
+     *
+     * `claim_material_requires_evidence` derruba a transacao inteira se um
+     * claim material chegar sem evidence. Nao ha caminho por onde metade disso
+     * fique gravada.
+     */
+    async createDraft({ org_id, workspace_id, brand_id, title, objective,
+                        master_body, actor_id, trace_id, agent_id, agent_version,
+                        brand_brain_version_id = null, claims = [] }) {
+      return emTransacao(async (c) => {
+        const ct = await c.query(
+          `insert into ${S}.contents (org_id, workspace_id, brand_id, title, objective,
+                                      created_by_actor_type, created_by_actor_id)
+           values ($1,$2,$3,$4,$5,'agent',$6) returning id`,
+          [org_id, workspace_id, brand_id, title, objective ?? null, actor_id ?? null]);
+
+        const cv = await c.query(
+          `insert into ${S}.content_versions
+             (org_id, content_id, version, master_body, state, trace_id,
+              agent_id, agent_version, brand_brain_version_id,
+              created_by_actor_type, created_by_actor_id)
+           values ($1,$2,1,$3,'DRAFT',$4,$5,$6,$7,'agent',$8)
+           returning id, version`,
+          [org_id, ct.rows[0].id, master_body, trace_id ?? null,
+           agent_id ?? null, agent_version ?? null, brand_brain_version_id, actor_id ?? null]);
+
+        for (const cl of claims) {
+          await c.query(
+            `insert into ${S}.claims (org_id, content_version_id, text, material, claim_type, evidence_ids)
+             values ($1,$2,$3,$4,$5,coalesce($6::uuid[], '{}'::uuid[]))`,
+            [org_id, cv.rows[0].id, cl.text, cl.material === true,
+             cl.claim_type ?? 'GENERAL', cl.evidence_ids?.length ? cl.evidence_ids : null]);
+        }
+
+        return { content_id: ct.rows[0].id, content_version_id: cv.rows[0].id,
+                 version: cv.rows[0].version, claims: claims.length };
+      });
+    },
+
+    /**
+     * Variante de canal. Uma por (versao, canal) — a constraint garante.
+     * Reexecutar devolve a que ja existe em vez de estourar: a capability e
+     * interna, mas o loop pode reexecutar, e um erro aqui viraria falha de
+     * agente quando na verdade o trabalho ja estava feito.
+     */
+    async createVariant({ org_id, content_version_id, channel, headline, body, cta, asset_refs }) {
+      const { rows } = await pool.query(
+        `insert into ${S}.channel_variants
+           (org_id, content_version_id, channel, headline, body, cta, asset_refs, char_count)
+         values ($1,$2,$3::${S}.channel,$4,$5,$6,coalesce($7::jsonb,'[]'::jsonb),$8)
+         on conflict (content_version_id, channel) do update
+           set body = excluded.body, headline = excluded.headline, cta = excluded.cta
+         returning id, channel::text as channel`,
+        [org_id, content_version_id, channel, headline ?? null, body, cta ?? null,
+         asset_refs ? JSON.stringify(asset_refs) : null, body ? body.length : null]);
+      return rows[0];
+    },
+
+    /**
+     * Nova versao do Brand Brain — SEMPRE CANDIDATE.
+     *
+     * O agente AGT-MKT-BRAND declara isso no proprio registry, em
+     * deviates_from_base: "Promove versao apenas para CANDIDATE; a promocao
+     * para ACTIVE e sempre humana." Aqui o status e literal, nao parametro:
+     * nao ha argumento que faca esta funcao escrever ACTIVE.
+     *
+     * O motivo e o erro mais caro do papel: um Brand Brain errado promovido
+     * contamina todo conteudo gerado depois, e ninguem percebe a origem.
+     */
+    async proposeBrandVersion({ org_id, brand_id, identity, tone, claims_allowed,
+                               prohibitions, disclaimers, source_refs, actor_id }) {
+      return emTransacao(async (c) => {
+        const prox = await c.query(
+          `select coalesce(max(version), 0) + 1 as v from ${S}.brand_brain_versions
+            where org_id = $1 and brand_id = $2`, [org_id, brand_id]);
+
+        const { rows } = await c.query(
+          `insert into ${S}.brand_brain_versions
+             (org_id, brand_id, version, status, identity, tone, claims_allowed,
+              prohibitions, disclaimers, source_refs,
+              created_by_actor_type, created_by_actor_id)
+           values ($1,$2,$3,'CANDIDATE',
+                   coalesce($4::jsonb,'{}'::jsonb), coalesce($5::jsonb,'{}'::jsonb),
+                   coalesce($6::jsonb,'[]'::jsonb), coalesce($7::jsonb,'[]'::jsonb),
+                   coalesce($8::jsonb,'[]'::jsonb), coalesce($9::jsonb,'[]'::jsonb),
+                   'agent',$10)
+           returning id, version, status::text as status`,
+          [org_id, brand_id, prox.rows[0].v,
+           json(identity), json(tone), json(claims_allowed), json(prohibitions),
+           json(disclaimers), json(source_refs), actor_id ?? null]);
+        return rows[0];
+      });
+    },
+  };
+
   return { routing, budget, registry, runs, policies, receipts, outbox, approvals,
-           connections, variants, publishing, content, knowledge };
+           connections, variants, publishing, content, knowledge, authoring };
 }

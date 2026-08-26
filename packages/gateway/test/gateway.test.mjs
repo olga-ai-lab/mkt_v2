@@ -240,3 +240,84 @@ test("o trace registra dedup e conclusao", async () => {
   assert.ok(events.some((e) => e.event === "capability.completed"));
   assert.ok(events.some((e) => e.event === "capability.deduplicated"));
 });
+
+// ── output_schema_ref: o contrato de saida que ninguem conferia ──────────────
+//
+// A coluna existe em mkt.capability_registry desde a 0004. Ate agora ela era
+// declaracao sem consequencia: o adapter podia devolver qualquer coisa. Uma
+// capability de simulate como quality.precheck vive do que devolve, entao
+// saida fora do contrato precisa falhar como falha, nao passar como sucesso.
+
+const PRECHECK = {
+  capability_id: "quality.precheck", version: 1, status: "ACTIVE", mode: "simulate",
+  side_effect: "none", risk_tier: "LOW", permissions: ["OWNER"],
+  provider_adapter: null, output_schema_ref: "olga://io/validated-result",
+};
+const ALLOW_PRECHECK = {
+  policy_id: "POL_PRECHECK", version: 1, status: "ACTIVE", priority: 600,
+  scope: { capability_id: "quality.precheck" }, conditions: [], effect: "ALLOW", max_autonomy: "A2",
+};
+
+/** Gateway com um adapter interno que devolve exatamente o `output` pedido. */
+function precheckHarness(output) {
+  return createGateway({
+    registry: { getCapability: async (id, v) => (id === "quality.precheck" && v === 1 ? PRECHECK : null),
+                newId: () => "00000000-0000-4000-8000-000000000001" },
+    policies: { listActive: async () => [ALLOW_PRECHECK] },
+    receipts: { find: async () => null, save: async () => {} },
+    adapters: { internal: { call: async () => ({ external_id: "cv1", output }) } },
+  });
+}
+
+const pedidoPrecheck = {
+  trace_id: "t-pre", tenant: { org_id: ORG, workspace_id: WS },
+  capability_id: "quality.precheck", capability_version: 1, mode: "simulate",
+  args: { content_version_id: "cv1" }, idempotency_key: "k_precheck_1",
+};
+
+test("saida que satisfaz o output_schema_ref passa e volta em `output`", async () => {
+  const gw = precheckHarness({ trace_id: "t-pre", valid: false, checks: [
+    { check: "claims_supported", passed: false, detail: "1 claim material sem evidence" },
+  ], reason_codes: ["CLAIM_UNSUPPORTED"] });
+
+  const r = await gw.execute(pedidoPrecheck, { facts: HAPPY, actor: { role: "OWNER", org_id: ORG } });
+  assert.equal(r.execution.status, "SUCCEEDED");
+  assert.equal(r.output.valid, false);
+  assert.deepEqual(r.output.reason_codes, ["CLAIM_UNSUPPORTED"]);
+});
+
+test("saida fora do output_schema_ref vira falha, nunca sucesso", async () => {
+  // `check` e enum fechado: "achismo" nao esta nele.
+  const gw = precheckHarness({ trace_id: "t-pre", valid: true, checks: [{ check: "achismo", passed: true }] });
+
+  const r = await gw.execute(pedidoPrecheck, { facts: HAPPY, actor: { role: "OWNER", org_id: ORG } });
+  assert.equal(r.execution.status, "FAILED");
+  assert.equal(r.execution.error.reason_code, "SCHEMA_VALIDATION_FAILED");
+  assert.equal(r.execution.error.class, "VALIDATION");
+  assert.equal(r.execution.error.retryable, false);
+  assert.equal(r.output, null, "saida invalida nao pode vazar para quem chamou");
+});
+
+test("saida invalida nao e retentada: repetir traria a mesma saida", async () => {
+  let chamadas = 0;
+  const gw = createGateway({
+    registry: { getCapability: async () => ({ ...PRECHECK, max_attempts: 3 }), newId: () => "id" },
+    policies: { listActive: async () => [ALLOW_PRECHECK] },
+    receipts: { find: async () => null, save: async () => {} },
+    adapters: { internal: { call: async () => { chamadas++; return { output: { nao: "serve" } }; } } },
+  });
+  const r = await gw.execute(pedidoPrecheck, { facts: HAPPY, actor: { role: "OWNER", org_id: ORG } });
+  assert.equal(r.execution.status, "FAILED");
+  assert.equal(chamadas, 1);
+});
+
+test("capability sem output_schema_ref proprio nao exige output nenhum", async () => {
+  const { gw } = harness();
+  const r = await gw.execute({
+    trace_id: "t-d", tenant: { org_id: ORG, workspace_id: WS },
+    capability_id: "content.create_draft", capability_version: 1, mode: "write",
+    args: { brand_id: "b1" }, idempotency_key: "k_draft_0001",
+  }, { facts: HAPPY, actor: { role: "OWNER", org_id: ORG } });
+  assert.equal(r.execution.status, "SUCCEEDED");
+  assert.equal(r.output, null);
+});

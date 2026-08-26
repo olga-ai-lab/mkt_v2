@@ -67,7 +67,7 @@ const AMBIGUIDADE_MATERIAL = new Set([
 export function createCompiler(builders = {}) {
   return {
     /** @returns {{ capability_id: string, mode: string, args: object }} */
-    async compile(step, { entities, context, tenant }) {
+    async compile(step, { entities, context, tenant, agent }) {
       const builder = builders[step.capability_id];
       if (!builder) {
         // Sem builder não há compilação possível. A alternativa seria aceitar
@@ -75,7 +75,7 @@ export function createCompiler(builders = {}) {
         throw new LoopError("SCHEMA_VALIDATION_FAILED", "UNSUPPORTED",
           `sem compilador para ${step.capability_id}: os args teriam de vir do modelo`);
       }
-      const args = await builder({ entities, context, tenant, step });
+      const args = await builder({ entities, context, tenant, agent, step });
       if (args == null || typeof args !== "object") {
         throw new LoopError("SCHEMA_VALIDATION_FAILED", "UNSUPPORTED",
           `compilador de ${step.capability_id} nao devolveu args`);
@@ -338,8 +338,12 @@ export function createAgentLoop({
         // `await`: um builder real precisa consultar o banco. A conexão e a
         // variante de canal não vêm do modelo — são resolvidas a partir do
         // conteúdo e do canal, que é justamente o que os tira do alcance dele.
+        // `agent` entra no contexto de compilacao porque o registry declara
+        // agent_id na policy e mkt.content_versions guarda quem escreveu. Sem
+        // isso, `request.args.agent_id` que o gateway le no passo 3 era sempre
+        // nulo, e toda policy com escopo por agente nunca casava.
         const compilado = await compiler.compile(step, {
-          entities: intent.entities, context: recuperado, tenant,
+          entities: intent.entities, context: recuperado, tenant, agent,
         });
 
         // ── 6. EXECUTOR ────────────────────────────────────────────────────
@@ -368,6 +372,27 @@ export function createAgentLoop({
                        : "TEMPORARILY_UNAVAILABLE";
           return encerrar(estado, validado.reason_codes,
             "Não consegui concluir esta ação agora.");
+        }
+
+        // ── 7b. O que uma capability de SIMULACAO achou ────────────────────
+        //
+        // quality.precheck e compliance.review nao produzem efeito: produzem
+        // laudo. O gateway devolve esse laudo em `output`, ja validado contra
+        // olga://io/validated-result — e ate aqui o loop o descartava.
+        //
+        // Descartar era pior que ignorar: o agente rodava a conferencia, ela
+        // dizia "claim material sem evidence", e a resposta saia como se
+        // estivesse tudo certo. Conferir e nao contar e o unico resultado pior
+        // que nao conferir.
+        //
+        // Laudo negativo PARA o loop. Nao por policy — policy avalia fatos,
+        // nao texto — mas porque seguir para uma escrita depois de a propria
+        // conferencia reprovar seria decidir contra o que se acabou de apurar.
+        if (cap.mode === "simulate" && saida.output?.valid === false) {
+          const achados = saida.output.reason_codes ?? [];
+          emitir("loop.simulacao_reprovou", { step: step.step_id, reason_codes: achados });
+          return encerrar("QUALITY_BLOCKED", achados,
+            "Conferi antes de seguir e encontrei um problema que precisa ser resolvido.");
         }
 
         // ── 8. EVIDENCE — o efeito externo é sua própria evidência ─────────

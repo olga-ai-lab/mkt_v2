@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://io/draft-composition",
+  "title": "DraftComposition",
+  "description": "Saida do redator para content.create_draft. O modelo escreve o texto e DECLARA o que afirmou; a declaracao nao e permissao — claim material sem evidence e recusado pela capability e pela constraint claim_material_requires_evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "master_body", "claims"],
+  "properties": {
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "master_body": { "type": "string", "minLength": 1 },
+    "claims": {
+      "type": "array",
+      "description": "Lista, possivelmente vazia. Vazia significa 'nao afirmei nada verificavel', e o compliance.review le o texto gravado para conferir.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "claim_type", "material"],
+        "properties": {
+          "text": { "type": "string", "minLength": 1 },
+          "claim_type": { "$ref": "olga://enums/claim-type" },
+          "material": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

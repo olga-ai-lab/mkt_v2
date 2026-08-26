@@ -133,6 +133,9 @@ export function createGateway({ registry, policies, receipts, adapters, clock, t
             error: null, attempts: 0, started_at, finished_at: nowIso(clock),
           },
           receipt: existing,
+          // Replay nao tem output: o que voltou da primeira vez nao foi guardado,
+          // e inventar um vazio seria dizer que o provider respondeu nada.
+          output: null,
         };
       }
     }
@@ -147,7 +150,34 @@ export function createGateway({ registry, policies, receipts, adapters, clock, t
     while (attempts < maxAttempts) {
       attempts++;
       try {
-        out = await adapter.call({ capability: cap, request, idempotency_key: idem, trace_id });
+        // `granted_autonomy` vai junto porque capability interna nao emite
+        // receipt, e o receipt e onde a autonomia usada normalmente fica
+        // gravada. Sem isso, mkt.publications.autonomy_used registraria o que
+        // foi PEDIDO em vez do que foi CONCEDIDO — e uma policy que rebaixou
+        // A3 para A2 sumiria do rastro exatamente no caso em que ela agiu.
+        //
+        // Nao e policy chegando ao adapter: e o resultado dela, ja decidido.
+        out = await adapter.call({
+          capability: cap, request, idempotency_key: idem, trace_id,
+          granted_autonomy: respondability.granted_autonomy ?? null,
+        });
+        // O registry declara `output_schema_ref` desde a 0004 e ninguem conferia:
+        // a coluna existia, o contrato estava escrito e a saida do adapter
+        // passava direto. Quando o ref e o proprio envelope de execucao, nao ha
+        // o que checar — quem monta o envelope e este arquivo, logo abaixo.
+        const refSaida = cap.output_schema_ref;
+        if (refSaida && refSaida !== "olga://io/execution-result") {
+          const r = validate(refSaida, out?.output ?? null);
+          if (!r.valid) {
+            // O adapter respondeu fora do contrato que a capability declara.
+            // Isso e falha PERMANENTE: repetir traria a mesma saida invalida.
+            // O efeito, se houve, continua indo para o receipt mais abaixo.
+            throw new CapabilityError("SCHEMA_VALIDATION_FAILED",
+              `saida de ${cap.capability_id} nao satisfaz ${refSaida}`,
+              { error_class: "VALIDATION", retryable: false,
+                provider_message: JSON.stringify(r.errors)?.slice(0, 500) });
+          }
+        }
         err = null;
         break;
       } catch (e) {
@@ -191,7 +221,15 @@ export function createGateway({ registry, policies, receipts, adapters, clock, t
     tracer?.event?.({ trace_id, event: "capability.completed", capability_id: cap.capability_id,
                       status: execution.status, attempts, autonomy: respondability.granted_autonomy });
 
-    return { respondability, execution, receipt };
+    // `output` viaja FORA do ExecutionResult, e nao dentro dele.
+    //
+    // O contrato do ExecutionResult tem additionalProperties: false, e isso e
+    // proposital: ele e o registro auditavel do que aconteceu, com forma fixa.
+    // Mas capability de leitura e de simulacao existe justamente pelo que
+    // devolve — brand.read sem o Brand Brain de volta seria uma consulta que
+    // so diz "consultei". Entao o dado vai ao lado, ja validado contra o
+    // `output_schema_ref` quando a capability declara um.
+    return { respondability, execution, receipt, output: err ? null : (out?.output ?? null) };
   }
 
   return { execute };

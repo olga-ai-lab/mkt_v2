@@ -24,6 +24,7 @@ import { createAgentLoop, createCompiler } from "@olga/runtime/agent-loop";
 import { createLlmResolver, createLlmPlanner, createLlmResponder } from "@olga/runtime/agent-stages";
 import { createAllCompilers } from "@olga/runtime/capability-compilers";
 import { createRetrieval } from "@olga/runtime/retrieval";
+import { createComposer } from "@olga/runtime/composer";
 import { createGateway } from "@olga/gateway";
 import { createWorkerPorts } from "./ports-worker.mjs";
 import { createAdapters, createEnvSecrets } from "./adapters.mjs";
@@ -52,10 +53,21 @@ export function createWorkerApp({ pool, inngest, providers, env = process.env, t
   const worker = createWorkerPorts(pool, opcoes);
   const approvalService = createApprovalService({ approvals: ports.approvals, tracer });
 
+  // O Model Gateway sobe ANTES dos adapters, e nao depois.
+  //
+  // Duas capabilities internas escrevem texto, e texto sai de modelo. O
+  // adapter interno recebe o redator por porta; se os adapters fossem montados
+  // primeiro, o redator teria de ser injetado depois, e existiria um instante
+  // em que o adapter esta no mapa do gateway sem saber escrever.
+  const modelGateway = providers
+    ? createModelGateway({ routing: ports.routing, budget: ports.budget, providers, tracer })
+    : null;
+
   const { adapters, mode: adapterMode } = createAdapters({
     ports, tracer,
     secrets: createEnvSecrets(env),
     mode: env.META_ADAPTER ?? "fake",
+    compose: modelGateway ? createComposer({ modelGateway }) : null,
   });
 
   const gateway = createGateway({
@@ -84,12 +96,8 @@ export function createWorkerApp({ pool, inngest, providers, env = process.env, t
   // Os compiladores são o que impede o modelo de escolher argumentos. Sem
   // eles montados aqui, o loop recusaria toda capability — que é o padrão
   // seguro, mas não é o que se quer em produção.
-  let modelGateway = null;
   let agentLoop = null;
-  if (providers) {
-    modelGateway = createModelGateway({
-      routing: ports.routing, budget: ports.budget, providers, tracer,
-    });
+  if (modelGateway) {
     agentLoop = createAgentLoop({
       resolver: createLlmResolver({ modelGateway }),
       planner: createLlmPlanner({ modelGateway }),

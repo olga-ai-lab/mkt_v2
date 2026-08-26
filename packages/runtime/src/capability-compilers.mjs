@@ -80,7 +80,7 @@ export function createPhase1Compilers({ publishing } = {}) {
      * Rascunho de conteúdo. O texto em si é gerado depois, pela capability;
      * o que se compila aqui é o alvo: qual marca, qual objetivo, qual canal.
      */
-    "content.create_draft": ({ entities, context, tenant }) => {
+    "content.create_draft": ({ entities, context, tenant, agent }) => {
       const brand_id = exigirEntidade(entities, "brand", "marca");
       return {
         brand_id,
@@ -88,6 +88,11 @@ export function createPhase1Compilers({ publishing } = {}) {
         channel: valorEntidade(entities, "channel"),
         objective: valorEntidade(entities, "objective"),
         brand_brain_version_id: context?.brand_brain_version_id ?? null,
+        // Quem escreveu fica gravado na versão. Não é telemetria: é o que
+        // permite recolher o que um agente produziu quando ele se revela
+        // errado, sem ter de adivinhar pelo horário.
+        agent_id: agent?.agent_id ?? null,
+        agent_version: agent?.version ?? null,
       };
     },
 
@@ -169,7 +174,128 @@ export function createReadCompilers() {
   };
 }
 
-/** Escrita da Fase 1 mais leitura. É este o mapa que a aplicação monta. */
+/**
+ * Compiladores das capabilities internas restantes.
+ *
+ * Cinco capabilities do registry não tinham compilador: sem ele o loop recusa
+ * o passo com "ainda não sei executar" — recusa correta, mas que deixava
+ * AGT-MKT-BRAND sem nenhuma escrita e AGT-MKT-CONTENT sem variante nem
+ * agendamento. Um agente com charter que ele não consegue exercer.
+ *
+ * `channel.connect` está aqui por simetria e falha sempre, de propósito: ver o
+ * comentário no próprio builder.
+ *
+ * @param {{ publishing?: { findDestination: Function } }} ports
+ */
+export function createInternalCompilers({ publishing } = {}) {
+  return {
+    /**
+     * Extração do site. A URL não vem do modelo: vem do cadastro da marca.
+     *
+     * Isso não é preciosismo — `brand.extract_from_url` sai para a rede pelo
+     * adapter web_fetch, e uma URL escolhida pelo modelo a partir de texto do
+     * usuário é exatamente o vetor que a defesa de SSRF daquele adapter existe
+     * para conter. Melhor não deixar chegar lá.
+     */
+    "brand.extract_from_url": async ({ entities, context, tenant }) => {
+      const brand_id = exigirEntidade(entities, "brand", "marca");
+      const url = context?.brand?.website_url ?? context?.website_url ?? null;
+      if (!url) {
+        throw new CompileError("NORMALIZATION_FAILED",
+          "esta marca não tem site cadastrado para eu ler");
+      }
+      return { brand_id, url: String(url), workspace_id: tenant.workspace_id };
+    },
+
+    /**
+     * Proposta de Brand Brain.
+     *
+     * O conteúdo proposto vem do passo anterior — a extração — e chega pelo
+     * contexto, já do lado de cá. `status` não é argumento: a porta escreve
+     * CANDIDATE literal, porque promover para ACTIVE é ato humano (o próprio
+     * AGT-MKT-BRAND declara isso em deviates_from_base).
+     */
+    "brand.propose_version": ({ entities, context }) => {
+      const brand_id = exigirEntidade(entities, "brand", "marca");
+      const p = context?.proposta ?? context?.brand_proposal ?? null;
+      if (!p) {
+        throw new CompileError("EVIDENCE_INSUFFICIENT",
+          "não tenho o que propor: falta a extração que sustenta a versão");
+      }
+      return {
+        brand_id,
+        identity: p.identity ?? {}, tone: p.tone ?? {},
+        claims_allowed: p.claims_allowed ?? [], prohibitions: p.prohibitions ?? [],
+        disclaimers: p.disclaimers ?? [], source_refs: p.source_refs ?? [],
+      };
+    },
+
+    /**
+     * Conexão de canal — sempre recusa, e é isso que deve fazer.
+     *
+     * Conectar uma conta é consentimento: passa por OAuth, no navegador de uma
+     * pessoa, e termina com um token que vai para o vault. Nada disso cabe num
+     * passo de agente. O compilador existe para que a recusa seja NOMEADA —
+     * "isso é ação sua, no painel" — em vez de o loop dizer "não sei executar",
+     * que soa como defeito nosso.
+     */
+    "channel.connect": () => {
+      throw new CompileError("CONSENT_MISSING",
+        "conectar um canal é ação sua: o consentimento acontece no painel, não por mim");
+    },
+
+    /**
+     * Variante de canal. O texto nasce na capability; aqui se compila o alvo.
+     */
+    "content.create_variant": ({ entities }) => {
+      const content_version_id = exigirEntidade(entities, "content_version", "conteúdo");
+      const channel = valorEntidade(entities, "channel");
+      if (!channel) throw new CompileError("AMBIGUOUS_ENTITY", "não sei para qual canal adaptar");
+      return { content_version_id, channel: String(channel).toUpperCase() };
+    },
+
+    /**
+     * Agendamento. Consulta o destino pelo mesmo caminho que a publicação.
+     *
+     * Agendar é interno e publicar é externo, mas as duas escolhem a MESMA
+     * conta e a MESMA variante. Se cada uma resolvesse do seu jeito, existiria
+     * a possibilidade de agendar para um destino e publicar em outro.
+     */
+    "publishing.schedule": async ({ entities, context, tenant }) => {
+      if (!publishing?.findDestination) {
+        throw new CompileError("SCHEMA_VALIDATION_FAILED",
+          "compilador de agendamento exige a porta publishing.findDestination");
+      }
+      const content_version_id = exigirEntidade(entities, "content_version", "conteúdo");
+      const channel = valorEntidade(entities, "channel");
+      if (!channel) throw new CompileError("AMBIGUOUS_ENTITY", "não sei em qual canal agendar");
+
+      const destino = await publishing.findDestination(
+        tenant.org_id, tenant.workspace_id, content_version_id, channel);
+      if (!destino) {
+        throw new CompileError("CHANNEL_NOT_CONNECTED",
+          `sem destino para agendar em ${channel}: falta variante de canal ou conexão ativa`);
+      }
+
+      // A data vem do contexto confiável, nunca de texto solto: "semana que
+      // vem" precisa virar timestamp antes de chegar aqui, e quem faz isso é o
+      // resolver, com o fuso do workspace.
+      const quando = context?.scheduled_at ?? null;
+      return {
+        content_version_id, channel,
+        connection_id: destino.connection_id,
+        channel_variant_id: destino.channel_variant_id,
+        scheduled_at: quando ? new Date(quando).toISOString() : null,
+      };
+    },
+  };
+}
+
+/** Todas as capabilities que o MVP sabe compilar. É este o mapa que a aplicação monta. */
 export function createAllCompilers(ports = {}) {
-  return { ...createReadCompilers(), ...createPhase1Compilers(ports) };
+  return {
+    ...createReadCompilers(),
+    ...createPhase1Compilers(ports),
+    ...createInternalCompilers(ports),
+  };
 }

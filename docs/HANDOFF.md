@@ -238,14 +238,14 @@ adapter → publicado → evento de volta no outbox.
 
 **Depende de você, não de código:**
 
-1. **Promover um agent para `ACTIVE`.** Os quatro nascem `CANDIDATE`, então o
-   runtime recusa qualquer execução com `AGENT_NOT_ACTIVE`. Promover é ato de
-   governança deliberado — nenhuma sessão deve fazer isso sozinha.
-2. **Definir o Gate G1.** A Fase 0 fechou com gate executável (10/10). A Fase 1
-   ainda não tem o dela, e este repositório é construído sobre "gate
-   executável, não checklist em prosa". Há até um teste chamado
-   `GATE G1 — replay do workflow` sem gate correspondente.
-3. **Submeter o app na Meta** — o relógio mais lento do projeto.
+1. ~~**Promover um agent para `ACTIVE`.**~~ Feito na 0009, para o
+   `AGT-MKT-COPILOT`, depois dos evals e com um bloco que recusa a promoção se
+   um agente `ACTIVE` tiver capability de escrita. Os outros três seguem
+   `CANDIDATE`.
+2. ~~**Definir o Gate G1.**~~ Feito: `npm run gate:g1`, 10/10 verificáveis. Ele
+   nunca se declara fechado sozinho — o que falta não é código.
+3. **Submeter o app na Meta** — o relógio mais lento do projeto, e o que
+   segura o G1.
 
 **Infraestrutura, essa sim é código:**
 
@@ -267,9 +267,11 @@ adapter → publicado → evento de volta no outbox.
 
 | | Antes | Depois |
 |---|---|---|
-| Testes | 126 | 221 |
+| Testes | 126 | 403 |
+| Evals de agente | 0 | 22 |
 | Gate G0 | 10/10 | 10/10 |
-| Migrations | 8 | 8 (nenhuma nova) |
+| Gate G1 | — | 10/10 verificáveis |
+| Migrations | 8 | 9 |
 
 Nenhuma migration nova foi criada de propósito: a fila de coisas para a
 Olga aplicar à mão já tinha duas, e "attempts alto e published_at nulo" já
@@ -285,6 +287,70 @@ segundo lugar para a mesma verdade.
   claim — token com role forjada não vira permissão.
 - **Não havia typecheck.** Passou a haver, e entrou no `npm test`: tipo
   quebrado é o mesmo que teste quebrado.
+
+### O executor das capabilities internas — o agente promovido que não executava
+
+O `AGT-MKT-COPILOT` foi promovido a `ACTIVE` na migração 0009. As três
+capabilities dele são `brand.read`, `evidence.read` e `quality.precheck`, e as
+três têm `provider_adapter` nulo no registry. O gateway resolve isso na linha
+
+```js
+const adapter = adapters[cap.provider_adapter ?? "internal"];
+```
+
+e `"internal"` não estava no mapa. Nove das doze capabilities do MVP caem nele.
+Um agente promovido respondia `PROVIDER_UNAVAILABLE` a tudo que sabia fazer.
+
+Os evals não pegaram porque o harness registrava
+`internal: createFakeMetaAdapter({ idPrefix: "int" })`. `brand.read` "passava"
+sem tocar em Brand Brain nenhum. Um eval que aprova o caminho que ninguém
+montou é pior que nenhum eval, porque dá confiança.
+
+Agora existe `packages/gateway/src/adapters/internal.mjs` com as nove, o
+harness usa o adapter de verdade contra as portas de verdade, e
+`packages/db/test/internal-executor.test.mjs` compara a lista do
+`capability_registry` com a do código — divergência entre migração e handler
+falha na CI em vez de aparecer no primeiro pedido de um cliente.
+
+**Quatro coisas que só apareceram quando o caminho passou a ser exercido:**
+
+1. **`output_schema_ref` era decoração.** A coluna está no registry desde a
+   0004 e nada a lia — `getCapability` nem a selecionava. Uma capability de
+   `simulate` vive do que devolve; saída fora do contrato passava como sucesso.
+   O gateway agora valida, e devolve o laudo em `output`, ao lado do
+   `ExecutionResult` (que tem `additionalProperties: false` de propósito).
+
+2. **O loop descartava o laudo do `simulate`.** `quality.precheck` rodava,
+   dizia "claim material sem lastro", e a resposta saía como se estivesse tudo
+   certo. Conferir e não contar é o único resultado pior que não conferir. Um
+   `simulate` com `valid: false` agora para o loop em `QUALITY_BLOCKED`.
+
+3. **`approval.request` ignorava a state machine.** Escrevia o estado de
+   destino direto; para um `DRAFT` o trigger devolvia `INVALID_STATE_TRANSITION`
+   cru. A J11 não liga `DRAFT` a revisão humana — `AI_REVIEW` vem antes. Agora
+   é recusa nomeada que diz o que falta.
+
+4. **O check de claim sem evidence era inalcançável.** A constraint
+   `claim_material_requires_evidence` impede que claim material entre com array
+   vazio, então contra `cardinality(evidence_ids)` o check nunca reprovaria
+   nada. Mas `evidence_ids` é `uuid[]` e não tem foreign key: apagar uma
+   evidence deixa o id pendurado. `claimsFor` passou a contar evidence que
+   **existe**, e é isso que `CLAIM_UNSUPPORTED` significa — "o que sustentava
+   sumiu".
+
+**O que o modelo escreve e o que ele apenas declara.** `content.create_draft`
+e `content.create_variant` recebem uma porta `compose`
+(`packages/runtime/src/composer.mjs`); as outras sete não chamam modelo nenhum,
+porque contar claim material sem lastro é contagem, não julgamento. O redator
+responde os contratos `olga://io/draft-composition` e
+`olga://io/variant-composition` — é o schema que fecha `claim_type` num enum,
+para que um claim de cobertura não possa ser rebaixado a genérico em silêncio.
+
+**O que ainda falta aqui:** nada move `DRAFT` para `AI_REVIEW`. `quality.precheck`
+é a revisão de IA em intenção, mas `side_effect` dela é `none` no registry, e
+capability que não escreve não muda estado. Resolver isso é decisão de
+governança — mudar o `side_effect` no registry é migração — e não foi tomada
+por conta própria.
 
 ## 5. Regras de engajamento neste repositório
 

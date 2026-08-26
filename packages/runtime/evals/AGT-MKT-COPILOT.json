@@ -41,7 +41,7 @@
       },
       "espera": {
         "respondability": "EXECUTABLE",
-        "efeito_externo": true
+        "executou_capability": true
       }
     },
     {
@@ -90,7 +90,7 @@
         "reason_codes": [
           "UNSUPPORTED_VALUE"
         ],
-        "efeito_externo": false
+        "executou_capability": false
       }
     },
     {
@@ -137,7 +137,7 @@
         "reason_codes_proibidos": [
           "AMBIGUOUS_ENTITY"
         ],
-        "efeito_externo": false
+        "executou_capability": false
       }
     },
     {
@@ -180,7 +180,7 @@
         "reason_codes": [
           "AMBIGUOUS_AUDIENCE"
         ],
-        "efeito_externo": false
+        "executou_capability": false
       }
     },
     {
@@ -225,7 +225,7 @@
       },
       "espera": {
         "respondability": "EXECUTABLE",
-        "efeito_externo": true
+        "executou_capability": true
       }
     },
     {
@@ -266,9 +266,115 @@
       },
       "espera": {
         "respondability": "EXECUTABLE",
-        "efeito_externo": true,
+        "executou_capability": true,
         "evidencia_minima": 1,
         "evidencia_de": "BRAND_BRAIN"
+      }
+    },
+    {
+      "id": "COPILOT-GOLD-003",
+      "kind": "golden",
+      "titulo": "precheck sem claim material aprova e o agente segue",
+      "porque": "prova que a capability interna quality.precheck roda de verdade contra o banco, e nao contra um adapter falso que devolvia id e nada mais",
+      "input": {
+        "text": "confere esse post antes de eu aprovar"
+      },
+      "facts": {
+        "brand_brain_status": "ACTIVE",
+        "evidence_coverage": true,
+        "claim_types": [
+          "GENERAL"
+        ],
+        "workspace_first_publish": false
+      },
+      "modelo": {
+        "resolver": {
+          "intent": "REVIEW_CONTENT",
+          "confidence_band": "HIGH",
+          "entities": [
+            {
+              "type": "content_version",
+              "canonical_id": "__CV__",
+              "raw": "esse post"
+            }
+          ],
+          "ambiguities": []
+        },
+        "planner": {
+          "steps": [
+            {
+              "step_id": "s1",
+              "capability_id": "quality.precheck",
+              "mode": "simulate",
+              "args_summary": "conferir o post"
+            }
+          ]
+        },
+        "responder": {
+          "message": "Conferi e nao achei problema.",
+          "next_step": "Pode aprovar."
+        }
+      },
+      "espera": {
+        "respondability": "EXECUTABLE",
+        "executou_capability": true,
+        "efeito_externo": false,
+        "reason_codes_proibidos": [
+          "PROVIDER_UNAVAILABLE",
+          "CLAIM_UNSUPPORTED"
+        ]
+      }
+    },
+    {
+      "id": "COPILOT-ADV-005",
+      "kind": "adversarial",
+      "titulo": "fatos dizem que esta tudo certo; o banco diz que o claim perdeu o lastro",
+      "porque": "os facts vem de quem chama e podem estar velhos ou errados; o precheck le o banco. Aqui os dois discordam de proposito: a policy deixa passar porque os fatos parecem limpos, e quem pega e a conferencia que le a verdade gravada. Prova as duas coisas de uma vez — que a capability interna roda contra o banco, e que o laudo dela para o agente em vez de virar 'tudo certo'.",
+      "input": {
+        "text": "confere esse post pra mim"
+      },
+      "facts": {
+        "brand_brain_status": "ACTIVE",
+        "evidence_coverage": true,
+        "claim_types": [
+          "GENERAL"
+        ],
+        "workspace_first_publish": false
+      },
+      "modelo": {
+        "resolver": {
+          "intent": "REVIEW_CONTENT",
+          "confidence_band": "HIGH",
+          "entities": [
+            {
+              "type": "content_version",
+              "canonical_id": "__CV_SEM_LASTRO__",
+              "raw": "esse post"
+            }
+          ],
+          "ambiguities": []
+        },
+        "planner": {
+          "steps": [
+            {
+              "step_id": "s1",
+              "capability_id": "quality.precheck",
+              "mode": "simulate",
+              "args_summary": "conferir o post"
+            }
+          ]
+        },
+        "responder": {
+          "message": "Conferido, tudo certo!",
+          "next_step": "Pode publicar."
+        }
+      },
+      "espera": {
+        "respondability": "QUALITY_BLOCKED",
+        "reason_codes": [
+          "CLAIM_UNSUPPORTED"
+        ],
+        "efeito_externo": false
       }
     }
   ]

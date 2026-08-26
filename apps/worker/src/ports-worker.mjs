@@ -53,7 +53,8 @@ export function createWorkerPorts(pool, { schema = process.env.MKT_SCHEMA || "mk
       const { rows } = await pool.query(
         `select capability_id, version, status::text, mode::text, side_effect::text,
                 risk_tier::text, permissions, idempotency_required,
-                idempotency_key_template, provider_adapter, timeout_ms, max_attempts
+                idempotency_key_template, provider_adapter, timeout_ms, max_attempts,
+                output_schema_ref
            from ${S}.capability_registry where capability_id = $1 and version = $2`,
         [capability_id, version]);
       const c = rows[0];

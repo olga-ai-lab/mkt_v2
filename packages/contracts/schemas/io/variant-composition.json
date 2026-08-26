@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://io/variant-composition",
+  "title": "VariantComposition",
+  "description": "Saida do redator para content.create_variant. Adapta forma, nao substancia: nao ha campo para claim aqui porque uma variante nao afirma nada novo — o que foi afirmado ja passou pelos claims do master.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["body"],
+  "properties": {
+    "headline": { "type": ["string", "null"] },
+    "body": { "type": "string", "minLength": 1 },
+    "cta": { "type": ["string", "null"] }
+  }
+}

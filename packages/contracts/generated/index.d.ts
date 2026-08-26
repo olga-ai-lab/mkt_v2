@@ -80,6 +80,27 @@ export interface ClaimSet {
 }
 
 /**
+ * Enum fechado. Classifica o que uma peca de conteudo AFIRMA. COVERAGE, PRICE e DEADLINE sao os tres que a policy global POL_COMPLIANCE_ON_MATERIAL_CLAIM trata como materiais: afirmacao sobre cobertura, preco ou prazo sempre passa por humano. A mesma lista esta no CHECK de mkt.claims.claim_type (migracao 0002) — mudar aqui exige mudar la, e vice-versa.
+ */
+export type ClaimType = "COVERAGE" | "PRICE" | "DEADLINE" | "PERFORMANCE" | "GENERAL";
+
+/**
+ * Saida do redator para content.create_draft. O modelo escreve o texto e DECLARA o que afirmou; a declaracao nao e permissao — claim material sem evidence e recusado pela capability e pela constraint claim_material_requires_evidence.
+ */
+export interface DraftComposition {
+  title: string;
+  master_body: string;
+  /**
+   * Lista, possivelmente vazia. Vazia significa 'nao afirmei nada verificavel', e o compliance.review le o texto gravado para conferir.
+   */
+  claims: {
+    text: string;
+    claim_type: ClaimType;
+    material: boolean;
+  }[];
+}
+
+/**
  * Enum fechado. Reason code explica o ponto de falha sem depender de chain-of-thought (MKT-SPEC §11). Novo codigo entra apenas por pull request neste arquivo.
  */
 export type ReasonCode =
@@ -499,17 +520,37 @@ export type ReasonCode =
   | "NORMALIZATION_FAILED";
 
 /**
- * Result Validator. Nunca converte erro em sucesso (MKT-09B §5).
+ * Conjunto de checks nomeados com o resultado de cada um. Duas familias usam este contrato: o Result Validator do loop (MKT-09B §5) com os cinco checks tecnicos, e as capabilities de modo simulate (quality.precheck, compliance.review) com os checks de conteudo. Nunca converte erro em sucesso.
  */
 export interface ValidatedResult {
   trace_id: string;
   valid: boolean;
   checks: {
-    check: "schema" | "freshness" | "cardinality" | "tenant_scope" | "failure_normalized";
+    check:
+      | "schema"
+      | "freshness"
+      | "cardinality"
+      | "tenant_scope"
+      | "failure_normalized"
+      | "claims_supported"
+      | "evidence_sufficient"
+      | "duplicate_risk"
+      | "prohibitions"
+      | "material_claims"
+      | "disclaimers";
     passed: boolean;
     detail?: string;
   }[];
   reason_codes?: ReasonCode[];
+}
+
+/**
+ * Saida do redator para content.create_variant. Adapta forma, nao substancia: nao ha campo para claim aqui porque uma variante nao afirma nada novo — o que foi afirmado ja passou pelos claims do master.
+ */
+export interface VariantComposition {
+  headline?: string | null;
+  body: string;
+  cta?: string | null;
 }
 
 export type CapabilityMode = "read" | "simulate" | "write";
