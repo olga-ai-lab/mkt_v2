@@ -17,7 +17,8 @@
     "./eval-runner": "./src/eval-runner.mjs",
     "./retrieval": "./src/retrieval.mjs",
     "./composer": "./src/composer.mjs",
-    "./extractor": "./src/extractor.mjs"
+    "./extractor": "./src/extractor.mjs",
+    "./brand-activation": "./src/brand-activation.mjs"
   },
   "dependencies": {
     "@olga/contracts": "*",

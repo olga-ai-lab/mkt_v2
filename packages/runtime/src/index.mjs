@@ -8,3 +8,5 @@ export { deltaFor, uncertaintyPolicy, AGENTS_COM_DELTA } from "./agent-deltas.mj
 export { createRetrieval } from "./retrieval.mjs";
 export { createComposer, LIMITE_POR_CANAL } from "./composer.mjs";
 export { createBrandExtractor } from "./extractor.mjs";
+export { createBrandActivationService, lacunasDe, PAPEIS_QUE_ATIVAM,
+         BrandActivationError } from "./brand-activation.mjs";

@@ -8,6 +8,7 @@
 import { Pool } from "pg";
 import { createPostgresPorts } from "@olga/runtime/ports-postgres";
 import { createApprovalService } from "@olga/runtime/approvals";
+import { createBrandActivationService } from "@olga/runtime/brand-activation";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -19,7 +20,11 @@ export const pool =
 
 export const ports = createPostgresPorts(pool);
 
-export const approvalService = createApprovalService({
-  approvals: ports.approvals,
-  tracer: { event: (e: unknown) => console.log(JSON.stringify({ ...(e as object), kind: "trace" })) },
+const tracer = { event: (e: unknown) => console.log(JSON.stringify({ ...(e as object), kind: "trace" })) };
+
+export const approvalService = createApprovalService({ approvals: ports.approvals, tracer });
+
+export const brandActivationService = createBrandActivationService({
+  authoring: ports.authoring,
+  tracer,
 });

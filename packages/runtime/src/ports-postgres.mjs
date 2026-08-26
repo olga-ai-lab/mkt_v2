@@ -564,6 +564,28 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
    */
   const content = {
     /**
+     * As marcas do workspace, com o estado do Brand Brain de cada uma.
+     *
+     * `brand_brain_version` nulo e a informacao que importa nesta lista: e uma
+     * marca para a qual o agente recusa criar conteudo, e a home tem de dizer
+     * isso antes de alguem descobrir na primeira tentativa.
+     */
+    async listBrands(org_id, workspace_id) {
+      const { rows } = await pool.query(
+        `select b.id, b.name, b.website_url,
+                bb.version as brand_brain_version,
+                bb.activated_at,
+                (select count(*)::int from ${S}.brand_brain_versions c
+                  where c.brand_id = b.id and c.status = 'CANDIDATE') as candidatas
+           from ${S}.brands b
+           left join ${S}.brand_brain_versions bb
+             on bb.brand_id = b.id and bb.status = 'ACTIVE'
+          where b.org_id = $1 and b.workspace_id = $2
+          order by b.name`, [org_id, workspace_id]);
+      return rows;
+    },
+
+    /**
      * Versao corrente de cada conteudo do workspace, com o que a tela precisa
      * para decidir o que oferecer: estado, canal ja publicado, e se ha
      * variante para publicar.
@@ -873,6 +895,92 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
            json(disclaimers), json(source_refs), actor_id ?? null]);
         return rows[0];
       });
+    },
+
+    /**
+     * Ativar uma versao de Brand Brain — o ato humano em que o onboarding
+     * termina.
+     *
+     * Nao e capability, e nao vai virar uma. Ativar e assumir como marca o que
+     * um modelo leu de uma pagina: e a partir daqui que o redator pode repetir
+     * cada claim da lista, e que o compliance passa a cobrar cada disclaimer.
+     * Um agente que ativasse a propria proposta fecharia o circuito sobre si
+     * mesmo — o AGT-MKT-BRAND declara isso no proprio charter.
+     *
+     * ── Por que rebaixar e promover moram na mesma transacao ─────────────
+     *
+     * `brand_brain_one_active` e um unique index parcial: existe no maximo uma
+     * ACTIVE por marca. Promover antes de rebaixar viola o indice; rebaixar
+     * fora da transacao deixaria uma janela em que a marca nao tem Brand Brain
+     * nenhum — e nessa janela content.create_draft recusa com
+     * BRAND_BRAIN_NOT_ACTIVE, para um cliente que nao pediu nada.
+     *
+     * `for update` nas duas linhas porque duas abas ativando versoes
+     * diferentes ao mesmo tempo e um caso banal, e sem o lock as duas leem
+     * "nenhuma ativa" e uma delas quebra no indice, com erro de constraint em
+     * vez de resposta.
+     *
+     * DEPRECATED tambem pode voltar a ACTIVE, de proposito: reverter para a
+     * versao anterior quando a nova se revela ruim e a operacao mais provavel
+     * deste produto, e o SQL e o mesmo. O que nao volta e BLOCKED — bloqueio e
+     * decisao que precisa ser desfeita por quem a tomou, nao por um clique de
+     * ativar.
+     */
+    async activateBrandVersion({ org_id, brand_id, version_id, actor_id }) {
+      return emTransacao(async (c) => {
+        const alvo = await c.query(
+          `select id, version, status::text as status
+             from ${S}.brand_brain_versions
+            where id = $1 and org_id = $2 and brand_id = $3
+            for update`, [version_id, org_id, brand_id]);
+        if (alvo.rows.length === 0) return { ok: false, reason: "NOT_FOUND" };
+
+        const atual = alvo.rows[0];
+        if (atual.status === "ACTIVE") return { ok: false, reason: "ALREADY_ACTIVE", version: atual };
+        if (atual.status !== "CANDIDATE" && atual.status !== "DEPRECATED") {
+          return { ok: false, reason: "NOT_ACTIVATABLE", version: atual };
+        }
+
+        const anterior = await c.query(
+          `select id, version from ${S}.brand_brain_versions
+            where org_id = $1 and brand_id = $2 and status = 'ACTIVE'
+            for update`, [org_id, brand_id]);
+
+        if (anterior.rows.length > 0) {
+          await c.query(
+            `update ${S}.brand_brain_versions set status = 'DEPRECATED'
+              where id = $1`, [anterior.rows[0].id]);
+        }
+
+        const { rows } = await c.query(
+          `update ${S}.brand_brain_versions
+              set status = 'ACTIVE', activated_at = now(),
+                  created_by_actor_id = coalesce(created_by_actor_id, $2)
+            where id = $1
+            returning id, version, status::text as status, activated_at,
+                      claims_allowed, prohibitions, disclaimers, source_refs`,
+          [version_id, actor_id ?? null]);
+
+        return {
+          ok: true,
+          version: rows[0],
+          replaced: anterior.rows[0] ?? null,
+          reverted: atual.status === "DEPRECATED",
+        };
+      });
+    },
+
+    /** As versoes de Brand Brain de uma marca, para a tela de revisao. */
+    async brandVersions(org_id, brand_id) {
+      const { rows } = await pool.query(
+        `select id, version, status::text as status, identity, tone,
+                claims_allowed, prohibitions, disclaimers, source_refs,
+                created_by_actor_type::text as created_by_actor_type,
+                created_at, activated_at
+           from ${S}.brand_brain_versions
+          where org_id = $1 and brand_id = $2
+          order by version desc`, [org_id, brand_id]);
+      return rows;
     },
   };
 

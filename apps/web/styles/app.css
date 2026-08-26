@@ -125,3 +125,16 @@ nav.topo button {
 .login-form input:focus { outline: 2px solid var(--teal-600); outline-offset: 2px; }
 .login-form .btn { margin-top: var(--space-2); }
 .login-help { margin-top: var(--space-4); font-size: 14px; text-align: center; }
+
+/*
+ * Brand Brain: rotulo e valor, um par por linha. As quatro listas aparecem
+ * SEMPRE, mesmo vazias, com um travessao — uma lista de proibicoes que some
+ * quando esta vazia esconde justamente o que precisa ser preenchido.
+ */
+.brain {
+  display: grid; grid-template-columns: auto 1fr;
+  gap: var(--space-1) var(--space-4);
+  margin: 0 0 var(--space-4); font-size: 14px;
+}
+.brain dt { color: var(--text-muted); font-weight: 600; }
+.brain dd { margin: 0; }

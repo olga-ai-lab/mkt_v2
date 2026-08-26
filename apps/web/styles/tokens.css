@@ -39,6 +39,15 @@
 .state-blocked          { color: var(--danger);      background: #FAEEED; }
 .state-temporarily-unavailable { color: var(--info); background: #EDF3F8; }
 
+/*
+ * Ciclo de vida de registry (Brand Brain, capability, agente). Reaproveita o
+ * mesmo vocabulario de chip do estado de conteudo de proposito: quem opera le
+ * "Ativa" do mesmo jeito nas duas telas. DEPRECATED e neutro, e nao vermelho —
+ * uma versao substituida nao e uma falha, e voltar para ela e operacao normal.
+ */
+.state-active           { color: var(--emerald-500); background: #E7F5EF; }
+.state-deprecated       { color: var(--text-muted);  background: var(--canvas); }
+
 /* Modo de autonomia sempre visivel na acao — MKT-06A §7. */
 .autonomy-suggest  { border-left: 3px solid var(--text-muted); }
 .autonomy-draft    { border-left: 3px solid var(--teal-600); }
