@@ -5,3 +5,4 @@ export { createAgentLoop, createCompiler, validateResult, buildEvidence, LoopErr
 export { assembleContext, CONTEXT_LAYERS, createLlmResolver, createLlmPlanner, createLlmResponder } from "./agent-stages.mjs";
 export { createPhase1Compilers, createReadCompilers, createAllCompilers, CompileError } from "./capability-compilers.mjs";
 export { deltaFor, uncertaintyPolicy, AGENTS_COM_DELTA } from "./agent-deltas.mjs";
+export { createRetrieval } from "./retrieval.mjs";

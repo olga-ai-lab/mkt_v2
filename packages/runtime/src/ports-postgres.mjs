@@ -593,6 +593,74 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
     },
   };
 
+  /**
+   * Camada de conhecimento: o que o agente pode LER para se situar.
+   *
+   * Separada de `content` (que serve as telas) e de `registry` (que decide
+   * autorizacao) de proposito. O que a tela mostra, o que o gateway avalia e o
+   * que o agente le sao tres perguntas diferentes; um SELECT que servisse as
+   * tres viraria o lugar onde mudar layout mexe em autorizacao.
+   *
+   * Nada aqui devolve "tudo": cada consulta traz uma fatia com a sua versao.
+   */
+  const knowledge = {
+    /** A versao ACTIVE do Brand Brain de uma marca. Nao ha duas. */
+    async brandBrain(org_id, brand_id) {
+      const { rows } = await pool.query(
+        `select bb.id, bb.brand_id, bb.version, bb.status::text as status,
+                bb.identity, bb.tone, bb.claims_allowed, bb.prohibitions,
+                bb.disclaimers, bb.activated_at, bb.created_at,
+                b.name as brand_name
+           from ${S}.brand_brain_versions bb
+           join ${S}.brands b on b.id = bb.brand_id
+          where bb.org_id = $1 and bb.brand_id = $2 and bb.status = 'ACTIVE'
+          order by bb.version desc
+          limit 1`, [org_id, brand_id]);
+      return rows[0] ?? null;
+    },
+
+    /** O Brand Brain da marca de um conteudo, quando so se tem o conteudo. */
+    async brandBrainForContent(org_id, content_version_id) {
+      const { rows } = await pool.query(
+        `select bb.id, bb.brand_id, bb.version, bb.status::text as status,
+                bb.identity, bb.tone, bb.claims_allowed, bb.prohibitions,
+                bb.disclaimers, bb.activated_at, bb.created_at,
+                b.name as brand_name
+           from ${S}.content_versions cv
+           join ${S}.contents ct on ct.id = cv.content_id
+           join ${S}.brands b on b.id = ct.brand_id
+           join ${S}.brand_brain_versions bb
+             on bb.brand_id = b.id and bb.status = 'ACTIVE'
+          where cv.id = $2 and cv.org_id = $1
+          order by bb.version desc
+          limit 1`, [org_id, content_version_id]);
+      return rows[0] ?? null;
+    },
+
+    /** Evidence citada pelos claims de uma versao de conteudo. */
+    async evidenceFor(org_id, content_version_id) {
+      const { rows } = await pool.query(
+        `select distinct e.id, e.source_kind, e.locator, e.hash, e.fact,
+                e.quality, e.retrieved_at
+           from ${S}.claims cl
+           join ${S}.evidence e on e.id = any(cl.evidence_ids)
+          where cl.content_version_id = $2 and cl.org_id = $1
+          order by e.retrieved_at desc
+          limit 50`, [org_id, content_version_id]);
+      return rows;
+    },
+
+    /** Claims de uma versao, com o que a materialidade exige. */
+    async claimsFor(org_id, content_version_id) {
+      const { rows } = await pool.query(
+        `select id, text, material, claim_type, cardinality(evidence_ids) as evidencias
+           from ${S}.claims
+          where content_version_id = $2 and org_id = $1
+          order by material desc, created_at`, [org_id, content_version_id]);
+      return rows;
+    },
+  };
+
   return { routing, budget, registry, runs, policies, receipts, outbox, approvals,
-           connections, variants, publishing, content };
+           connections, variants, publishing, content, knowledge };
 }

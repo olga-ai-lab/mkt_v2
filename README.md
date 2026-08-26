@@ -167,6 +167,11 @@ promover cada um é decisão separada, com migration e motivo próprios. Há tes
 que derruba a suíte se um agente com escrita aparecer `ACTIVE`, e a `0009`
 checa o mesmo no banco.
 
+**Retrieval:** o agente lê o Brand Brain ACTIVE da marca, e só o que a
+intenção pede. `CONNECT_CHANNEL` não recebe contexto nenhum, de propósito. O
+que vem de lá entra como material na quinta camada de contexto — nunca como
+instrução de sistema.
+
 **Evals:** `npm run evals`. Casos em `packages/runtime/evals/<agente>.json`,
 rodados contra o banco real — só a resposta do modelo é roteirizada. Eles medem
 governança (parou onde devia? recusou o que devia?), não qualidade de texto;

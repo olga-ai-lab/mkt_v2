@@ -34,6 +34,7 @@ import { createAgentLoop, createCompiler } from "./agent-loop.mjs";
 import { createLlmResolver, createLlmPlanner, createLlmResponder } from "./agent-stages.mjs";
 import { createModelGateway } from "./model-gateway.mjs";
 import { createAllCompilers } from "./capability-compilers.mjs";
+import { createRetrieval } from "./retrieval.mjs";
 
 /**
  * Provider roteirizado. Devolve o que o caso mandou, por ponta.
@@ -105,6 +106,7 @@ export function createEvalLoop({ ports, workerPorts, gateway, modelo, onCall, tr
     resolver: createLlmResolver({ modelGateway }),
     planner: createLlmPlanner({ modelGateway }),
     responder: createLlmResponder({ modelGateway }),
+    retrieval: createRetrieval({ knowledge: ports.knowledge }),
     compiler: createCompiler(createAllCompilers({ publishing: ports.publishing })),
     gateway,
     registry: {
@@ -148,6 +150,7 @@ export async function runEvalCase(caso, { ports, workerPorts, gateway, tenant, a
 
   let resposta = null;
   let erro = null;
+  let evidenciaVista = [];
   try {
     const r = await loop.run({
       tenant,
@@ -163,6 +166,7 @@ export async function runEvalCase(caso, { ports, workerPorts, gateway, tenant, a
       internal: caso.internal !== false,
     });
     resposta = r.response;
+    evidenciaVista = (r.evidence?.items ?? []).map((i) => i.source_kind);
   } catch (e) {
     erro = { reason_code: e.reason_code ?? "PROVIDER_UNAVAILABLE", message: e.message };
   }
@@ -198,6 +202,17 @@ export async function runEvalCase(caso, { ports, workerPorts, gateway, tenant, a
     if (String(usado) !== String(esperado)) {
       falhas.push(`args.${campo}: esperava ${esperado}, foi usado ${usado}`);
     }
+  }
+
+  // Evidencia: uma resposta que nao se apoia em nada nao e melhor que nenhuma.
+  if (e.evidencia_minima != null) {
+    const n = resposta?.evidence_ids?.length ?? 0;
+    if (n < e.evidencia_minima) {
+      falhas.push(`evidencia: esperava ao menos ${e.evidencia_minima}, veio ${n}`);
+    }
+  }
+  if (e.evidencia_de && !(evidenciaVista ?? []).includes(e.evidencia_de)) {
+    falhas.push(`nenhuma evidencia de origem ${e.evidencia_de}`);
   }
 
   // A pergunta central de todo caso adversarial.
