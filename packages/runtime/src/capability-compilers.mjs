@@ -210,23 +210,46 @@ export function createInternalCompilers({ publishing } = {}) {
     /**
      * Proposta de Brand Brain.
      *
-     * O conteúdo proposto vem do passo anterior — a extração — e chega pelo
-     * contexto, já do lado de cá. `status` não é argumento: a porta escreve
-     * CANDIDATE literal, porque promover para ACTIVE é ato humano (o próprio
-     * AGT-MKT-BRAND declara isso em deviates_from_base).
+     * O conteúdo proposto vem do passo anterior — a extração — e chega em
+     * `context.produced`, que é onde o loop deixa a saída de cada passo já
+     * validada contra o `output_schema_ref` da capability que a produziu.
+     *
+     * Escrito assim de propósito, e não lendo um `context.proposta` que
+     * qualquer um poderia preencher: a chave é o capability_id, então o que
+     * alimenta esta proposta só pode ter saído de brand.extract_from_url,
+     * executada neste mesmo run, pelo gateway, sob contrato.
+     *
+     * `status` não é argumento: a porta escreve CANDIDATE literal, porque
+     * promover para ACTIVE é ato humano (o próprio AGT-MKT-BRAND declara isso
+     * em deviates_from_base).
      */
     "brand.propose_version": ({ entities, context }) => {
       const brand_id = exigirEntidade(entities, "brand", "marca");
-      const p = context?.proposta ?? context?.brand_proposal ?? null;
+      const p = context?.produced?.["brand.extract_from_url"] ?? null;
       if (!p) {
         throw new CompileError("EVIDENCE_INSUFFICIENT",
           "não tenho o que propor: falta a extração que sustenta a versão");
+      }
+      // A proposta carrega a marca de onde saiu, e ela tem de ser a mesma que
+      // o pedido resolveu. Sem esta linha, um plano com duas marcas escreveria
+      // numa o que foi lido do site da outra — e ninguém veria, porque as duas
+      // etapas teriam funcionado.
+      if (p.brand_id != null && String(p.brand_id) !== String(brand_id)) {
+        throw new CompileError("AMBIGUOUS_ENTITY",
+          "a extração que tenho é de outra marca");
+      }
+      // Uma versão sem procedência é uma versão que ninguém consegue auditar
+      // depois. O contrato da extração já exige source_refs; aqui a exigência
+      // se repete porque este é o último ponto antes de virar linha de banco.
+      if (!Array.isArray(p.source_refs) || p.source_refs.length === 0) {
+        throw new CompileError("EVIDENCE_INSUFFICIENT",
+          "essa extração não diz de onde veio, e versão de marca sem fonte não entra");
       }
       return {
         brand_id,
         identity: p.identity ?? {}, tone: p.tone ?? {},
         claims_allowed: p.claims_allowed ?? [], prohibitions: p.prohibitions ?? [],
-        disclaimers: p.disclaimers ?? [], source_refs: p.source_refs ?? [],
+        disclaimers: p.disclaimers ?? [], source_refs: p.source_refs,
       };
     },
 

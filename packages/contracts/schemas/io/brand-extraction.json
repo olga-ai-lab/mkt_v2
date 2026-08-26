@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://io/brand-extraction",
+  "title": "BrandExtraction",
+  "description": "O que o MODELO devolve ao ler a pagina publica de uma marca. Nao e a proposta de Brand Brain — e a materia dela. A separacao entre este contrato e olga://io/brand-proposal existe para uma coisa so: procedencia e produzida por codigo, nunca declarada pelo modelo. Por isso nao ha `source_refs` aqui, e additionalProperties: false impede que ele invente uma.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["identity", "tone", "claims_allowed", "disclaimers"],
+  "properties": {
+    "identity": {
+      "type": "object",
+      "description": "Interpretacao. Uma sintese nao aparece literalmente na pagina, entao nao se exige citacao dela — o que se exige e que seja descricao, nunca permissao.",
+      "additionalProperties": false,
+      "required": ["summary"],
+      "properties": {
+        "summary": { "type": "string", "minLength": 1, "maxLength": 600 },
+        "audience": { "type": "string", "maxLength": 300 },
+        "differentiators": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        }
+      }
+    },
+    "tone": {
+      "type": "object",
+      "description": "Interpretacao, como identity: descreve como a marca fala.",
+      "additionalProperties": false,
+      "required": ["voice"],
+      "properties": {
+        "voice": { "type": "string", "minLength": 1, "maxLength": 400 },
+        "avoid": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        }
+      }
+    },
+    "claims_allowed": {
+      "type": "array",
+      "description": "O que a marca ja afirma publicamente sobre si. Permissao, e nao descricao: um item daqui autoriza o redator a repetir aquilo. Por isso cada um exige a citacao literal que o sustenta, conferida contra a pagina por codigo.",
+      "maxItems": 20,
+      "items": { "$ref": "#/definitions/grounded" }
+    },
+    "disclaimers": {
+      "type": "array",
+      "description": "Texto legal presente na pagina — registro SUSEP, remissao as condicoes gerais. Mesma exigencia de lastro dos claims.",
+      "maxItems": 10,
+      "items": { "$ref": "#/definitions/grounded" }
+    }
+  },
+  "definitions": {
+    "grounded": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "quote"],
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "description": "Como o item entra no Brand Brain."
+        },
+        "quote": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 500,
+          "description": "Trecho LITERAL da pagina que sustenta o item. Quem confere e o adapter, comparando com o texto buscado; item cuja citacao nao esta la nao entra na proposta."
+        }
+      }
+    }
+  }
+}

@@ -41,7 +41,13 @@ const RELEVANCIA = {
   EXPLAIN:        ["brand"],
   CREATE_CONTENT: ["brand"],
   PLAN_EDITORIAL: ["brand"],
-  ONBOARD_BRAND:  ["brand"],
+  // Onboarding é o caso em que o Brand Brain, por definição, ainda não existe:
+  // a marca acabou de ser cadastrada e o que se tem dela é a linha de
+  // mkt.brands. Trazer o Brand Brain aqui seria trazer nada — e, num
+  // re-onboarding, seria pior que nada: mostrar ao modelo a marca que já está
+  // escrita o convida a repeti-la em vez de ler a página. Quem compara
+  // candidata e ativa é a pessoa que revisa, não ele.
+  ONBOARD_BRAND:  ["brand_record"],
   // Revisar exige ver o que foi afirmado e com o que se sustenta.
   REVIEW_CONTENT: ["brand", "claims", "evidence"],
   // Publicar precisa das proibições: é a última chance de o modelo lembrar.
@@ -72,7 +78,7 @@ export function createRetrieval({ knowledge, maxAgeDays = 90, clock } = {}) {
     async fetch({ trace_id, tenant, intent }) {
       const querem = RELEVANCIA[intent?.intent] ?? [];
       if (querem.length === 0) {
-        return { slices: [], versions: [], stale: false, motivo: "intencao nao pede contexto" };
+        return { slices: [], versions: [], stale: false, brand: null, motivo: "intencao nao pede contexto" };
       }
 
       const brand_id = idDe(intent, "brand");
@@ -81,6 +87,36 @@ export function createRetrieval({ knowledge, maxAgeDays = 90, clock } = {}) {
       const slices = [];
       const versions = [];
       let maisAntigo = null;
+      let cadastro = null;
+
+      // ── Cadastro da marca ────────────────────────────────────────────────
+      //
+      // Não é conhecimento sobre a marca: é o nosso registro dela. Vem separado
+      // em `brand` porque o compilador de brand.extract_from_url precisa do
+      // `website_url` daqui, e de lugar nenhum mais — uma URL escolhida a
+      // partir de texto do usuário é exatamente o vetor que a defesa de SSRF do
+      // adapter web_fetch existe para conter.
+      if (querem.includes("brand_record") && brand_id) {
+        const b = await knowledge.brand(tenant.org_id, brand_id);
+        if (b) {
+          cadastro = { brand_id: String(b.id), name: b.name, website_url: b.website_url ?? null };
+          slices.push({
+            id: `brand_record:${b.id}`,
+            kind: "brand_record",
+            version: null,
+            retrieved_at: new Date(agora()).toISOString(),
+            conteudo: { marca: b.name, site: b.website_url ?? null },
+            evidence: {
+              evidence_id: String(b.id),
+              source_kind: "DOMAIN_RECORD",
+              locator: `brand://${b.id}`,
+              hash: hashDe(cadastro),
+              retrieved_at: new Date(agora()).toISOString(),
+              quality: "HIGH",
+            },
+          });
+        }
+      }
 
       // ── Brand Brain ──────────────────────────────────────────────────────
       if (querem.includes("brand")) {
@@ -165,7 +201,7 @@ export function createRetrieval({ knowledge, maxAgeDays = 90, clock } = {}) {
       const stale = maisAntigo != null &&
         (agora() - new Date(maisAntigo).getTime()) > maxAgeDays * DIAS;
 
-      return { slices, versions, stale, trace_id };
+      return { slices, versions, stale, brand: cadastro, trace_id };
     },
   };
 }

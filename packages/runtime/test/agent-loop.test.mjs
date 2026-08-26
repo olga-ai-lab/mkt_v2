@@ -9,6 +9,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createAgentLoop, createCompiler, validateResult, buildEvidence } from "../src/agent-loop.mjs";
+import { createInternalCompilers } from "../src/capability-compilers.mjs";
 
 const ORG = "11111111-1111-1111-1111-111111111111";
 const WS = "22222222-2222-2222-2222-222222222222";
@@ -364,4 +365,194 @@ test("validateResult cobre as cinco checagens do contrato", () => {
   assert.equal(v.valid, true);
   assert.deepEqual(v.checks.map((c) => c.check).sort(),
     ["cardinality", "failure_normalized", "freshness", "schema", "tenant_scope"]);
+});
+
+// ── O plano de dois passos: o que um leu, o outro usa ───────────────────────
+//
+// Onboarding de marca e o primeiro caso em que o passo 2 depende do que o
+// passo 1 produziu. Ate aqui todo passo era compilado contra o mesmo
+// `recuperado`, e brand.propose_version recusava sempre — com um reason code
+// correto, o que fazia a falha parecer comportamento.
+
+const BRAND_ID = "44444444-4444-4444-8444-444444444444";
+const PAGINA_HASH = "hash-da-pagina-lida";
+
+const AGENT_BRAND = {
+  agent_id: "AGT-MKT-BRAND", version: 1, status: "ACTIVE",
+  mission: "Montar e manter o Brand Brain.",
+  baseline_autonomy: "A2", max_autonomy: "A2",
+  capabilities: ["brand.extract_from_url", "brand.propose_version", "brand.read"],
+  model_profile: { task_class: "extraction" },
+};
+
+const CAPS_BRAND = {
+  "brand.extract_from_url": {
+    capability_id: "brand.extract_from_url", version: 1, status: "ACTIVE", mode: "read",
+    side_effect: "internal", risk_tier: "LOW", permissions: ["OWNER", "MARKETING"],
+    provider_adapter: "brand_extract", idempotency: { required: false },
+  },
+  "brand.propose_version": {
+    capability_id: "brand.propose_version", version: 1, status: "ACTIVE", mode: "write",
+    side_effect: "internal", risk_tier: "MEDIUM", permissions: ["OWNER", "MARKETING"],
+    idempotency: { required: false },
+  },
+};
+
+const EXTRAIDO = {
+  brand_id: BRAND_ID,
+  identity: { summary: "Corretora de risco climatico." },
+  tone: { voice: "Direta." },
+  claims_allowed: ["Atende enchente desde 1998"],
+  prohibitions: [],
+  disclaimers: ["Consulte as condicoes gerais"],
+  source_refs: [{ kind: "WEB_PAGE", locator: "https://ipe.example/", hash: PAGINA_HASH,
+                  retrieved_at: "2026-08-26T12:00:00.000Z" }],
+  discarded: [{ field: "claims_allowed", text: "A maior do pais", reason_code: "CLAIM_UNSUPPORTED" }],
+};
+
+function montarOnboarding(over = {}) {
+  const executadoCom = [];
+  const saidas = over.saidas ?? {
+    "brand.extract_from_url": EXTRAIDO,
+    "brand.propose_version": { brand_brain_version_id: "bbv-1", version: 1, status: "CANDIDATE" },
+  };
+
+  const loop = createAgentLoop({
+    resolver: {
+      resolve: async () => ({
+        trace_id: "tr_onb", tenant: { org_id: ORG, workspace_id: WS },
+        intent: "ONBOARD_BRAND", confidence_band: "HIGH",
+        entities: [{ type: "brand", canonical_id: BRAND_ID, raw: "a Ipe" }],
+        ambiguities: [],
+      }),
+    },
+    planner: {
+      plan: async () => ({
+        trace_id: "tr_onb", tenant: { org_id: ORG, workspace_id: WS },
+        agent_id: AGENT_BRAND.agent_id, agent_version: "1",
+        steps: [
+          { step_id: "s1", capability_id: "brand.extract_from_url", mode: "read",
+            args_summary: "ler o site da marca" },
+          { step_id: "s2", capability_id: "brand.propose_version", mode: "write",
+            args_summary: "propor a versao a partir do que foi lido" },
+        ],
+        expected_outcome: "uma versao candidata de Brand Brain",
+      }),
+    },
+    responder: { respond: async () => ({ message: "Montei uma proposta.", next_step: "Revise e ative." }) },
+    // O retrieval de verdade devolve `brand` para intencao de onboarding; aqui
+    // ele e roteirizado porque o que esta sob teste e o encadeamento.
+    retrieval: { fetch: async () => ({
+      slices: [], versions: [], stale: false,
+      brand: { brand_id: BRAND_ID, name: "Corretora Ipe",
+               website_url: over.semSite ? null : "https://ipe.example" },
+    }) },
+    compiler: over.compiler ?? createCompiler(createInternalCompilers({})),
+    gateway: {
+      execute: async (request) => {
+        executadoCom.push(request);
+        return {
+          respondability: { state: "EXECUTABLE", reason_codes: [], granted_autonomy: "A2" },
+          execution: {
+            trace_id: request.trace_id, capability_id: request.capability_id,
+            status: "SUCCEEDED", provider: null, external_id: null, error: null,
+            attempts: 1, started_at: new Date().toISOString(), finished_at: new Date().toISOString(),
+          },
+          output: saidas[request.capability_id] ?? null,
+        };
+      },
+    },
+    registry: {
+      getAgent: async () => AGENT_BRAND,
+      getCapability: async (id) => CAPS_BRAND[id] ?? null,
+      workspaceBelongsToOrg: async () => true,
+    },
+    policies: { listActive: async () => [POL_ALLOW] },
+    runs: { start: async () => {}, finish: async () => {} },
+    ids: { newId: () => "00000000-0000-4000-8000-000000000009", newTraceId: () => "tr_onb" },
+  });
+
+  return { loop, executadoCom };
+}
+
+const pedidoOnboarding = () => ({
+  trace_id: "tr_onb",
+  tenant: { org_id: ORG, workspace_id: WS },
+  actor: { id: "u1", role: "OWNER", org_id: ORG },
+  agent_id: "AGT-MKT-BRAND",
+  input: { text: "monta a marca a partir do nosso site" },
+  facts: {},
+});
+
+test("o que a extracao produziu vira argumento da proposta", async () => {
+  const { loop, executadoCom } = montarOnboarding();
+  const r = await loop.run(pedidoOnboarding());
+
+  assert.equal(r.response.respondability, "EXECUTABLE");
+  assert.equal(executadoCom.length, 2);
+
+  // Passo 1: a URL saiu do cadastro, e nao do texto de quem pediu.
+  assert.equal(executadoCom[0].args.url, "https://ipe.example");
+
+  // Passo 2: os campos vieram do passo 1, compilados por codigo.
+  const propor = executadoCom[1].args;
+  assert.deepEqual(propor.claims_allowed, ["Atende enchente desde 1998"]);
+  assert.deepEqual(propor.disclaimers, ["Consulte as condicoes gerais"]);
+  assert.deepEqual(propor.source_refs, EXTRAIDO.source_refs);
+  assert.equal(propor.brand_id, BRAND_ID);
+  // Nem o status nem o relatorio de descarte viram argumento: um e da porta,
+  // o outro e para quem revisa.
+  assert.equal(propor.status, undefined);
+  assert.equal(propor.discarded, undefined);
+});
+
+test("a pagina lida sustenta a resposta, mesmo sem receipt nenhum", async () => {
+  // Capability interna nao emite receipt — so efeito externo emite. Sem a
+  // evidencia vinda de source_refs, um run cujo trabalho inteiro foi ler algo
+  // responderia sem se apoiar em nada.
+  const { loop } = montarOnboarding();
+  const r = await loop.run(pedidoOnboarding());
+
+  assert.ok(r.response.evidence_ids.includes(PAGINA_HASH));
+  const item = r.evidence.items.find((i) => i.evidence_id === PAGINA_HASH);
+  assert.equal(item.source_kind, "SOURCE_ARTIFACT");
+  assert.equal(item.locator, "https://ipe.example/");
+});
+
+test("sem o que a extracao produz, propor para o loop em vez de escrever pela metade", async () => {
+  const { loop, executadoCom } = montarOnboarding({
+    saidas: { "brand.extract_from_url": null },
+  });
+  const r = await loop.run(pedidoOnboarding());
+
+  assert.equal(r.response.respondability, "QUALITY_BLOCKED");
+  assert.deepEqual(r.response.reason_codes, ["EVIDENCE_INSUFFICIENT"]);
+  assert.equal(executadoCom.length, 1, "o segundo passo nao pode ter sido executado");
+});
+
+// ── Recusa de compilador e resposta, nao excecao ────────────────────────────
+
+test("marca sem site cadastrado vira pergunta, e nao erro", async () => {
+  // O arquivo dos compiladores sempre prometeu esta transformacao. Ela nao
+  // existia: a recusa subia como excecao e quem pediu recebia um erro no lugar
+  // da frase escrita para ele ler.
+  const { loop, executadoCom } = montarOnboarding({ semSite: true });
+  const r = await loop.run(pedidoOnboarding());
+
+  assert.equal(r.response.respondability, "CLARIFICATION_REQUIRED");
+  assert.deepEqual(r.response.reason_codes, ["NORMALIZATION_FAILED"]);
+  assert.match(r.response.message, /site cadastrado/);
+  assert.equal(executadoCom.length, 0);
+});
+
+test("defeito de compilador continua subindo, em vez de virar resposta bonita", async () => {
+  // Um TypeError num builder e bug nosso. Transforma-lo em CLARIFICATION_REQUIRED
+  // esconderia o defeito atras de uma pergunta educada ao cliente.
+  const { loop } = montarOnboarding({
+    compiler: createCompiler({
+      "brand.extract_from_url": () => { throw new TypeError("undefined nao e funcao"); },
+      "brand.propose_version": () => ({}),
+    }),
+  });
+  await assert.rejects(() => loop.run(pedidoOnboarding()), TypeError);
 });

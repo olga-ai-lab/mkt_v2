@@ -629,6 +629,22 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
    * Nada aqui devolve "tudo": cada consulta traz uma fatia com a sua versao.
    */
   const knowledge = {
+    /**
+     * O CADASTRO da marca — nome e site — sem passar por Brand Brain nenhum.
+     *
+     * Existe porque o onboarding acontece justamente quando nao ha Brand Brain:
+     * a marca acabou de ser criada e o que se tem dela e a linha de mkt.brands.
+     * `website_url` daqui e a unica origem aceita para a URL que
+     * brand.extract_from_url busca — ver o adapter brand_extract.
+     */
+    async brand(org_id, brand_id) {
+      const { rows } = await pool.query(
+        `select id, org_id, workspace_id, name, website_url
+           from ${S}.brands
+          where org_id = $1 and id = $2`, [org_id, brand_id]);
+      return rows[0] ?? null;
+    },
+
     /** A versao ACTIVE do Brand Brain de uma marca. Nao ha duas. */
     async brandBrain(org_id, brand_id) {
       const { rows } = await pool.query(

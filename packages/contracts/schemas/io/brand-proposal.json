@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://io/brand-proposal",
+  "title": "BrandProposal",
+  "description": "Saida de brand.extract_from_url: a materia de uma versao de Brand Brain, ja conferida contra a pagina que a sustenta. Nao e a versao — quem escreve e brand.propose_version, e sempre como CANDIDATE.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["brand_id", "identity", "tone", "claims_allowed", "prohibitions", "disclaimers", "source_refs", "discarded"],
+  "properties": {
+    "brand_id": { "type": "string", "minLength": 1 },
+    "identity": { "type": "object" },
+    "tone": { "type": "object" },
+    "claims_allowed": {
+      "type": "array",
+      "description": "So o que passou pela conferencia de citacao. Strings, que e a forma que mkt.brand_brain_versions ja guarda.",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "prohibitions": {
+      "type": "array",
+      "maxItems": 0,
+      "description": "Sempre vazia, e o maxItems: 0 e o que garante isso. Uma pagina nao diz o que a marca NAO quer dizer — ela diz o que a marca diz. Proibicao extraida de site seria invencao com aparencia de regra, e ela alimenta o compliance.review. Quem preenche e a pessoa que revisa o CANDIDATE."
+    },
+    "disclaimers": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "source_refs": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Procedencia, construida pelo adapter a partir do que foi realmente buscado. minItems: 1 porque proposta sem fonte nao e proposta.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "locator", "hash", "retrieved_at"],
+        "properties": {
+          "kind": { "enum": ["WEB_PAGE"] },
+          "locator": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A URL FINAL, depois dos redirecionamentos. Guardar a pedida esconderia para onde a leitura foi parar."
+          },
+          "hash": {
+            "type": "string",
+            "minLength": 8,
+            "description": "Hash do texto extraido, nao do HTML: e o texto que o modelo leu."
+          },
+          "retrieved_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "discarded": {
+      "type": "array",
+      "description": "O que o modelo propos e a conferencia recusou. Descartar em silencio seria pior que aceitar: quem revisa o CANDIDATE precisa saber que houve item sem lastro, porque isso diz algo sobre a extracao inteira.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "text", "reason_code"],
+        "properties": {
+          "field": { "enum": ["claims_allowed", "disclaimers"] },
+          "text": { "type": "string" },
+          "reason_code": { "$ref": "olga://enums/reason-codes" }
+        }
+      }
+    }
+  }
+}

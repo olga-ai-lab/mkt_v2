@@ -16,7 +16,8 @@
     "./agent-deltas": "./src/agent-deltas.mjs",
     "./eval-runner": "./src/eval-runner.mjs",
     "./retrieval": "./src/retrieval.mjs",
-    "./composer": "./src/composer.mjs"
+    "./composer": "./src/composer.mjs",
+    "./extractor": "./src/extractor.mjs"
   },
   "dependencies": {
     "@olga/contracts": "*",

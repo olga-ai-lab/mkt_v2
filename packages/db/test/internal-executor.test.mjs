@@ -90,7 +90,7 @@ test("toda capability com provider_adapter aponta para um adapter que existe", a
   const { rows } = await db.query(
     `select distinct provider_adapter from mkt.capability_registry
       where provider_adapter is not null`);
-  const conhecidos = new Set(["meta_graph", "web_fetch", "internal"]);
+  const conhecidos = new Set(["meta_graph", "web_fetch", "brand_extract", "internal"]);
   for (const { provider_adapter } of rows) {
     assert.ok(conhecidos.has(provider_adapter), `adapter desconhecido no registry: ${provider_adapter}`);
   }

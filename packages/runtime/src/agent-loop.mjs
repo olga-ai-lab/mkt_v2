@@ -58,6 +58,34 @@ const AMBIGUIDADE_MATERIAL = new Set([
 ]);
 
 /**
+ * Em que estado o loop para quando um compilador se recusa a montar args.
+ *
+ * O arquivo dos compiladores sempre disse que "entidade faltando é pergunta,
+ * não improviso — o loop transforma isso em CLARIFICATION_REQUIRED e pergunta".
+ * A transformação não existia: a recusa subia até o catch de `run`, o run era
+ * marcado FAILED e a exceção saía do loop. Quem pedisse "monta a marca a partir
+ * do nosso site" para uma marca sem site cadastrado recebia um erro, e não a
+ * frase que o compilador escreveu justamente para ser lida por uma pessoa.
+ *
+ * O corte é entre recusa NOMEADA e defeito. Erro sem `reason_code` continua
+ * subindo: um TypeError num builder é bug nosso, e bug tem de ser barulhento.
+ */
+const ESTADO_DE_COMPILACAO = {
+  AMBIGUOUS_GOAL: "CLARIFICATION_REQUIRED",
+  AMBIGUOUS_ENTITY: "CLARIFICATION_REQUIRED",
+  AMBIGUOUS_AUDIENCE: "CLARIFICATION_REQUIRED",
+  // "não achei" também é pergunta: quem recebe confere o nome e responde.
+  NORMALIZATION_FAILED: "CLARIFICATION_REQUIRED",
+  // Falta lastro, e perguntar não resolve — quem responderia não tem a fonte.
+  EVIDENCE_INSUFFICIENT: "QUALITY_BLOCKED",
+  CLAIM_UNSUPPORTED: "QUALITY_BLOCKED",
+  // "isso é ação sua, no painel" e "falta destino": o agente não faz, e a
+  // mensagem do compilador é que diz o que a pessoa precisa fazer.
+  CONSENT_MISSING: "UNSUPPORTED",
+  CHANNEL_NOT_CONNECTED: "UNSUPPORTED",
+};
+
+/**
  * Compiler: transforma um passo aprovado do plano em args reais.
  *
  * `builders` é um mapa capability_id -> função determinística. Nenhum builder
@@ -299,6 +327,22 @@ export function createAgentLoop({
       let ultimaExecucao = null;
       let ultimaRespondability = null;
 
+      // O que cada passo produziu, por capability_id.
+      //
+      // Existe porque o primeiro plano de verdade com dois passos — extrair a
+      // marca do site e propor a versão — precisa que o segundo veja o que o
+      // primeiro leu. Até aqui todo passo era compilado contra o mesmo
+      // `recuperado`, e um plano encadeado era impossível de executar: o
+      // compilador de brand.propose_version pedia uma proposta que nada
+      // colocava no contexto.
+      //
+      // Isto NÃO afrouxa a fronteira do compilador. O que entra aqui já passou
+      // pelo `output_schema_ref` que a capability declara — é dado sob
+      // contrato, não texto do modelo — e mesmo assim entra em `context`, que é
+      // a sacola do não confiável, e não em args. Quem decide o que aproveitar
+      // continua sendo código determinístico, um builder por capability.
+      const produzido = {};
+
       for (const step of plan.steps) {
         const cap = await registry.getCapability(step.capability_id, 1);
         if (!cap) return encerrar("UNSUPPORTED", ["CAPABILITY_NOT_ACTIVE"],
@@ -342,9 +386,23 @@ export function createAgentLoop({
         // agent_id na policy e mkt.content_versions guarda quem escreveu. Sem
         // isso, `request.args.agent_id` que o gateway le no passo 3 era sempre
         // nulo, e toda policy com escopo por agente nunca casava.
-        const compilado = await compiler.compile(step, {
-          entities: intent.entities, context: recuperado, tenant, agent,
-        });
+        let compilado;
+        try {
+          compilado = await compiler.compile(step, {
+            entities: intent.entities,
+            context: { ...recuperado, produced: produzido },
+            tenant, agent,
+          });
+        } catch (e) {
+          // LoopError já é decisão deste arquivo ("sem compilador"), e sobe.
+          // Erro sem reason_code é defeito, e também sobe: ver ESTADO_DE_COMPILACAO.
+          if (e instanceof LoopError || !e?.reason_code) throw e;
+          const estado = ESTADO_DE_COMPILACAO[e.reason_code] ?? "UNSUPPORTED";
+          emitir("loop.compilacao_recusou", { step: step.step_id, reason_code: e.reason_code });
+          // A mensagem é a do compilador de propósito: ela foi escrita para uma
+          // pessoa ler, e é mais útil que qualquer frase genérica daqui.
+          return encerrar(estado, [e.reason_code], e.message);
+        }
 
         // ── 6. EXECUTOR ────────────────────────────────────────────────────
         const request = {
@@ -395,6 +453,9 @@ export function createAgentLoop({
             "Conferi antes de seguir e encontrei um problema que precisa ser resolvido.");
         }
 
+        // ── 7c. O que este passo produziu fica ao alcance do próximo ───────
+        if (saida.output != null) produzido[cap.capability_id] = saida.output;
+
         // ── 8. EVIDENCE — o efeito externo é sua própria evidência ─────────
         if (saida.receipt) {
           evidencias.push({
@@ -403,6 +464,26 @@ export function createAgentLoop({
             locator: `${saida.receipt.provider ?? "provider"}://${saida.receipt.external_id ?? ""}`,
             hash: saida.receipt.request_hash ?? saida.receipt.idempotency_key,
             retrieved_at: saida.receipt.recorded_at,
+          });
+        }
+
+        // Efeito externo é a própria evidência; leitura de fonte é a dela.
+        //
+        // Receipt só existe para side_effect external (é o gateway que decide
+        // isso, no passo 8 dele). Uma capability interna que LÊ uma fonte — a
+        // página do cliente, hoje — não emite receipt nenhum, e sem isto a
+        // resposta de um onboarding não se apoiaria em nada: o pacote de
+        // evidence sairia vazio de um run cujo trabalho inteiro foi ler algo.
+        for (const ref of saida.output?.source_refs ?? []) {
+          if (!ref?.locator || !ref?.hash) continue;
+          evidencias.push({
+            // O hash do que foi lido, e não um id novo a cada run: ler duas
+            // vezes a mesma página inalterada é a mesma evidência.
+            evidence_id: String(ref.hash),
+            source_kind: "SOURCE_ARTIFACT",
+            locator: String(ref.locator),
+            hash: String(ref.hash),
+            retrieved_at: ref.retrieved_at,
           });
         }
       }

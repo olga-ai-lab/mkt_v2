@@ -7,7 +7,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createPhase1Compilers, CompileError } from "../src/capability-compilers.mjs";
+import { createPhase1Compilers, createInternalCompilers, CompileError } from "../src/capability-compilers.mjs";
 
 const ORG = "11111111-1111-1111-1111-111111111111";
 const WS = "22222222-2222-2222-2222-222222222222";
@@ -138,4 +138,91 @@ test("as tres capabilities da Fase 1 tem compilador", () => {
   for (const cap of ["content.create_draft", "approval.request", "publishing.publish"]) {
     assert.equal(typeof c[cap], "function", `falta compilador para ${cap}`);
   }
+});
+
+// ── Onboarding: a cadeia extrair -> propor ──────────────────────────────────
+//
+// Os dois compiladores desta secao formam o primeiro plano de verdade com dois
+// passos, em que o segundo depende do que o primeiro leu. Enquanto nada
+// alimentava `context.produced`, o segundo recusava sempre — e a recusa parecia
+// correta, o que e o pior tipo de defeito.
+
+const PROPOSTA = {
+  brand_id: BRAND,
+  identity: { summary: "Corretora de risco climatico." },
+  tone: { voice: "Direta." },
+  claims_allowed: ["Atende enchente desde 1998"],
+  prohibitions: [],
+  disclaimers: ["Consulte as condicoes gerais"],
+  source_refs: [{ kind: "WEB_PAGE", locator: "https://ipe.example/", hash: "h1",
+                  retrieved_at: "2026-08-26T12:00:00.000Z" }],
+  discarded: [],
+};
+
+const produzido = (p = PROPOSTA) => ({ produced: { "brand.extract_from_url": p } });
+
+test("extract_from_url tira a URL do cadastro, e nao do pedido", async () => {
+  const c = createInternalCompilers({});
+  const args = await c["brand.extract_from_url"]({
+    entities: [ent("brand", BRAND)],
+    context: { brand: { brand_id: BRAND, name: "Ipe", website_url: "https://ipe.example" } },
+    tenant: TENANT,
+  });
+  assert.equal(args.url, "https://ipe.example");
+  assert.equal(args.brand_id, BRAND);
+});
+
+test("marca sem site cadastrado nao vira busca as cegas", async () => {
+  const c = createInternalCompilers({});
+  await assert.rejects(
+    () => c["brand.extract_from_url"]({
+      entities: [ent("brand", BRAND)],
+      context: { brand: { brand_id: BRAND, name: "Ipe", website_url: null } },
+      tenant: TENANT,
+    }),
+    (e) => e.reason_code === "NORMALIZATION_FAILED");
+});
+
+test("propose_version compila a partir do que a extracao produziu neste run", () => {
+  const c = createInternalCompilers({});
+  const args = c["brand.propose_version"]({
+    entities: [ent("brand", BRAND)], context: produzido(),
+  });
+  assert.deepEqual(args.claims_allowed, ["Atende enchente desde 1998"]);
+  assert.deepEqual(args.source_refs, PROPOSTA.source_refs);
+  // `status` nao esta entre os argumentos: quem escreve CANDIDATE e a porta.
+  assert.equal(args.status, undefined);
+});
+
+test("sem extracao no run, propor e recusado — nao improvisado", () => {
+  const c = createInternalCompilers({});
+  assert.throws(
+    () => c["brand.propose_version"]({ entities: [ent("brand", BRAND)], context: {} }),
+    (e) => e.reason_code === "EVIDENCE_INSUFFICIENT");
+});
+
+test("extracao de outra marca nao escreve nesta", () => {
+  // Um plano com duas marcas escreveria numa o que foi lido do site da outra, e
+  // as duas etapas teriam "funcionado".
+  const c = createInternalCompilers({});
+  assert.throws(
+    () => c["brand.propose_version"]({
+      entities: [ent("brand", BRAND)],
+      context: produzido({ ...PROPOSTA, brand_id: "99999999-9999-4999-8999-999999999999" }),
+    }),
+    (e) => e.reason_code === "AMBIGUOUS_ENTITY");
+});
+
+test("extracao sem procedencia nao vira versao de marca", () => {
+  const c = createInternalCompilers({});
+  assert.throws(
+    () => c["brand.propose_version"]({
+      entities: [ent("brand", BRAND)], context: produzido({ ...PROPOSTA, source_refs: [] }),
+    }),
+    (e) => e.reason_code === "EVIDENCE_INSUFFICIENT");
+});
+
+test("conectar canal continua sendo recusa nomeada, e nao capability", () => {
+  const c = createInternalCompilers({});
+  assert.throws(() => c["channel.connect"]({}), (e) => e.reason_code === "CONSENT_MISSING");
 });

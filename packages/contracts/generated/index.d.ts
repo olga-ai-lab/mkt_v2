@@ -32,6 +32,352 @@ export interface ActionReceipt {
   recorded_at: string;
 }
 
+/**
+ * O que o MODELO devolve ao ler a pagina publica de uma marca. Nao e a proposta de Brand Brain — e a materia dela. A separacao entre este contrato e olga://io/brand-proposal existe para uma coisa so: procedencia e produzida por codigo, nunca declarada pelo modelo. Por isso nao ha `source_refs` aqui, e additionalProperties: false impede que ele invente uma.
+ */
+export interface BrandExtraction {
+  /**
+   * Interpretacao. Uma sintese nao aparece literalmente na pagina, entao nao se exige citacao dela — o que se exige e que seja descricao, nunca permissao.
+   */
+  identity: {
+    summary: string;
+    audience?: string;
+    /**
+     * @maxItems 8
+     */
+    differentiators?:
+      | []
+      | [string]
+      | [string, string]
+      | [string, string, string]
+      | [string, string, string, string]
+      | [string, string, string, string, string]
+      | [string, string, string, string, string, string]
+      | [string, string, string, string, string, string, string]
+      | [string, string, string, string, string, string, string, string];
+  };
+  /**
+   * Interpretacao, como identity: descreve como a marca fala.
+   */
+  tone: {
+    voice: string;
+    /**
+     * @maxItems 8
+     */
+    avoid?:
+      | []
+      | [string]
+      | [string, string]
+      | [string, string, string]
+      | [string, string, string, string]
+      | [string, string, string, string, string]
+      | [string, string, string, string, string, string]
+      | [string, string, string, string, string, string, string]
+      | [string, string, string, string, string, string, string, string];
+  };
+  /**
+   * O que a marca ja afirma publicamente sobre si. Permissao, e nao descricao: um item daqui autoriza o redator a repetir aquilo. Por isso cada um exige a citacao literal que o sustenta, conferida contra a pagina por codigo.
+   *
+   * @maxItems 20
+   */
+  claims_allowed:
+    | []
+    | [Grounded]
+    | [Grounded, Grounded]
+    | [Grounded, Grounded, Grounded]
+    | [Grounded, Grounded, Grounded, Grounded]
+    | [Grounded, Grounded, Grounded, Grounded, Grounded]
+    | [Grounded, Grounded, Grounded, Grounded, Grounded, Grounded]
+    | [Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded]
+    | [Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded]
+    | [Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded]
+    | [Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded]
+    | [Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded]
+    | [
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded
+      ]
+    | [
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded
+      ]
+    | [
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded
+      ]
+    | [
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded
+      ]
+    | [
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded
+      ]
+    | [
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded
+      ]
+    | [
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded
+      ]
+    | [
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded
+      ]
+    | [
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded,
+        Grounded
+      ];
+  /**
+   * Texto legal presente na pagina — registro SUSEP, remissao as condicoes gerais. Mesma exigencia de lastro dos claims.
+   *
+   * @maxItems 10
+   */
+  disclaimers:
+    | []
+    | [Grounded]
+    | [Grounded, Grounded]
+    | [Grounded, Grounded, Grounded]
+    | [Grounded, Grounded, Grounded, Grounded]
+    | [Grounded, Grounded, Grounded, Grounded, Grounded]
+    | [Grounded, Grounded, Grounded, Grounded, Grounded, Grounded]
+    | [Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded]
+    | [Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded]
+    | [Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded]
+    | [Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded, Grounded];
+}
+export interface Grounded {
+  /**
+   * Como o item entra no Brand Brain.
+   */
+  text: string;
+  /**
+   * Trecho LITERAL da pagina que sustenta o item. Quem confere e o adapter, comparando com o texto buscado; item cuja citacao nao esta la nao entra na proposta.
+   */
+  quote: string;
+}
+
+/**
+ * Enum fechado. Reason code explica o ponto de falha sem depender de chain-of-thought (MKT-SPEC §11). Novo codigo entra apenas por pull request neste arquivo.
+ */
+export type ReasonCode =
+  | "AMBIGUOUS_AUDIENCE"
+  | "AMBIGUOUS_GOAL"
+  | "AMBIGUOUS_ENTITY"
+  | "UNSUPPORTED_VALUE"
+  | "CONSENT_MISSING"
+  | "CHANNEL_NOT_CONNECTED"
+  | "CONTENT_NOT_APPROVED"
+  | "COMPLIANCE_REVIEW_REQUIRED"
+  | "CLAIM_UNSUPPORTED"
+  | "EVIDENCE_INSUFFICIENT"
+  | "CONTENT_DUPLICATE_RISK"
+  | "SOURCE_STALE"
+  | "PROVIDER_RATE_LIMITED"
+  | "DUPLICATE_OPERATION_PREVENTED"
+  | "TENANT_SCOPE_VIOLATION"
+  | "UNSUPPORTED_CAMPAIGN_ACTION"
+  | "AUTONOMY_EXCEEDED"
+  | "NO_ACTIVE_POLICY"
+  | "CAPABILITY_NOT_ACTIVE"
+  | "ACTOR_ROLE_FORBIDDEN"
+  | "BRAND_BRAIN_NOT_ACTIVE"
+  | "WORKSPACE_FIRST_PUBLISH"
+  | "SPEND_LIMIT_EXCEEDED"
+  | "PROVIDER_UNAVAILABLE"
+  | "SCHEMA_VALIDATION_FAILED"
+  | "MODEL_ROUTE_NOT_ACTIVE"
+  | "AGENT_NOT_ACTIVE"
+  | "MODEL_OUTPUT_INVALID"
+  | "BUDGET_NOT_CONFIGURED"
+  | "NORMALIZATION_FAILED";
+
+/**
+ * Saida de brand.extract_from_url: a materia de uma versao de Brand Brain, ja conferida contra a pagina que a sustenta. Nao e a versao — quem escreve e brand.propose_version, e sempre como CANDIDATE.
+ */
+export interface BrandProposal {
+  brand_id: string;
+  identity: {};
+  tone: {};
+  /**
+   * So o que passou pela conferencia de citacao. Strings, que e a forma que mkt.brand_brain_versions ja guarda.
+   */
+  claims_allowed: string[];
+  /**
+   * Sempre vazia, e o maxItems: 0 e o que garante isso. Uma pagina nao diz o que a marca NAO quer dizer — ela diz o que a marca diz. Proibicao extraida de site seria invencao com aparencia de regra, e ela alimenta o compliance.review. Quem preenche e a pessoa que revisa o CANDIDATE.
+   *
+   * @maxItems 0
+   */
+  prohibitions: [];
+  disclaimers: string[];
+  /**
+   * Procedencia, construida pelo adapter a partir do que foi realmente buscado. minItems: 1 porque proposta sem fonte nao e proposta.
+   *
+   * @minItems 1
+   */
+  source_refs: [
+    {
+      kind: "WEB_PAGE";
+      /**
+       * A URL FINAL, depois dos redirecionamentos. Guardar a pedida esconderia para onde a leitura foi parar.
+       */
+      locator: string;
+      /**
+       * Hash do texto extraido, nao do HTML: e o texto que o modelo leu.
+       */
+      hash: string;
+      retrieved_at: string;
+    },
+    ...{
+      kind: "WEB_PAGE";
+      /**
+       * A URL FINAL, depois dos redirecionamentos. Guardar a pedida esconderia para onde a leitura foi parar.
+       */
+      locator: string;
+      /**
+       * Hash do texto extraido, nao do HTML: e o texto que o modelo leu.
+       */
+      hash: string;
+      retrieved_at: string;
+    }[]
+  ];
+  /**
+   * O que o modelo propos e a conferencia recusou. Descartar em silencio seria pior que aceitar: quem revisa o CANDIDATE precisa saber que houve item sem lastro, porque isso diz algo sobre a extracao inteira.
+   */
+  discarded: {
+    field: "claims_allowed" | "disclaimers";
+    text: string;
+    reason_code: ReasonCode;
+  }[];
+}
+
 export type CapabilityMode = "read" | "simulate" | "write";
 /**
  * MKT-17 §5.1. O nivel descreve o que o agente pode fazer sozinho, nao quanto ele acerta.

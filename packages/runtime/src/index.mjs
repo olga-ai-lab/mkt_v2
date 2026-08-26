@@ -7,3 +7,4 @@ export { createPhase1Compilers, createReadCompilers, createInternalCompilers, cr
 export { deltaFor, uncertaintyPolicy, AGENTS_COM_DELTA } from "./agent-deltas.mjs";
 export { createRetrieval } from "./retrieval.mjs";
 export { createComposer, LIMITE_POR_CANAL } from "./composer.mjs";
+export { createBrandExtractor } from "./extractor.mjs";
