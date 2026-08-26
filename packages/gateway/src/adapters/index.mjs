@@ -28,3 +28,4 @@
  */
 export { createMetaGraphAdapter } from "./meta-graph.mjs";
 export { createFakeMetaAdapter } from "./fake-meta.mjs";
+export { createWebFetchAdapter, ehPublico, validarAlvo, extrairTexto } from "./web-fetch.mjs";

@@ -42,3 +42,21 @@ test("o resolvedor de segredo traduz o secret_ref para variavel de ambiente", as
   assert.equal(await s.resolve("vault://meta/desconhecida"), null);
   assert.equal(await s.resolve(null), null);
 });
+
+test("web_fetch entra nos dois modos", () => {
+  // Buscar a pagina publica de um cliente nao depende do app review da Meta,
+  // e a defesa de SSRF do adapter nao e opcional em nenhum modo.
+  for (const mode of ["fake", "real"]) {
+    const { adapters } = createAdapters({ mode, ports: portas, secrets });
+    assert.equal(adapters.web_fetch?.name, "web_fetch", `falta web_fetch em modo ${mode}`);
+  }
+});
+
+test("o registry nomeia web_fetch, e a montagem entrega esse nome", () => {
+  // O gateway resolve o adapter por cap.provider_adapter. Se o nome divergisse,
+  // brand.extract_from_url falharia com PROVIDER_UNAVAILABLE na primeira
+  // execucao real, e nao antes.
+  const { adapters } = createAdapters({ mode: "fake" });
+  assert.ok("web_fetch" in adapters);
+  assert.ok("meta_graph" in adapters);
+});

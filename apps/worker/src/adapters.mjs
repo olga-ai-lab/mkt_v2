@@ -12,15 +12,19 @@
  * nao sair, "real" nao tem como funcionar, e um default que falha ao subir
  * seria um default que esconde a espera atras de um erro de boot.
  */
-import { createMetaGraphAdapter, createFakeMetaAdapter } from "@olga/gateway/adapters";
+import { createMetaGraphAdapter, createFakeMetaAdapter, createWebFetchAdapter } from "@olga/gateway/adapters";
 
 export function createAdapters({ ports, secrets, mode = process.env.META_ADAPTER ?? "fake", tracer } = {}) {
   if (mode !== "real" && mode !== "fake") {
     throw new Error(`META_ADAPTER invalido: ${mode} (use "real" ou "fake")`);
   }
 
+  // web_fetch entra nos dois modos: buscar a pagina publica de um cliente nao
+  // depende do app review da Meta, e a defesa de SSRF dele nao e opcional.
+  const web_fetch = createWebFetchAdapter({ tracer });
+
   if (mode === "fake") {
-    return { adapters: { meta_graph: createFakeMetaAdapter() }, mode };
+    return { adapters: { meta_graph: createFakeMetaAdapter(), web_fetch }, mode };
   }
 
   if (!ports?.connections || !ports?.variants) {
@@ -37,6 +41,7 @@ export function createAdapters({ ports, secrets, mode = process.env.META_ADAPTER
         variants: ports.variants,
         secrets, tracer,
       }),
+      web_fetch,
     },
     mode,
   };
