@@ -42,6 +42,8 @@ import { createHash } from "node:crypto";
 import { assertValid, validate, autonomyRank } from "@olga/contracts";
 import { buildIdempotencyKey } from "@olga/gateway";
 import { evaluate } from "@olga/policy";
+import { personaVersionOf } from "./agent-deltas.mjs";
+import { PROMPTS_VERSION } from "./prompts.mjs";
 
 export class LoopError extends Error {
   constructor(reason_code, state, message, extra = {}) {
@@ -228,6 +230,12 @@ export function createAgentLoop({
       id: run_id, org_id: tenant.org_id, workspace_id: tenant.workspace_id, trace_id,
       agent_id: agent.agent_id, agent_version: agent.version,
       task_class: agent.model_profile?.task_class ?? null,
+      // As versoes que valeram NESTE run. A Mestra §30 pede as duas na linha
+      // "Versions" do trace, e sem elas nao se reproduz um incidente: "o agente
+      // respondeu isso em setembro" fica sem resposta se ninguem sabe com que
+      // persona e que prompts ele respondia em setembro.
+      persona_version: personaVersionOf(agent),
+      prompt_version: String(PROMPTS_VERSION),
       status: "RUNNING", started_at: nowIso(),
     });
 
@@ -258,7 +266,7 @@ export function createAgentLoop({
       }
 
       // ── 1. RESOLVER ──────────────────────────────────────────────────────
-      const intent = await resolver.resolve({ trace_id, tenant, input: req.input, agent });
+      const intent = await resolver.resolve({ trace_id, tenant, input: req.input, agent, agent_run_id: run_id });
       assertValid("olga://io/intent-resolution", intent);
       emitir("loop.resolved", { intent: intent.intent, confidence: intent.confidence_band });
 
@@ -303,7 +311,8 @@ export function createAgentLoop({
       }
 
       // ── 3. PLANNER ───────────────────────────────────────────────────────
-      const plan = await planner.plan({ trace_id, tenant, intent, agent, context: recuperado });
+      const plan = await planner.plan({ trace_id, tenant, intent, agent, context: recuperado,
+                                        agent_run_id: run_id });
       assertValid("olga://io/task-plan", plan);
       emitir("loop.planned", { steps: plan.steps.length });
 
@@ -501,7 +510,7 @@ export function createAgentLoop({
       if (descartados > 0) emitir("loop.evidence_discarded", { descartados });
 
       const resposta = await responder.respond({
-        trace_id, tenant, agent, intent,
+        trace_id, tenant, agent, intent, agent_run_id: run_id,
         evidence: pkg,
         execution: ultimaExecucao,
         respondability: ultimaRespondability,

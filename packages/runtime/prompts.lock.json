@@ -1,0 +1,22 @@
+{
+  "_": "GERADO E CONFERIDO. Mudou o texto de um prompt? Suba `version` e rode `npm run prompts:lock`.",
+  "version": 1,
+  "prompts": {
+    "resolver": "3b27a0f81b0bf902",
+    "planner": "88649c11701f3e23",
+    "responder": "b3e04b823f3e9f2c",
+    "redator": "e6f9d7c22b4e4bc3",
+    "adaptador": "47001c524cd663f9",
+    "extrator": "4c236fb76fa0f611"
+  },
+  "history": {
+    "1": {
+      "resolver": "3b27a0f81b0bf902",
+      "planner": "88649c11701f3e23",
+      "responder": "b3e04b823f3e9f2c",
+      "redator": "e6f9d7c22b4e4bc3",
+      "adaptador": "47001c524cd663f9",
+      "extrator": "4c236fb76fa0f611"
+    }
+  }
+}

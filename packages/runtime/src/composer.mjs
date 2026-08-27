@@ -35,6 +35,20 @@
  */
 import { assembleContext } from "./agent-stages.mjs";
 
+/** Ver o comentário sobre prompts nomeados em agent-stages.mjs. */
+export const PROMPT_REDATOR =
+  "Voce escreve conteudo de marketing para uma corretora de seguros, em portugues do Brasil.\n" +
+          "Escreva o texto mestre, ainda sem formatacao de canal.\n" +
+          "Respeite o material da marca que vier no turno de contexto: tom, claims permitidos, " +
+          "proibicoes e disclaimers.\n" +
+          "Depois de escrever, liste o que voce AFIRMOU. Marque material: true em qualquer " +
+          "afirmacao sobre cobertura, preco ou prazo, e use claim_type COVERAGE, PRICE ou DEADLINE. " +
+          "Uma afirmacao material que voce nao consiga sustentar sera recusada — entao prefira " +
+          "nao afirma-la a marca-la como generica.\n" +
+          'Responda em JSON: {"title": "...", "master_body": "...", ' +
+          '"claims": [{"text": "...", "claim_type": "COVERAGE|PRICE|DEADLINE|PERFORMANCE|GENERAL", "material": true|false}]}';
+
+
 /** Limite pratico por canal. Corta o que nao cabe ANTES de existir variante. */
 export const LIMITE_POR_CANAL = {
   INSTAGRAM: 2200,
@@ -78,6 +92,19 @@ function exigirJson(out, oQueE) {
 }
 
 /**
+ * O adaptador de canal e um TEMPLATE, e nao uma constante: canal e limite
+ * entram no texto. O lock de prompts fixa o template renderizado com
+ * marcadores, e nao uma instancia — senao trocar de canal pareceria trocar de
+ * prompt.
+ */
+export const PROMPT_ADAPTADOR = (canal, limite) =>
+  `Adapte o texto mestre para o canal ${canal}, em portugues do Brasil.\n` +
+  `O corpo deve caber em ${limite} caracteres.\n` +
+  "Adapte forma, nao substancia: nao acrescente afirmacao que o texto mestre nao faz, " +
+  "nao remova disclaimer, nao invente numero, prazo, preco ou cobertura.\n" +
+  'Responda em JSON: {"headline": "...", "body": "...", "cta": "..."}';
+
+/**
  * @param {{ modelGateway: any, task_class?: string, max_cost_cents?: number }} deps
  */
 export function createComposer({ modelGateway, task_class = "copywriting", max_cost_cents } = {}) {
@@ -95,17 +122,7 @@ export function createComposer({ modelGateway, task_class = "copywriting", max_c
      */
     async draft({ tenant, trace_id, brand, objective, channel }) {
       const messages = assembleContext({
-        system:
-          "Voce escreve conteudo de marketing para uma corretora de seguros, em portugues do Brasil.\n" +
-          "Escreva o texto mestre, ainda sem formatacao de canal.\n" +
-          "Respeite o material da marca que vier no turno de contexto: tom, claims permitidos, " +
-          "proibicoes e disclaimers.\n" +
-          "Depois de escrever, liste o que voce AFIRMOU. Marque material: true em qualquer " +
-          "afirmacao sobre cobertura, preco ou prazo, e use claim_type COVERAGE, PRICE ou DEADLINE. " +
-          "Uma afirmacao material que voce nao consiga sustentar sera recusada — entao prefira " +
-          "nao afirma-la a marca-la como generica.\n" +
-          'Responda em JSON: {"title": "...", "master_body": "...", ' +
-          '"claims": [{"text": "...", "claim_type": "COVERAGE|PRICE|DEADLINE|PERFORMANCE|GENERAL", "material": true|false}]}',
+        system: PROMPT_REDATOR,
         schemas: "Responda no contrato olga://io/draft-composition.",
         session: { objetivo: objective ?? null, canal_de_destino: channel ?? null },
         governed: marcaComoMaterial(brand),
@@ -136,12 +153,7 @@ export function createComposer({ modelGateway, task_class = "copywriting", max_c
     async variant({ tenant, trace_id, channel, master_body, brand }) {
       const limite = LIMITE_POR_CANAL[channel] ?? 2000;
       const messages = assembleContext({
-        system:
-          `Adapte o texto mestre para o canal ${channel}, em portugues do Brasil.\n` +
-          `O corpo deve caber em ${limite} caracteres.\n` +
-          "Adapte forma, nao substancia: nao acrescente afirmacao que o texto mestre nao faz, " +
-          "nao remova disclaimer, nao invente numero, prazo, preco ou cobertura.\n" +
-          'Responda em JSON: {"headline": "...", "body": "...", "cta": "..."}',
+        system: PROMPT_ADAPTADOR(channel, limite),
         schemas: "Responda no contrato olga://io/variant-composition.",
         session: { canal: channel, limite_de_caracteres: limite },
         governed: { ...(marcaComoMaterial(brand) ?? {}), texto_mestre: master_body },

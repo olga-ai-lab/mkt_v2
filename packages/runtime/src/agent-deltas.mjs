@@ -1,105 +1,93 @@
 /**
- * O delta de cada agente.
+ * A camada de persona do prompt.
  *
- * O AGT-BASE diz o que fica no delta e nada mais: charter, contratos, casos de
- * teste específicos e desvios explícitos da base. Três dessas quatro coisas já
- * existem como DADO, em `mkt.agent_registry` — missão, capabilities, reason
- * codes, autonomia, `deviates_from_base`. Os casos de teste golden e
- * adversarial ficam para a Fase 2, construídos junto das corretoras piloto
- * (MKT-17, achado G11).
+ * O AGT-BASE diz o que fica no delta de um agente e nada mais: charter,
+ * contratos, casos de teste específicos e desvios explícitos da base. A Mestra
+ * §9 acrescenta os oito campos do contrato conversacional — identity, mission,
+ * tone, uncertainty, depth, limits, compliance e examples — e o §32 manda
+ * versionar isso.
  *
- * Então o que sobra para este arquivo é só o que não cabe numa coluna: a
- * política de incerteza. O que o agente faz quando não tem certeza.
+ * ── O que mudou aqui, e por quê ────────────────────────────────────────────
  *
- * ── Por que ele é uma camada fina, e não uma segunda definição ─────────────
+ * Este arquivo guardava, num objeto literal, o "erro mais caro" e o "na dúvida"
+ * de cada agente. Ele mesmo argumentava — com razão — que missão e capabilities
+ * NÃO deviam ser reescritas em código porque já eram dado, e então guardava em
+ * código a única parte que "não cabia numa coluna".
  *
- * Missão, capabilities e reason codes NÃO são reescritos aqui. Eles são lidos
- * da linha do registry e projetados no prompt. Se estivessem escritos nos dois
- * lugares, um dia divergiriam — e o prompt venceria na prática enquanto o
- * registry venceria na policy, que é a pior divergência possível: o agente
- * agiria por uma regra e seria julgado por outra.
+ * Agora cabe: `mkt.agent_personas`, com as oito colunas do §9 e uma versão
+ * própria. Este arquivo deixou de ser a fonte e virou o que sempre deveria ter
+ * sido — o RENDERIZADOR. Ele projeta no prompt o que o banco declara, e não
+ * conhece nenhum agente pelo nome.
  *
- * Há teste afirmando que nenhum delta cita capability que o agente não tem.
+ * A diferença aparece no dia em que alguém muda o tom de um agente: hoje isso é
+ * uma migration, revisável, com versão que o trace registra. Antes era um
+ * commit no meio de um objeto literal, e o trace não tinha como dizer com que
+ * persona aquele run falou.
  *
- * ── Erro mais caro ─────────────────────────────────────────────────────────
+ * ── A postura padrão continua existindo ────────────────────────────────────
  *
- * O AGT-BASE, no gate G0 do ciclo de vida, pergunta "qual erro custa mais".
- * A resposta não é decorativa: é ela que decide para que lado o agente erra
- * quando está inseguro. Cada `erro_mais_caro` abaixo é derivado dos reason
- * codes que a própria linha do registry declara — não inventado.
+ * Um agente sem persona ACTIVE não fica sem persona: recebe a mais
+ * conservadora. Isso é fail-closed, não conveniência — e a migration 0013
+ * recusa deixar um agente ACTIVE nessa situação, para que o padrão seja rede de
+ * segurança e não o estado normal das coisas.
  */
 
 /**
- * Política de incerteza por agente.
+ * Fallback para agente sem persona própria: a postura mais conservadora.
  *
- * `erro_mais_caro` e `na_duvida` são o par que importa: o segundo é a
- * consequência operacional do primeiro.
+ * `persona_version: null` é o que faz o trace dizer a verdade — "este run falou
+ * sem persona declarada" — em vez de registrar uma versão que não existe.
  */
-const DELTAS = {
-  "AGT-MKT-COPILOT": {
-    erro_mais_caro:
-      "agir quando deveria ter perguntado, mandando o pedido para o especialista errado",
-    na_duvida:
-      "pergunte. Você é a porta de entrada: um pedido mal roteado custa uma rodada inteira " +
-      "de trabalho do especialista errado. Prefira uma pergunta curta a um palpite.",
-  },
-
-  "AGT-MKT-BRAND": {
-    erro_mais_caro:
-      "registrar como fato da marca algo que o site não sustenta, porque todo conteúdo " +
-      "gerado depois herda o erro",
-    na_duvida:
-      "deixe o campo vazio e marque a fonte como insuficiente. Um Brand Brain com lacuna " +
-      "é corrigível; um com afirmação errada contamina tudo que vem depois e ninguém " +
-      "percebe a origem.",
-  },
-
-  "AGT-MKT-CONTENT": {
-    erro_mais_caro:
-      "publicar uma afirmação sobre cobertura, preço ou prazo que a evidência não sustenta",
-    na_duvida:
-      "escreva sem a afirmação. Texto mais fraco se conserta na revisão; claim sem " +
-      "evidência publicado no perfil do cliente vira problema de compliance dele, não seu.",
-  },
-
-  "AGT-MKT-COMPLIANCE": {
-    erro_mais_caro:
-      "deixar passar um claim que não deveria passar — o falso negativo custa mais que " +
-      "o falso positivo",
-    na_duvida:
-      "marque para revisão humana. Barrar conteúdo bom atrasa uma publicação; liberar " +
-      "conteúdo errado não tem desfazer depois que foi ao ar.",
-  },
+export const PERSONA_PADRAO = {
+  persona_version: null,
+  identity: "Um agente da Olga.",
+  tone: "Direto e sem adjetivo.",
+  depth: "OPERACIONAL",
+  costliest_error: "agir além do que foi pedido",
+  uncertainty: "pare e pergunte. Nenhum agente deste sistema erra para o lado de agir mais.",
+  limits: [],
+  compliance: [],
+  examples: [],
 };
 
-/** Fallback para agente sem delta próprio: a postura mais conservadora. */
-const PADRAO = {
-  erro_mais_caro: "agir além do que foi pedido",
-  na_duvida: "pare e pergunte. Nenhum agente deste sistema erra para o lado de agir mais.",
-};
+const comoLista = (v) => (Array.isArray(v) ? v.filter(Boolean).map(String) : []);
 
 /**
- * Monta o texto do delta a partir da linha do registry.
+ * Monta o texto da persona a partir da linha do registry e da persona.
  *
- * Note que missão, capabilities e reason codes vêm do argumento `agent` — ou
- * seja, do banco. Este arquivo não os conhece.
+ * Missão, capabilities, reason codes e desvios vêm do argumento `agent` — ou
+ * seja, do `agent_registry`. Tom, limites e política de incerteza vêm de
+ * `agent.persona`, que a porta anexa a partir de `agent_personas`. Nenhum dos
+ * dois é escrito aqui.
  */
 export function deltaFor(agent) {
-  const d = DELTAS[agent?.agent_id] ?? PADRAO;
+  const p = { ...PERSONA_PADRAO, ...(agent?.persona ?? {}) };
   const capabilities = agent?.capabilities ?? [];
   const reasonCodes = agent?.reason_codes ?? [];
   const desvios = agent?.deviates_from_base ?? [];
 
   const linhas = [
-    `Você é ${agent?.agent_id}.`,
+    `Você é ${agent?.agent_id}. ${p.identity}`,
     `Missão: ${agent?.mission ?? "não declarada"}`,
+    `Tom: ${p.tone}`,
+    `Profundidade da resposta: ${PROFUNDIDADE[p.depth] ?? PROFUNDIDADE.OPERACIONAL}`,
     capabilities.length
       ? `Você só pode propor estas capabilities: ${capabilities.join(", ")}.`
       : "Você não tem capability de escrita: apenas interprete e explique.",
     "",
-    `O erro que custa mais caro no seu papel: ${d.erro_mais_caro}.`,
-    `Na dúvida: ${d.na_duvida}`,
+    `O erro que custa mais caro no seu papel: ${p.costliest_error}.`,
+    `Na dúvida: ${p.uncertainty}`,
   ];
+
+  const limites = comoLista(p.limits);
+  if (limites.length) {
+    linhas.push("", "O que você NÃO decide nem afirma:", ...limites.map((x) => `- ${x}`));
+  }
+
+  const obrigatorio = comoLista(p.compliance);
+  if (obrigatorio.length) {
+    linhas.push("", "Obrigatório no que você produz:", ...obrigatorio.map((x) => `- ${x}`));
+  }
 
   if (reasonCodes.length) {
     linhas.push(
@@ -113,13 +101,33 @@ export function deltaFor(agent) {
     linhas.push("", "Regras específicas suas, que valem sobre a base:", ...desvios.map((x) => `- ${x}`));
   }
 
+  // Exemplos entram por último e são poucos de propósito: eles ensinam forma, e
+  // uma lista longa vira o "prompt gigante como banco de regras" que a Mestra
+  // §47 lista como anti-pattern que bloqueia aprovação.
+  const exemplos = Array.isArray(p.examples) ? p.examples.slice(0, 4) : [];
+  if (exemplos.length) {
+    linhas.push("", "Exemplos:");
+    for (const e of exemplos) {
+      linhas.push(`- [${e.kind}] ${e.situacao} → ${e.resposta}${e.porque ? ` (${e.porque})` : ""}`);
+    }
+  }
+
   return linhas.join("\n");
 }
 
-/** Só a política, para quem quiser montar o próprio texto. */
-export function uncertaintyPolicy(agent_id) {
-  return DELTAS[agent_id] ?? PADRAO;
+const PROFUNDIDADE = {
+  EXECUTIVO: "resposta curta, com a conclusão primeiro.",
+  ANALISTA: "explique o critério e o que sustenta a conclusão.",
+  OPERACIONAL: "diga o que fazer agora e o que acontece depois.",
+};
+
+/** Só a política de incerteza, para quem quiser montar o próprio texto. */
+export function uncertaintyPolicy(agent) {
+  const p = { ...PERSONA_PADRAO, ...(agent?.persona ?? {}) };
+  return { erro_mais_caro: p.costliest_error, na_duvida: p.uncertainty };
 }
 
-/** Os agentes que têm delta próprio. Usado no teste de cobertura. */
-export const AGENTS_COM_DELTA = Object.keys(DELTAS);
+/** A versão da persona que este run usou. `null` quando não havia nenhuma. */
+export function personaVersionOf(agent) {
+  return agent?.persona?.persona_version ?? null;
+}

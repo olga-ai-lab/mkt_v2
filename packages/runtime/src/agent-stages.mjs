@@ -82,6 +82,40 @@ const REGRAS_COMUNS =
   "Nunca invente identificador: se não souber o id canônico de algo, deixe nulo. " +
   "Responda apenas com JSON válido no formato pedido, sem texto em volta.";
 
+/*
+ * Os prompts de sistema, como constantes nomeadas.
+ *
+ * Estavam embutidos dentro de cada função. Ficaram aqui porque a Mestra §32
+ * manda versionar prompt, e §30 manda o trace registrar essa versão — e não se
+ * versiona o que não tem nome. `packages/runtime/prompts.lock.json` guarda o
+ * hash de cada um, e há teste que falha se o texto mudar sem a versão do
+ * conjunto subir.
+ *
+ * Eles continuam AQUI, e não num diretório de prompts, porque o texto e o
+ * código que o usa são revisados juntos: um prompt longe da função que o manda
+ * é um prompt que muda sem ninguém ver o efeito.
+ */
+export const PROMPT_RESOLVER =
+  `${REGRAS_COMUNS}\n` +
+  "Sua tarefa: identificar a intenção, as entidades e as ambiguidades do pedido. " +
+  "confidence_band é HIGH, MEDIUM ou LOW — nunca um percentual.";
+
+export const PROMPT_PLANNER =
+  `${REGRAS_COMUNS}\n` +
+  "Sua tarefa: propor os passos para atender a intenção. " +
+  "Em args_summary escreva um resumo em português para uma pessoa ler. " +
+  "NÃO escreva argumentos técnicos, ids ou parâmetros: eles são montados " +
+  "por código a partir das entidades já resolvidas, e o que você escrever " +
+  "ali será ignorado.";
+
+export const PROMPT_RESPONDER =
+  "Escreva a resposta ao usuário em português do Brasil. " +
+  "Diga o que aconteceu e qual é o próximo passo. " +
+  "Só afirme o que estiver sustentado pela evidência recebida. " +
+  "Não prometa o que não aconteceu, não cite id que não esteja na evidência, " +
+  "e não explique detalhe técnico de erro. " +
+  'Responda em JSON: {"message": "...", "next_step": "..."}';
+
 /**
  * Sobrescreve os campos que o modelo não tem autoridade para decidir.
  *
@@ -98,11 +132,9 @@ function fixarConfiaveis(obj, { trace_id, tenant, extra = {} }) {
  */
 export function createLlmResolver({ modelGateway, task_class = "extraction", prompt } = {}) {
   return {
-    async resolve({ trace_id, tenant, input, agent }) {
+    async resolve({ trace_id, tenant, input, agent, agent_run_id = null }) {
       const messages = assembleContext({
-        system: prompt ?? `${REGRAS_COMUNS}\n` +
-          "Sua tarefa: identificar a intenção, as entidades e as ambiguidades do pedido. " +
-          "confidence_band é HIGH, MEDIUM ou LOW — nunca um percentual.",
+        system: prompt ?? PROMPT_RESOLVER,
         persona: personaDe(agent),
         schemas: "Formato de saída: olga://io/intent-resolution",
         session: { org_scope: "definido pelo servidor", actor_role: input?.actor_role ?? null },
@@ -110,7 +142,7 @@ export function createLlmResolver({ modelGateway, task_class = "extraction", pro
       });
 
       const out = await modelGateway.complete({
-        trace_id, tenant, task_class,
+        trace_id, tenant, task_class, agent_run_id,
         messages: messages.map(({ role, content }) => ({ role, content })),
         schema_ref: "olga://io/intent-resolution",
         max_cost_cents: agent?.model_profile?.max_cost_cents_per_run,
@@ -128,14 +160,9 @@ export function createLlmResolver({ modelGateway, task_class = "extraction", pro
 
 export function createLlmPlanner({ modelGateway, task_class = "reasoning", prompt } = {}) {
   return {
-    async plan({ trace_id, tenant, intent, agent, context }) {
+    async plan({ trace_id, tenant, intent, agent, context, agent_run_id = null }) {
       const messages = assembleContext({
-        system: prompt ?? `${REGRAS_COMUNS}\n` +
-          "Sua tarefa: propor os passos para atender a intenção. " +
-          "Em args_summary escreva um resumo em português para uma pessoa ler. " +
-          "NÃO escreva argumentos técnicos, ids ou parâmetros: eles são montados " +
-          "por código a partir das entidades já resolvidas, e o que você escrever " +
-          "ali será ignorado.",
+        system: prompt ?? PROMPT_PLANNER,
         persona: personaDe(agent),
         schemas: "Formato de saída: olga://io/task-plan",
         governed: context?.slices?.length ? { slices: context.slices } : null,
@@ -143,7 +170,7 @@ export function createLlmPlanner({ modelGateway, task_class = "reasoning", promp
       });
 
       const out = await modelGateway.complete({
-        trace_id, tenant, task_class,
+        trace_id, tenant, task_class, agent_run_id,
         messages: messages.map(({ role, content }) => ({ role, content })),
         schema_ref: "olga://io/task-plan",
         max_cost_cents: agent?.model_profile?.max_cost_cents_per_run,
@@ -170,15 +197,10 @@ export function createLlmPlanner({ modelGateway, task_class = "reasoning", promp
  */
 export function createLlmResponder({ modelGateway, task_class = "copywriting", prompt } = {}) {
   return {
-    async respond({ trace_id, tenant, agent, intent, evidence, execution, respondability }) {
+    async respond({ trace_id, tenant, agent, intent, evidence, execution, respondability,
+                    agent_run_id = null }) {
       const messages = assembleContext({
-        system: prompt ??
-          "Escreva a resposta ao usuário em português do Brasil. " +
-          "Diga o que aconteceu e qual é o próximo passo. " +
-          "Só afirme o que estiver sustentado pela evidência recebida. " +
-          "Não prometa o que não aconteceu, não cite id que não esteja na evidência, " +
-          "e não explique detalhe técnico de erro. " +
-          'Responda em JSON: {"message": "...", "next_step": "..."}',
+        system: prompt ?? PROMPT_RESPONDER,
         persona: personaDe(agent),
         schemas: 'Formato: {"message": string, "next_step": string}',
         session: { intent: intent?.intent ?? null, estado: respondability?.state ?? null },
@@ -191,7 +213,7 @@ export function createLlmResponder({ modelGateway, task_class = "copywriting", p
       });
 
       const out = await modelGateway.complete({
-        trace_id, tenant, task_class,
+        trace_id, tenant, task_class, agent_run_id,
         messages: messages.map(({ role, content }) => ({ role, content })),
         max_cost_cents: agent?.model_profile?.max_cost_cents_per_run,
       });

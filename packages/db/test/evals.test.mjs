@@ -234,3 +234,31 @@ test("EVALS", async (t) => {
     });
   }
 });
+
+// ── O trace que os proprios evals deixaram (Mestra §30) ─────────────────────
+
+test("todo run de eval deixou trace com versoes e custo", async () => {
+  // Prova de ponta a ponta do §30: estes runs vieram do loop de verdade, com o
+  // Model Gateway roteirizado mas real. Se o loop parar de propagar o
+  // agent_run_id, ou de registrar as versoes, este teste cai — e nenhum outro,
+  // porque tudo o mais continua funcionando sem trace.
+  const { rows } = await db.query(
+    `select agent_id, persona_version, prompt_version, model, cost_cents,
+            input_tokens, respondability
+       from mkt.agent_runs where org_id = $1`, [ids.org]);
+
+  assert.ok(rows.length > 0, "os evals precisam ter deixado runs para conferir");
+
+  for (const r of rows) {
+    assert.ok(r.prompt_version, `${r.agent_id}: run sem versao de prompt`);
+    assert.ok(Number.isInteger(r.persona_version),
+      `${r.agent_id}: run sem versao de persona — a porta parou de juntar as duas linhas?`);
+    assert.ok(r.respondability, `${r.agent_id}: run sem estado final`);
+  }
+
+  // Pelo menos um run chegou a chamar modelo, e o custo dele veio do ledger.
+  const comGasto = rows.filter((r) => r.model != null);
+  assert.ok(comGasto.length > 0,
+    "nenhum run registrou modelo: o agent_run_id nao chegou ao Model Gateway");
+  assert.ok(comGasto.every((r) => Number(r.cost_cents) >= 0 && r.input_tokens > 0));
+});

@@ -53,14 +53,47 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
   };
 
   const registry = {
+    /**
+     * A linha do agente, com a persona ACTIVE dele anexada.
+     *
+     * Dois defeitos silenciosos moravam aqui:
+     *
+     * `reason_codes` e `deviates_from_base` NAO eram selecionados. O renderizador
+     * de persona os projeta no prompt desde que existe — "use um destes motivos"
+     * e "regras especificas suas" — e recebia sempre `undefined`, entao os dois
+     * blocos simplesmente nao apareciam. As colunas estavam preenchidas no banco
+     * e o agente nunca as viu.
+     *
+     * E a persona nao existia como dado. Hoje vem junto, num LEFT JOIN: agente
+     * sem persona ACTIVE nao deixa de responder — cai na postura conservadora do
+     * PERSONA_PADRAO — e `persona_version` volta nulo, que e o que faz o trace
+     * dizer a verdade em vez de registrar uma versao inexistente.
+     */
     async getAgent(agent_id) {
       const { rows } = await pool.query(
-        `select agent_id, version, status::text, mission, baseline_autonomy, max_autonomy,
-                capabilities, model_profile
-           from ${S}.agent_registry
-          where agent_id = $1
-          order by version desc limit 1`, [agent_id]);
-      return rows[0] ?? null;
+        `select a.agent_id, a.version, a.status::text, a.mission,
+                a.baseline_autonomy, a.max_autonomy, a.capabilities,
+                a.reason_codes, a.deviates_from_base, a.model_profile,
+                p.version as persona_version, p.identity, p.tone, p.depth,
+                p.uncertainty, p.costliest_error, p.limits, p.compliance, p.examples
+           from ${S}.agent_registry a
+           left join ${S}.agent_personas p
+             on p.agent_id = a.agent_id and p.status = 'ACTIVE'
+          where a.agent_id = $1
+          order by a.version desc limit 1`, [agent_id]);
+
+      const r = rows[0];
+      if (!r) return null;
+
+      const { persona_version, identity, tone, depth, uncertainty, costliest_error,
+              limits, compliance, examples, ...agente } = r;
+      return {
+        ...agente,
+        persona: persona_version == null ? null : {
+          persona_version, identity, tone, depth, uncertainty, costliest_error,
+          limits, compliance, examples,
+        },
+      };
     },
     async getCapability(capability_id, version) {
       const { rows } = await pool.query(
@@ -89,28 +122,53 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
     async start(r) {
       await pool.query(
         `insert into ${S}.agent_runs
-           (id, org_id, workspace_id, trace_id, agent_id, agent_version, task_class, status, started_at)
-         values ($1,$2,$3,$4,$5,$6,$7,$8::${S}.run_status,$9)`,
+           (id, org_id, workspace_id, trace_id, agent_id, agent_version, task_class,
+            persona_version, prompt_version, status, started_at)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::${S}.run_status,$11)`,
         [r.id, r.org_id, r.workspace_id, r.trace_id, r.agent_id, r.agent_version,
-         r.task_class, r.status, r.started_at]);
+         r.task_class, r.persona_version ?? null, r.prompt_version ?? null,
+         r.status, r.started_at]);
     },
+    /**
+     * Fecha o run — e a linha "Performance" do trace sai do LEDGER, nao de uma
+     * contagem paralela.
+     *
+     * A Mestra §30 pede modelo, tokens e custo no trace. As colunas existiam
+     * desde a 0005 e ninguem as escrevia: o loop nao via as chamadas de modelo
+     * (elas acontecem dentro das pontas) e teria de somar por fora, criando uma
+     * segunda contabilidade que um dia discordaria da primeira.
+     *
+     * Entao o UPDATE agrega mkt.model_spend pelo proprio agent_run_id. Uma
+     * transacao, uma fonte: o ledger continua sendo quem responde sobre
+     * dinheiro, e a linha do run passa a carregar o total dele para o trace ser
+     * auto-suficiente.
+     *
+     * `string_agg(distinct model)` porque um run pode usar rotas diferentes —
+     * o resolver e extraction, o responder e copywriting. Esconder isso atras
+     * de um modelo so faria o trace mentir sobre o que respondeu.
+     */
     async finish(id, p) {
       await pool.query(
-        `update ${S}.agent_runs set
+        `update ${S}.agent_runs a set
            status = coalesce($2::${S}.run_status, status),
            respondability = coalesce($3, respondability),
            reason_codes = coalesce($4, reason_codes),
            autonomy_used = coalesce($5, autonomy_used),
-           model = coalesce($6, model),
-           input_tokens = coalesce($7, input_tokens),
-           output_tokens = coalesce($8, output_tokens),
-           cost_cents = coalesce($9, cost_cents),
-           latency_ms = coalesce($10, latency_ms),
-           finished_at = coalesce($11::timestamptz, now())
-         where id = $1`,
+           latency_ms = coalesce($6, latency_ms),
+           finished_at = coalesce($7::timestamptz, now()),
+           model = coalesce(g.modelos, a.model),
+           input_tokens = coalesce(g.entrada, a.input_tokens),
+           output_tokens = coalesce(g.saida, a.output_tokens),
+           cost_cents = coalesce(g.custo, a.cost_cents)
+         from (select
+                 string_agg(distinct s.model, '+' order by s.model) as modelos,
+                 sum(s.input_tokens)::int  as entrada,
+                 sum(s.output_tokens)::int as saida,
+                 sum(s.cost_cents)         as custo
+               from ${S}.model_spend s where s.agent_run_id = $1) g
+         where a.id = $1`,
         [id, p.status ?? null, p.respondability ?? null, p.reason_codes ?? null,
-         p.autonomy_used ?? null, p.model ?? null, p.input_tokens ?? null,
-         p.output_tokens ?? null, p.cost_cents ?? null, p.latency_ms ?? null, p.finished_at ?? null]);
+         p.autonomy_used ?? null, p.latency_ms ?? null, p.finished_at ?? null]);
     },
   };
 

@@ -13,12 +13,14 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
 import { readdirSync } from "node:fs";
-import { deltaFor, uncertaintyPolicy, AGENTS_COM_DELTA } from "@olga/runtime/agent-deltas";
+import { deltaFor, uncertaintyPolicy } from "@olga/runtime/agent-deltas";
+import { createPostgresPorts } from "@olga/runtime/ports-postgres";
 
 const url = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const db = new pg.Client({ connectionString: url });
 let agentes = [];
 let capabilities = new Set();
+let ports;
 
 before(async () => {
   await db.connect();
@@ -30,20 +32,46 @@ before(async () => {
   agentes = a.rows;
   const c = await db.query(`select capability_id from mkt.capability_registry`);
   capabilities = new Set(c.rows.map((r) => r.capability_id));
+  ports = createPostgresPorts(db);
 });
 
 after(async () => { await db.end(); });
 
-test("todo agente semeado tem delta proprio", () => {
-  const semDelta = agentes.map((a) => a.agent_id).filter((id) => !AGENTS_COM_DELTA.includes(id));
-  assert.deepEqual(semDelta, [],
-    "agente novo no seed sem delta rodaria com a postura generica sem ninguem notar");
+test("todo agente semeado tem persona ACTIVE", async () => {
+  const { rows } = await db.query(
+    `select agent_id from mkt.agent_personas where status = 'ACTIVE'`);
+  const comPersona = new Set(rows.map((r) => r.agent_id));
+  const semPersona = agentes.map((a) => a.agent_id).filter((id) => !comPersona.has(id));
+  assert.deepEqual(semPersona, [],
+    "agente novo no seed sem persona rodaria com a postura generica sem ninguem notar");
 });
 
-test("nao ha delta orfao, apontando para agente que nao existe", () => {
+test("nao ha persona orfa, apontando para agente que nao existe", async () => {
+  const { rows } = await db.query(`select agent_id from mkt.agent_personas`);
   const ids = new Set(agentes.map((a) => a.agent_id));
-  const orfaos = AGENTS_COM_DELTA.filter((id) => !ids.has(id));
-  assert.deepEqual(orfaos, []);
+  assert.deepEqual(rows.map((r) => r.agent_id).filter((id) => !ids.has(id)), []);
+});
+
+test("a persona chega pela porta junto do agente, e com versao", async () => {
+  // A porta e que junta as duas linhas. Se ela parasse de juntar, o agente
+  // responderia com a postura generica e nada quebraria — este teste quebra.
+  for (const a of agentes) {
+    const doBanco = await ports.registry.getAgent(a.agent_id);
+    assert.ok(doBanco.persona, `${a.agent_id} sem persona pela porta`);
+    assert.ok(Number.isInteger(doBanco.persona.persona_version));
+    assert.ok(doBanco.persona.tone.length > 10, `${a.agent_id} sem tom declarado`);
+  }
+});
+
+test("o prompt do agente carrega os reason codes que a linha declara", async () => {
+  // Eles nunca chegavam: getAgent nao selecionava reason_codes, entao o bloco
+  // "use um destes motivos" simplesmente nao existia no prompt.
+  for (const a of agentes.filter((x) => x.reason_codes.length)) {
+    const texto = deltaFor(await ports.registry.getAgent(a.agent_id));
+    for (const rc of a.reason_codes) {
+      assert.ok(texto.includes(rc), `${a.agent_id}: ${rc} nao chegou ao prompt`);
+    }
+  }
 });
 
 test("o delta de cada agente cita a missao e as capabilities da propria linha", () => {

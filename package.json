@@ -24,7 +24,8 @@
     "build:web": "npm run build --workspace @olga/web",
     "gate:g1": "node scripts/gate-g1.mjs",
     "test:gates": "node --test scripts/test-output.test.mjs",
-    "evals": "node --test 'packages/db/test/evals.test.mjs'"
+    "evals": "node --test 'packages/db/test/evals.test.mjs'",
+    "prompts:lock": "node packages/runtime/scripts/prompts-lock.mjs"
   },
   "devDependencies": {
     "ajv": "^8.17.1",

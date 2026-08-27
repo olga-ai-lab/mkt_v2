@@ -28,17 +28,17 @@ um PDF aprovado.
 
 | Peça | O que faz | Prova |
 |---|---|---|
-| `packages/contracts` | JSON Schema dos 16 contratos de I/O, dos 4 registries e dos enums fechados. Tipos TS gerados | 15 testes |
+| `packages/contracts` | JSON Schema dos 16 contratos de I/O, dos 5 registries e dos enums fechados. Tipos TS gerados | 15 testes |
 | `packages/policy` | Policy engine determinístico: invariantes de código + regras como dado, default deny | 19 testes |
 | `packages/gateway` | Capability Gateway com os 8 passos do MKT-09B §10, e os adapters: meta_graph, web_fetch, brand_extract e internal | 111 testes |
-| `packages/db` | 12 migrations, 30 tabelas, RLS forçada, state machine no banco | 178 testes |
-| `packages/runtime` | Model Gateway, Agent Runtime, loop de agente, retrieval, redator, extrator de marca e governança de Brand Brain | 135 testes |
+| `packages/db` | 13 migrations, 31 tabelas, RLS forçada, state machine no banco | 188 testes |
+| `packages/runtime` | Model Gateway, Agent Runtime, loop de agente, retrieval, redator, extrator, persona e governança de Brand Brain | 142 testes |
 | `apps/worker` | Workflow durável de publicação, replay-safe | 25 testes |
 | `apps/web` | Home, login, conteúdo, fila de aprovação, revisão e edição de Brand Brain. Tokens do MKT-06A e microcopy de todo reason code | 24 testes |
 | `docs/adr` | 11 ADRs fechando o que o MKT-09B deixava OPEN | — |
 | `docs/AGT-BASE.md` | O contrato comum que os 13 pacotes repetiam | — |
 
-**507 testes e 28 evals de agente.** `npm run gate:g0` e `npm run gate:g1`
+**524 testes e 28 evals de agente.** `npm run gate:g0` e `npm run gate:g1`
 verificam os critérios de cada gate executando cada um deles — e o G1 nunca se
 declara fechado sozinho, porque o que falta nele não é código.
 
@@ -170,6 +170,36 @@ uma fonte nova entrar em produção sem ninguém decidir quando ela envelhece.
 partir do `activated_at`, porque foi ali que uma pessoa assumiu aquilo como a
 marca. Escolher o carimbo errado envelhece a fonte errada.
 
+## Persona e prompt são versionados, e o trace registra as duas versões
+
+"O agente respondeu isso em setembro" fica sem resposta se ninguém sabe com que
+persona e que prompts ele respondia em setembro. A Mestra §32 manda versionar as
+duas coisas; a §30 manda o trace registrá-las.
+
+**Persona é dado**, em `mkt.agent_personas`, com os oito campos do §9 e versão
+própria. `agent-deltas.mjs` não guarda persona: ele a renderiza, e não conhece
+nenhum agente pelo nome. Trocar o tom de um agente é uma migration revisável, e
+não um commit no meio de um objeto literal.
+
+**Prompt tem lock.** `packages/runtime/prompts.lock.json` guarda o hash de cada
+texto e o histórico por versão. `npm run prompts:lock` recusa regravar quando a
+versão corrente já está registrada com outros hashes:
+
+```
+A versao 1 ja esta registrada com outros hashes.
+  mudou: extrator
+Suba "version" em prompts.lock.json para 2 e rode de novo.
+```
+
+Sem isso, versionar prompt seria um número que alguém lembra de subir — e o que
+alguém precisa lembrar de fazer não é uma garantia.
+
+**A linha de Performance do trace vem do ledger.** `runs.finish` agrega
+`mkt.model_spend` pelo `agent_run_id` no mesmo UPDATE que fecha o run. Somar por
+fora criaria uma segunda contabilidade que um dia discordaria da primeira. Um run
+que não chamou modelo fecha com `model` e `cost_cents` nulos, e não zero: zero
+diria "consultei e não custou".
+
 ## Rodar
 
 ```bash
@@ -184,6 +214,7 @@ npm test          # todos os testes, e o typecheck junto
 npm run gate:g0   # verificação do Gate G0
 npm run gate:g1   # verificação do Gate G1
 npm run evals     # evals de governança dos agentes
+npm run prompts:lock  # regrava o lock de prompts (recusa sem bump de versão)
 ```
 
 ## Estrutura

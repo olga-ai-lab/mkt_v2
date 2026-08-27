@@ -4,10 +4,10 @@
 **De:** sessões de 24–26/08/2026
 **Estado:** Fases 0 e 1 fechadas em código; o primeiro bloco da Fase 2
 (onboarding de marca a partir da URL) anda de ponta a ponta.
-507 testes, 28 evals, 10/10 no G0, 10/10 verificáveis no G1, 12 migrations.
+524 testes, 28 evals, 10/10 no G0, 10/10 verificáveis no G1, 13 migrations.
 **Pendências reais:** a submissão do app na Meta, que segura o G1 e não é
-código, e as migrations **0010, 0011 e 0012, que ainda não foram aplicadas em
-`mkt_v2`** — ver §3.1.
+código, e as migrations **0010 a 0013, que ainda não foram aplicadas em `mkt_v2`** —
+ver §3.1.
 
 > O LLM interpreta; os contratos decidem; o código calcula; as ferramentas
 > executam; a evidência sustenta.
@@ -78,9 +78,9 @@ encostar no que já está de pé.
 Estado: **9 das 10 migrations estão aplicadas.** A Olga aplicou 0007 e 0008
 pelo SQL Editor em 25/08/2026, e a conferência bateu nos quatro pontos abaixo.
 
-> **A 0010, a 0011 e a 0012 ainda não foram aplicadas.** Cole
-> `packages/db/dist/mkt_v2_0010-0011-0012.sql` no SQL Editor — é uma paste só, e
-> é seguro mesmo se a 0010 já tiver entrado (o corpo dela é um `update`
+> **As migrations 0010 a 0013 ainda não foram aplicadas.** Cole
+> `packages/db/dist/mkt_v2_0010-0011-0012-0013.sql` no SQL Editor — é uma paste
+> só, e é seguro mesmo se a 0010 já tiver entrado (o corpo dela é um `update`
 > idempotente e o ledger usa `on conflict do nothing`).
 >
 > Sem a **0010**, `brand.extract_from_url` continua apontando para o adapter
@@ -93,7 +93,10 @@ pelo SQL Editor em 25/08/2026, e a conferência bateu nos quatro pontos abaixo.
 > TODA fatia como vencida — é a escolha fail-closed, e ela trava o agente até a
 > migration entrar.
 >
-> As três conferem o próprio efeito e derrubam a transação se o resultado não
+> Sem a **0013**, o agente responde com a postura conservadora padrão em vez da
+> persona dele, e o trace não registra com que persona o run falou.
+>
+> As quatro conferem o próprio efeito e derrubam a transação se o resultado não
 > bater.
 
 | | esperado | obtido |
@@ -380,6 +383,7 @@ por conta própria.
 
 
 
+
 ## 5. Regras de engajamento neste repositório
 
 **Antes de qualquer commit:**
@@ -651,15 +655,10 @@ O retrieval também deixou de devolver só um booleano: junto de `stale` vai
 canônico. Faltam ontologia, aliases de entidade e guias de raciocínio. A camada
 semântica (§7.4) não se aplica: nossa classe (§2) é transacional, não analítica.
 
-**Persona e prompt não são versionados (§9, §32).** O §9 pede oito campos de
-persona versionados; temos dois — `mission` no registry e `uncertainty` no
-`agent-deltas`. Os prompts moram dentro de `agent-stages.mjs`, `composer.mjs` e
-`extractor.mjs`. A coluna `prompt_version` existe em `agent_runs` e nunca é
-escrita.
+~~**Persona e prompt não são versionados (§9, §32).**~~ Feito na 0013. Ver §12.
 
-**O trace está pela metade (§30).** Faltam as linhas *Versions* (model, prompt,
-persona, schemas, rules) e *Performance* (tokens, custo) — as colunas existem e
-o loop não as preenche. Nenhuma linha de *Safety*.
+~~**O trace está pela metade (§30).**~~ Feito. Falta só a linha *Safety* (policy
+blocks, sinais de injeção, redação de PII) e as versões de schemas/rules.
 
 **Shadow, canary e rollback não existem (§33).** Temos replay/offline (os
 evals). O §46 lista "feature flag e caminho de rollback" como pré-requisito do
@@ -682,13 +681,63 @@ são as pastas cuja substância também não existe.
 
 ---
 
-*Última verificação: 27/08/2026. 507 testes, 28 evals, 10/10 no Gate G0,
-10/10 verificáveis no G1, typecheck limpo, build do web limpo, 12 migrations,
+## 12. Persona versionada, prompts com lock, e o trace preenchido
+
+Segundo item da auditoria contra a Mestra. Fecha §9, §30 e §32.
+
+### Persona virou dado (§9)
+
+O contrato conversacional tem oito campos. Tínhamos dois: `mission` no registry
+e `uncertainty` dentro de um objeto literal em `agent-deltas.mjs`. O próprio
+arquivo argumentava que missão e capabilities **não** deviam ser reescritas em
+código porque já eram dado — e guardava em código a única parte que "não cabia
+numa coluna". Agora cabe: `mkt.agent_personas`.
+
+`agent-deltas.mjs` deixou de ser a fonte e virou o que sempre deveria ter sido:
+o renderizador. Ele não conhece nenhum agente pelo nome.
+
+**Dois defeitos silenciosos apareceram ao mexer nisso.** `getAgent` nunca
+selecionou `reason_codes` nem `deviates_from_base` — o renderizador os projeta
+no prompt desde que existe ("use um destes motivos", "regras específicas suas")
+e recebia sempre `undefined`. As colunas estavam preenchidas no banco e o agente
+nunca as viu.
+
+### Prompt com lock (§32)
+
+Os textos viraram constantes nomeadas, e `packages/runtime/prompts.lock.json`
+guarda o hash de cada um mais o histórico por versão. `npm run prompts:lock`
+**recusa** regravar quando a versão corrente já está registrada com outros
+hashes: mudou o texto, sobe a versão. Sem isso, versionar prompt seria um número
+que alguém lembra de subir — e o que alguém precisa lembrar de fazer não é uma
+garantia.
+
+Os prompts continuam ao lado do código que os usa, e não num diretório
+separado: um prompt longe da função que o manda é um prompt que muda sem ninguém
+ver o efeito.
+
+### O trace, com a Performance vinda do ledger (§30)
+
+`agent_run_id` nunca chegava ao Model Gateway, então `mkt.model_spend` não podia
+ser ligado ao run. Agora chega, e `runs.finish` agrega o gasto **do próprio
+ledger** no mesmo UPDATE que fecha o run.
+
+A escolha é essa de propósito: o loop não vê as chamadas de modelo — elas
+acontecem dentro das pontas — e somar por fora criaria uma segunda
+contabilidade que um dia discordaria da primeira. O ledger continua respondendo
+sobre dinheiro; a linha do run carrega o total para o trace ser auto-suficiente.
+
+Um run que não chamou modelo fecha com `model` e `cost_cents` **nulos**, e não
+zero: zero diria "consultei e não custou".
+
+---
+
+*Última verificação: 27/08/2026. 524 testes, 28 evals, 10/10 no Gate G0,
+10/10 verificáveis no G1, typecheck limpo, build do web limpo, 13 migrations,
 árvore limpa, tudo empurrado para `claude/novo-modulo-marketing-5l992o`.*
 
-*O schema `mkt_v2` está com 9 das 12 migrations: faltam a 0010, a 0011 e a 0012,
-e o bundle das três está pronto em
-`packages/db/dist/mkt_v2_0010-0011-0012.sql`.*
+*O schema `mkt_v2` está com 9 das 13 migrations: faltam a 0010, 0011, 0012 e
+0013, e o bundle das quatro está pronto em
+`packages/db/dist/mkt_v2_0010-0011-0012-0013.sql`.*
 
 *Na Fase 1 sobrou **uma** pendência, e ela não é código: a submissão do app na
 Meta (ADR-0008). Enquanto ela não sair, o produto roda inteiro com

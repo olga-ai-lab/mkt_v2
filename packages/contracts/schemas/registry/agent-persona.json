@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://registry/agent-persona",
+  "title": "AgentPersona",
+  "description": "O contrato conversacional de um agente (Mestra §9), versionado. NAO tem `mission`: missao e charter, e mora em mkt.agent_registry desde a 0004 — repeti-la aqui criaria duas fontes para a mesma frase, e um dia elas divergiriam com o prompt vencendo na pratica e o registry vencendo na policy.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["agent_id", "version", "status", "identity", "tone", "depth", "uncertainty", "costliest_error", "owner"],
+  "properties": {
+    "agent_id": { "type": "string", "minLength": 1 },
+    "version": { "type": "integer", "minimum": 1 },
+    "status": { "enum": ["DRAFT", "CANDIDATE", "ACTIVE", "DEPRECATED", "BLOCKED"] },
+    "identity": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Quem o agente e, na primeira pessoa de quem fala com o cliente."
+    },
+    "tone": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Clareza, objetividade, formalidade."
+    },
+    "depth": {
+      "enum": ["EXECUTIVO", "ANALISTA", "OPERACIONAL"],
+      "description": "A profundidade que a resposta assume por padrao."
+    },
+    "uncertainty": {
+      "type": "string",
+      "minLength": 1,
+      "description": "O que fazer quando nao ha certeza. E a consequencia operacional do `costliest_error`, e por isso os dois andam juntos."
+    },
+    "costliest_error": {
+      "type": "string",
+      "minLength": 1,
+      "description": "O erro que custa mais caro neste papel (gate G0 da Mestra §4). Nao e decorativo: e ele que decide para que lado o agente erra quando esta inseguro."
+    },
+    "limits": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "O que este agente NAO decide nem afirma. Diferente de policy: policy bloqueia, isto instrui."
+    },
+    "compliance": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Avisos e comportamentos obrigatorios no texto que ele produz."
+    },
+    "examples": {
+      "type": "array",
+      "maxItems": 12,
+      "description": "Bons e maus exemplos, versionados junto da persona — que e o que os torna revisaveis.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "situacao", "resposta"],
+        "properties": {
+          "kind": { "enum": ["BOM", "MAU"] },
+          "situacao": { "type": "string", "minLength": 1 },
+          "resposta": { "type": "string", "minLength": 1 },
+          "porque": { "type": "string" }
+        }
+      }
+    },
+    "owner": { "type": "string", "minLength": 1 }
+  }
+}
