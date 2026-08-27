@@ -31,14 +31,14 @@ um PDF aprovado.
 | `packages/contracts` | JSON Schema dos 16 contratos de I/O, dos 5 registries e dos enums fechados. Tipos TS gerados | 15 testes |
 | `packages/policy` | Policy engine determinístico: invariantes de código + regras como dado, default deny | 19 testes |
 | `packages/gateway` | Capability Gateway com os 8 passos do MKT-09B §10, e os adapters: meta_graph, web_fetch, brand_extract e internal | 111 testes |
-| `packages/db` | 15 migrations, 32 tabelas, RLS forçada, state machine no banco | 227 testes |
+| `packages/db` | 16 migrations, 32 tabelas, RLS forçada, state machine no banco | 235 testes |
 | `packages/runtime` | Model Gateway, Agent Runtime, loop de agente, retrieval, redator, extrator, persona, contenção e governança de Brand Brain | 142 testes |
 | `apps/worker` | Workflow durável de publicação, replay-safe | 25 testes |
 | `apps/web` | Home, login, conteúdo, fila de aprovação, revisão e edição de Brand Brain. Tokens do MKT-06A e microcopy de todo reason code | 24 testes |
 | `docs/adr` | 11 ADRs fechando o que o MKT-09B deixava OPEN | — |
 | `docs/AGT-BASE.md` | O contrato comum que os 13 pacotes repetiam | — |
 
-**581 testes e 37 evals de agente** (16 golden, 21 adversariais). `npm run gate:g0` e `npm run gate:g1`
+**611 testes e 37 evals de agente** (16 golden, 21 adversariais). `npm run gate:g0` e `npm run gate:g1`
 verificam os critérios de cada gate executando cada um deles — e o G1 nunca se
 declara fechado sozinho, porque o que falta nele não é código.
 
@@ -226,6 +226,39 @@ para duas coisas.
 Dois cadastros com o mesmo nome viram `AMBIGUOUS_ENTITY` ("achei várias, qual
 delas?"); nenhum vira `NORMALIZATION_FAILED` ("não achei"). Os códigos não se
 confundem porque pedem coisas diferentes de quem lê.
+
+## A linha *Safety* do trace, e o que ela deliberadamente não faz
+
+A defesa contra injeção neste sistema é **estrutural**, e nenhuma metade dela
+depende de reconhecer o ataque: texto de usuário entra na sexta camada de
+contexto, nunca na de sistema, e os argumentos de toda chamada nascem no
+compiler a partir de entidades verificadas. É por isso que funciona contra
+ataques que ninguém previu.
+
+O problema é que é silenciosa. Se um dia falhar, nada no banco diz que alguém
+tentou. `packages/runtime/src/safety.mjs` **não é a defesa — é o registro**, e
+essa distinção está escrita no topo do arquivo porque a leitura preguiçosa dele
+é o caminho para alguém afrouxar a defesa achando que há uma rede embaixo.
+
+Registra e não bloqueia: um regex que bloqueia é um regex que autoriza, e quem
+bloqueia aqui é a policy. *"Ignore o rascunho anterior e comece de novo"* é
+pedido legítimo de quem escreve marketing — há teste para as duas metades, o
+padrão pegar o ataque **e** não pegar o pedido honesto que se parece com ele.
+
+Varridos: o texto do usuário, o material recuperado (o vetor de dentro — um
+Brand Brain cuja `identity` diga "ignore as instruções anteriores" entra em todo
+run daquela marca) e a página buscada no onboarding.
+
+**PII:** `carries_pii` existia no contrato de fonte desde a 0012, e o caveat do
+`UPLOADED_FILE` dizia com todas as letras que era "a que recebe documento sem
+passar por nenhum filtro nosso". Agora a fatia de uma fonte marcada com PII é
+redigida antes de entrar na camada `governed`. A limitação é declarada: a
+redação é por formato — CPF, CNPJ, e-mail, telefone, CEP — e não pega nome de
+pessoa, que não tem forma. Fingir que pega seria pior, porque alguém confiaria.
+
+Nas três colunas, **nulo e zero não são a mesma coisa**: nulo diz "não cheguei a
+olhar", zero diz "olhei e não havia". Um run que parou antes do plano não é um
+run que a policy aprovou.
 
 ## Conter um incidente sem esperar um deploy
 

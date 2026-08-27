@@ -44,6 +44,7 @@ import { buildIdempotencyKey } from "@olga/gateway";
 import { evaluate } from "@olga/policy";
 import { personaVersionOf } from "./agent-deltas.mjs";
 import { PROMPTS_VERSION } from "./prompts.mjs";
+import { sinaisDeInjecao } from "./safety.mjs";
 
 export class LoopError extends Error {
   constructor(reason_code, state, message, extra = {}) {
@@ -277,6 +278,30 @@ export function createAgentLoop({
     const evidencias = [];
     const receipt_ids = [];
 
+    /**
+     * A linha *Safety* do trace (Mestra §30), montada ao longo do run.
+     *
+     * `null` e `0`/`[]` não são a mesma coisa em nenhum dos três campos, e é
+     * essa diferença que o incidente vai perguntar: nulo diz "não cheguei a
+     * olhar", zero diz "olhei e não havia". Um run que parou antes do plano
+     * não é um run que a policy aprovou.
+     */
+    const safety = { policy_versions: null, injection_signals: null, pii_redacted: null };
+
+    // O texto que a pessoa escreveu é a primeira entrada não confiável do run,
+    // e é varrido ANTES de qualquer decisão — inclusive antes das que param o
+    // run. Varrer só no fim deixaria de fora exatamente os runs em que algo
+    // deu errado, que são os que se investiga depois.
+    const sinaisDoInput = sinaisDeInjecao(req.input?.text);
+    if (sinaisDoInput.length > 0) {
+      safety.injection_signals = sinaisDoInput;
+      // Sai no trace de eventos também: quem acompanha ao vivo não espera o
+      // run terminar para ver que alguém está tentando.
+      emitir("loop.injection_signal", { signals: sinaisDoInput });
+    } else {
+      safety.injection_signals = [];
+    }
+
     try {
       // ── encerramento comum a toda parada antes do fim ───────────────────
       async function encerrar(state, reason_codes, message) {
@@ -295,6 +320,7 @@ export function createAgentLoop({
           status: state === "POLICY_BLOCKED" || state === "APPROVAL_REQUIRED" ? "BLOCKED" : "FAILED",
           respondability: state, reason_codes: resp.reason_codes,
           autonomy_used: autonomy_ceiling, latency_ms: now() - started_at, finished_at: nowIso(),
+          ...safety,
         });
         emitir("loop.stopped", { state, reason_codes: resp.reason_codes });
         return { run_id, trace_id, response: resp, evidence: parcial };
@@ -367,22 +393,57 @@ export function createAgentLoop({
           `Não encontrei: ${semId.map((e) => e.raw ?? e.type).join(", ")}.`);
       }
 
+      // A intenção que segue daqui para baixo carrega as entidades
+      // VERIFICADAS, e não as que o modelo escreveu.
+      //
+      // Não é detalhe de estilo. O retrieval escolhe QUAL Brand Brain entra no
+      // contexto a partir do `canonical_id` que ele lê aqui. Deixá-lo ler a
+      // lista do modelo, enquanto o compilador lê a verificada, faria o agente
+      // pensar com a marca A e escrever na marca B — no caso em que as duas
+      // discordam, que é exatamente o que o passo anterior existe para detectar.
+      const intentVerificado = { ...intent, entities: entidadesVerificadas };
+
       // ── 2. RETRIEVAL ─────────────────────────────────────────────────────
       // Contexto vindo de tool ou documento é dado NÃO confiável até passar
       // por contrato e policy (Mestra §13). Por isso ele entra em `context`,
       // separado de `tenant`, e nunca vira argumento sem passar pelo compiler.
       const recuperado = retrieval
-        ? await retrieval.fetch({ trace_id, tenant, intent })
+        ? await retrieval.fetch({ trace_id, tenant, intent: intentVerificado })
         : { slices: [], versions: [], stale: false };
       emitir("loop.retrieved", { slices: recuperado.slices?.length ?? 0, stale: !!recuperado.stale });
+
+      // PII apagada antes de o material virar contexto. Quem decide se uma
+      // fonte carrega PII é o contrato dela, lido no retrieval; aqui só se
+      // registra o que foi feito.
+      if (recuperado.pii) {
+        safety.pii_redacted = recuperado.pii.redigidos;
+        if (recuperado.pii.redigidos > 0) {
+          emitir("loop.pii_redacted", { n: recuperado.pii.redigidos, tipos: recuperado.pii.tipos });
+        }
+      }
+
+      // O material recuperado também é varrido, e não só o texto do usuário.
+      //
+      // É o vetor de dentro: um Brand Brain cuja `identity` diga "ignore as
+      // instruções anteriores" entra na camada `governed` de todo run daquela
+      // marca, para sempre, e quem o editou tem papel MARKETING — não precisa
+      // ser ninguém de fora. A camada `governed` é turno de usuário e não de
+      // sistema, então a defesa segura; o que faltava era o registro.
+      const sinaisDoContexto = sinaisDeInjecao(
+        JSON.stringify((recuperado.slices ?? []).map((x) => x.conteudo)));
+      if (sinaisDoContexto.length > 0) {
+        safety.injection_signals = [
+          ...new Set([...(safety.injection_signals ?? []), ...sinaisDoContexto])].sort();
+        emitir("loop.injection_signal", { signals: sinaisDoContexto, origem: "governed" });
+      }
 
       for (const s of recuperado.slices ?? []) {
         if (s.evidence) evidencias.push(s.evidence);
       }
 
       // ── 3. PLANNER ───────────────────────────────────────────────────────
-      const plan = await planner.plan({ trace_id, tenant, intent, agent, context: recuperado,
-                                        agent_run_id: run_id });
+      const plan = await planner.plan({ trace_id, tenant, intent: intentVerificado, agent,
+                                        context: recuperado, agent_run_id: run_id });
       assertValid("olga://io/task-plan", plan);
       emitir("loop.planned", { steps: plan.steps.length });
 
@@ -440,6 +501,19 @@ export function createAgentLoop({
           policies: politicas,
         });
         ultimaRespondability = respondability;
+        // Qual regra decidiu, e em que versão. `evaluate()` já devolvia isso e
+        // nada gravava: num incidente a pergunta é "que policy barrou, na
+        // versão de qual dia", e re-derivar pelo escopo é adivinhar.
+        //
+        // Acumula sobre os passos sem repetir: um plano de dois passos pode ser
+        // decidido pela mesma policy nos dois, e a linha do trace responde
+        // "quais regras", não "quantas vezes cada uma".
+        safety.policy_versions = [
+          ...(safety.policy_versions ?? []),
+          ...(respondability.policy_versions ?? []).filter(
+            (v) => !(safety.policy_versions ?? []).some(
+              (j) => j.policy_id === v.policy_id && j.version === v.version)),
+        ];
         emitir("loop.respondability", { step: step.step_id, state: respondability.state });
 
         if (respondability.state === "POLICY_BLOCKED") {
@@ -612,15 +686,21 @@ export function createAgentLoop({
         status: "SUCCEEDED", respondability: final.respondability,
         reason_codes: final.reason_codes, autonomy_used: autonomy_ceiling,
         latency_ms: now() - started_at, finished_at: nowIso(),
+        ...safety,
       });
       emitir("loop.completed", { state: final.respondability, steps: plan.steps.length });
-      return { run_id, trace_id, response: final, plan, intent, evidence: pkg };
+      // `intentVerificado`, e não `intent`: quem recebe o resultado tem de ver
+      // as entidades com que o run de fato trabalhou.
+      return { run_id, trace_id, response: final, plan, intent: intentVerificado, evidence: pkg };
 
     } catch (e) {
       const reason = e.reason_code ?? "PROVIDER_UNAVAILABLE";
       await runs?.finish?.(run_id, {
         status: "FAILED", respondability: e.respondability ?? "TEMPORARILY_UNAVAILABLE",
         reason_codes: [reason], latency_ms: now() - started_at, finished_at: nowIso(),
+        // Vale sobretudo aqui: o run que estourou é o que se investiga, e é
+        // nele que "havia sinal de injeção?" precisa ter resposta.
+        ...safety,
       });
       emitir("loop.failed", { reason_code: reason });
       throw e;

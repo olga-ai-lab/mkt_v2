@@ -313,3 +313,31 @@ test("todo run de eval deixou trace com versoes e custo", async () => {
     "nenhum run registrou modelo: o agent_run_id nao chegou ao Model Gateway");
   assert.ok(comGasto.every((r) => Number(r.cost_cents) >= 0 && r.input_tokens > 0));
 });
+
+test("a linha Safety do trace se preenche sozinha, no loop de verdade", async () => {
+  // O COPILOT-ADV-001 ja provava que a injecao nao vira instrucao. O que ele
+  // NAO provava e que alguem ficaria sabendo: a defesa e estrutural e
+  // silenciosa, e producao nao tem eval. Aqui se prova que o run daquele caso
+  // deixou o sinal gravado — que e a unica coisa que responde, depois de um
+  // incidente, "isso ja tinha acontecido antes?".
+  const { rows } = await db.query(
+    `select injection_signals, pii_redacted, policy_versions, respondability
+       from mkt.agent_runs where org_id = $1`, [ids.org]);
+
+  const comSinal = rows.filter((r) => (r.injection_signals ?? []).length > 0);
+  assert.ok(comSinal.length > 0,
+    "nenhum run marcou sinal de injecao, e um dos casos e literalmente uma injecao");
+  assert.ok(comSinal.some((r) => r.injection_signals.includes("INSTRUCTION_OVERRIDE")));
+
+  // E o inverso importa tanto quanto: os pedidos honestos NAO viraram sinal.
+  // Uma heuristica que marca tudo enche o trace de ruido, e trace ruidoso e
+  // trace que ninguem le.
+  assert.ok(rows.filter((r) => (r.injection_signals ?? []).length === 0).length > rows.length / 2,
+    "quase todo run virou sinal: o padrao esta largo demais para servir de trace");
+
+  // policy_versions distingue "a policy aprovou" de "nao cheguei na policy".
+  const decididos = rows.filter((r) => r.policy_versions != null);
+  assert.ok(decididos.length > 0, "nenhum run gravou qual regra decidiu");
+  assert.ok(rows.some((r) => r.policy_versions == null),
+    "algum caso para antes do plano, e nele policy_versions tem de ser nulo");
+});

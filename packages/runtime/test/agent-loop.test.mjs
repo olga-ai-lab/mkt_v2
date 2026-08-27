@@ -87,6 +87,7 @@ function montar(over = {}) {
       },
     },
     retrieval: over.retrieval,
+    entityResolver: over.entityResolver,
     compiler, gateway,
     registry: {
       getAgent: async () => over.agent ?? AGENT,
@@ -109,6 +110,80 @@ const pedido = (extra = {}) => ({
   input: { text: "cria um post sobre seguro residencial" },
   facts: { channel_connected: true },
   ...extra,
+});
+
+// ── O que segue depois da resolução de entidade ─────────────────────────────
+
+test("retrieval e planner recebem as entidades VERIFICADAS, e nao as do modelo", async () => {
+  // O caso em que os dois lados discordam: o modelo escreveu um id, e a
+  // resolução contra o cadastro chegou a outro. O compilador ja recebia o
+  // verificado; o retrieval nao — e e ele quem escolhe QUAL Brand Brain entra
+  // no contexto. Um agente que pensa com a marca A e escreve na marca B e o
+  // defeito mais caro possivel, e nenhum erro apareceria no caminho.
+  const VERIFICADO = "44444444-4444-4444-8444-444444444444";
+  const visto = { retrieval: null, planner: null };
+
+  const { loop } = montar({
+    entityResolver: {
+      resolve: async ({ trace_id, tenant }) => ({
+        ok: true,
+        resolution: { trace_id, tenant, resolved: [
+          { entity_type: "content_version", canonical_id: VERIFICADO,
+            method: "unique_natural_key", confidence_band: "HIGH" }] },
+        entities: [{ type: "content_version", canonical_id: VERIFICADO, raw: "o post de ontem" }],
+        divergencias: [],
+      }),
+    },
+    retrieval: { fetch: async ({ intent }) => {
+      visto.retrieval = intent.entities;
+      return { slices: [], versions: [], stale: false };
+    } },
+  });
+
+  const r = await loop.run(pedido());
+  assert.equal(r.response.respondability, "EXECUTABLE");
+  assert.deepEqual(visto.retrieval.map((e) => e.canonical_id), [VERIFICADO],
+    "o retrieval leu o id do modelo, e nao o que o cadastro confirmou");
+});
+
+test("entidade nao resolvida para o loop antes de qualquer leitura", async () => {
+  let leu = false;
+  const { loop } = montar({
+    entityResolver: {
+      resolve: async ({ trace_id, tenant }) => ({
+        ok: false,
+        resolution: { trace_id, tenant, resolved: [],
+          unresolved: [{ entity_type: "brand", raw: "Seguros XPTO",
+                         reason_code: "NORMALIZATION_FAILED" }] },
+        entities: [], divergencias: [],
+      }),
+    },
+    retrieval: { fetch: async () => { leu = true; return { slices: [] }; } },
+  });
+
+  const r = await loop.run(pedido());
+  assert.equal(r.response.respondability, "CLARIFICATION_REQUIRED");
+  assert.deepEqual(r.response.reason_codes, ["NORMALIZATION_FAILED"]);
+  assert.equal(leu, false, "parar depois de ler seria pagar o contexto de um run que nao acontece");
+});
+
+test("tipo que o sistema nao resolve vira UNSUPPORTED, e nao pergunta", async () => {
+  // Nada que a pessoa responda conserta "nao sei tratar `connection`".
+  // Vestir isso de pergunta a faz reescrever o pedido para sempre.
+  const { loop } = montar({
+    entityResolver: {
+      resolve: async ({ trace_id, tenant }) => ({
+        ok: false,
+        resolution: { trace_id, tenant, resolved: [],
+          unresolved: [{ entity_type: "connection", reason_code: "UNSUPPORTED_VALUE" }] },
+        entities: [], divergencias: [],
+      }),
+    },
+  });
+
+  const r = await loop.run(pedido());
+  assert.equal(r.response.respondability, "UNSUPPORTED");
+  assert.deepEqual(r.response.reason_codes, ["UNSUPPORTED_VALUE"]);
 });
 
 // ── A fronteira: quem monta os argumentos ───────────────────────────────────

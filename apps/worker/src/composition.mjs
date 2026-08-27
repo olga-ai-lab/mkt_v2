@@ -70,7 +70,7 @@ export function createWorkerApp({ pool, inngest, providers, env = process.env, t
     secrets: createEnvSecrets(env),
     mode: env.META_ADAPTER ?? "fake",
     compose: modelGateway ? createComposer({ modelGateway }) : null,
-    extract: modelGateway ? createBrandExtractor({ modelGateway }) : null,
+    extract: modelGateway ? createBrandExtractor({ modelGateway, tracer }) : null,
   });
 
   const gateway = createGateway({

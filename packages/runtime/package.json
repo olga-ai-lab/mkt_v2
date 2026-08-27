@@ -20,7 +20,8 @@
     "./extractor": "./src/extractor.mjs",
     "./brand-activation": "./src/brand-activation.mjs",
     "./containment": "./src/containment.mjs",
-    "./entity-resolver": "./src/entity-resolver.mjs"
+    "./entity-resolver": "./src/entity-resolver.mjs",
+    "./safety": "./src/safety.mjs"
   },
   "dependencies": {
     "@olga/contracts": "*",

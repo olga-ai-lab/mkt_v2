@@ -135,7 +135,7 @@ export function createEvalLoop({ ports, workerPorts, criarGateway, modelo, onCal
   // os casos compartilharem o mesmo redator e o mesmo extrator.
   const gateway = criarGateway({
     compose: createComposer({ modelGateway }),
-    extract: createBrandExtractor({ modelGateway }),
+    extract: createBrandExtractor({ modelGateway, tracer }),
   });
 
   return createAgentLoop({

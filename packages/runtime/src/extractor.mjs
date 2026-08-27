@@ -44,6 +44,7 @@
  * olga://io/brand-proposal, onde `maxItems: 0` transforma isso em regra.
  */
 import { assembleContext } from "./agent-stages.mjs";
+import { sinaisDeInjecao } from "./safety.mjs";
 
 function exigirJson(out) {
   try {
@@ -82,7 +83,8 @@ export const PROMPT_EXTRATOR =
 /**
  * @param {{ modelGateway: any, task_class?: string, max_cost_cents?: number }} deps
  */
-export function createBrandExtractor({ modelGateway, task_class = "extraction", max_cost_cents } = {}) {
+export function createBrandExtractor({ modelGateway, task_class = "extraction", max_cost_cents,
+                                       tracer } = {}) {
   if (!modelGateway) throw new Error("createBrandExtractor exige um modelGateway");
 
   return {
@@ -94,6 +96,23 @@ export function createBrandExtractor({ modelGateway, task_class = "extraction", 
      *   o modelo de devolver source_refs.
      */
     async fromPage({ tenant, trace_id, brand_name = null, url, texto }) {
+      // A página é o texto mais hostil que entra neste sistema: qualquer um que
+      // controle um site pode escrever o que quiser nela. A defesa é
+      // estrutural — o texto vai para a camada `governed`, que é turno de
+      // usuário, e o que sai daqui passa por schema e por conferência de
+      // citação contra a própria página. O sinal não bloqueia; registra.
+      //
+      // Ele sai pelo tracer, e não pela coluna `injection_signals` do run,
+      // porque este código roda dentro do adapter, atrás do Capability
+      // Gateway: devolver o sinal pelo output exigiria abrir o contrato
+      // BrandExtraction, que é `additionalProperties: false` justamente para o
+      // modelo não escrever campo que ninguém pediu. O `trace_id` liga os dois.
+      const sinais = sinaisDeInjecao(texto);
+      if (sinais.length > 0) {
+        tracer?.event?.({ trace_id, event: "extractor.injection_signal",
+                          signals: sinais, url, org_id: tenant?.org_id ?? null });
+      }
+
       const messages = assembleContext({
         system: PROMPT_EXTRATOR,
         schemas: "Responda no contrato olga://io/brand-extraction.",

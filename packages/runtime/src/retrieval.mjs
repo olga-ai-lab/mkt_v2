@@ -49,11 +49,29 @@
  * Um contrato com `max_age_days` nulo diz que aquela fonte não vence — e isso é
  * uma afirmação, não a ausência de uma.
  *
+ * ── PII sai antes de virar contexto (Mestra §30) ───────────────────────────
+ *
+ * O mesmo contrato declara `carries_pii`, e até a 0016 ninguém lia esse campo.
+ * O caveat da fonte `UPLOADED_FILE` dizia, com todas as letras, "é a que recebe
+ * documento sem passar por nenhum filtro nosso" — a declaração estava certa e o
+ * filtro não existia.
+ *
+ * Agora a fatia de uma fonte marcada com PII passa por redação ANTES de entrar
+ * na camada `governed`. O lugar é aqui, e não no `assembleContext`, por um
+ * motivo: quem sabe se a fonte carrega PII é o contrato dela, e o contrato é
+ * lido aqui. Redigir na montagem do prompt obrigaria a camada de contexto a
+ * conhecer procedência, que não é assunto dela.
+ *
+ * O `hash` da evidence é calculado sobre o conteúdo REDIGIDO, porque é ele que
+ * o modelo viu. Um hash do original diria que a evidência é de um texto que
+ * nunca entrou em lugar nenhum.
+ *
  * E o resultado deixou de ser um booleano: `stale` continua existindo para o
  * Validator, mas ao lado dele vai a lista de QUAIS fontes venceram. Um "algo
  * aqui está velho" sem dizer o quê manda quem lê procurar no escuro.
  */
 import { createHash } from "node:crypto";
+import { redigirProfundo } from "./safety.mjs";
 
 /** Que fatia cada intenção precisa. O resto não é trazido. */
 const RELEVANCIA = {
@@ -130,12 +148,31 @@ export function createRetrieval({ knowledge, clock } = {}) {
       const versions = [];
       const vencidas = [];
       let cadastro = null;
+      let redigidos = 0;
+      const tiposRedigidos = new Set();
 
       /** Empurra a fatia e registra o veredito de idade dela. */
       const anotar = (source_kind, carimbo) => {
         const v = idadeDe(contratoDe(source_kind), source_kind, carimbo);
         if (v.stale) vencidas.push({ source_kind, motivo: v.motivo });
         return contratoDe(source_kind)?.default_quality ?? undefined;
+      };
+
+      /**
+       * O conteúdo que vai para o contexto, redigido se o contrato da fonte
+       * disser que ela carrega PII.
+       *
+       * Fonte SEM contrato não passa por redação, e isso é consistente com o
+       * resto: ela já está marcada como vencida por `idadeDe`, e o Validator
+       * decide o que fazer com uma fatia vencida. Redigir por precaução aqui
+       * esconderia a falta do contrato em vez de deixá-la aparecer.
+       */
+      const semPii = (source_kind, conteudo) => {
+        if (!contratoDe(source_kind)?.carries_pii) return { conteudo, mudou: false };
+        const r = redigirProfundo(conteudo);
+        redigidos += r.redigidos;
+        for (const t of r.tipos) tiposRedigidos.add(t);
+        return { conteudo: r.valor, mudou: r.redigidos > 0 };
       };
 
       // ── Cadastro da marca ────────────────────────────────────────────────
@@ -229,16 +266,23 @@ export function createRetrieval({ knowledge, clock } = {}) {
       if (content_version_id && querem.includes("evidence")) {
         const evs = await knowledge.evidenceFor(tenant.org_id, content_version_id);
         for (const e of evs) {
+          const { conteudo, mudou } = semPii(e.source_kind, { fato: e.fact, qualidade: e.quality });
           slices.push({
             id: `evidence:${e.id}`,
             kind: "evidence",
             version: null,
             retrieved_at: new Date(agora()).toISOString(),
             source_at: e.retrieved_at,
-            conteudo: { fato: e.fact, qualidade: e.quality },
+            conteudo,
             evidence: {
               evidence_id: e.id, source_kind: e.source_kind,
-              locator: e.locator, hash: e.hash,
+              // O hash é do que o modelo viu. Quando a redação mudou o texto,
+              // o hash da linha passa a descrever algo que nunca entrou em
+              // lugar nenhum, e o recalculado toma o lugar dele. Quando não
+              // mudou nada, o da linha continua certo — e mantê-lo preserva a
+              // identidade da evidência entre runs.
+              locator: e.locator,
+              hash: mudou ? hashDe(conteudo) : e.hash,
               retrieved_at: e.retrieved_at,
               // A linha vence sobre o contrato: `default_quality` é o que vale
               // quando a evidence não declarou a própria.
@@ -257,7 +301,10 @@ export function createRetrieval({ knowledge, clock } = {}) {
       // vai junto porque "algo aqui está velho" sem dizer o quê manda quem lê
       // procurar no escuro.
       return { slices, versions, stale: vencidas.length > 0, vencidas,
-               brand: cadastro, trace_id };
+               brand: cadastro, trace_id,
+               // A linha Safety do trace (§30). Zero é diferente de ausente:
+               // zero diz "olhei e não havia".
+               pii: { redigidos, tipos: [...tiposRedigidos].sort() } };
     },
   };
 }

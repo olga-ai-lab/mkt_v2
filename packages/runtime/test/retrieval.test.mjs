@@ -280,3 +280,74 @@ test("a qualidade da propria linha vence a do contrato", async () => {
   });
   assert.equal(r.slices.find((x) => x.kind === "evidence").evidence.quality, "HIGH");
 });
+
+// ── PII sai antes de virar contexto (Mestra §30) ────────────────────────────
+//
+// `carries_pii` existia no contrato de fonte desde a 0012, e o caveat do
+// UPLOADED_FILE dizia com todas as letras "é a que recebe documento sem passar
+// por nenhum filtro nosso". A declaração estava certa; o filtro não existia.
+
+const ANEXO = (fact) => ([{
+  id: "e1", source_kind: "UPLOADED_FILE", locator: "file://apolice.pdf",
+  hash: "h-original", fact, quality: "MEDIUM", retrieved_at: new Date().toISOString(),
+}]);
+
+const revisar = (k) => createRetrieval({ knowledge: k }).fetch({
+  trace_id: "t", tenant: TENANT,
+  intent: intentDe("REVIEW_CONTENT", [{ type: "content_version", canonical_id: CV }]),
+});
+
+test("fonte marcada com PII e redigida antes de entrar no contexto", async () => {
+  const r = await revisar(knowledgeFalso({
+    evidence: ANEXO("Segurado ana@cliente.com, CPF 123.456.789-00, tel (11) 98888-7777"),
+  }));
+
+  const fatia = r.slices.find((s) => s.kind === "evidence");
+  assert.ok(!fatia.conteudo.fato.includes("123.456.789-00"), "o CPF chegou ao contexto");
+  assert.ok(!fatia.conteudo.fato.includes("ana@cliente.com"));
+  assert.match(fatia.conteudo.fato, /\[CPF\]/);
+  assert.equal(r.pii.redigidos, 3);
+  assert.deepEqual(r.pii.tipos, ["CPF", "EMAIL", "TELEFONE"]);
+});
+
+test("fonte SEM PII no contrato passa intacta, e nao e redigida por precaucao", async () => {
+  // Redigir tudo por via das dúvidas apagaria número de apólice, CNPJ da
+  // seguradora e telefone de atendimento — que são o assunto do texto. Quem
+  // decide é o contrato da fonte, não o formato do que apareceu.
+  const r = await revisar(knowledgeFalso({
+    evidence: [{ id: "e2", source_kind: "SOURCE_ARTIFACT", locator: "https://x",
+                 hash: "h", fact: "Atendimento em (11) 3000-0000, CNPJ 12.345.678/0001-90",
+                 quality: "MEDIUM", retrieved_at: new Date().toISOString() }],
+  }));
+
+  const fatia = r.slices.find((s) => s.kind === "evidence");
+  assert.ok(fatia.conteudo.fato.includes("12.345.678/0001-90"));
+  assert.equal(r.pii.redigidos, 0, "zero diz 'olhei e nao havia o que apagar aqui'");
+});
+
+test("o hash da evidence redigida e do texto REDIGIDO", async () => {
+  // Um hash do original diria que a evidência é de um texto que nunca entrou
+  // em lugar nenhum — e é o texto que entrou que sustenta a resposta.
+  const r = await revisar(knowledgeFalso({ evidence: ANEXO("CPF 123.456.789-00") }));
+  const fatia = r.slices.find((s) => s.kind === "evidence");
+  assert.notEqual(fatia.evidence.hash, "h-original");
+});
+
+test("fonte com PII e sem nada a redigir mantem o hash da linha", async () => {
+  // Nada mudou, entao o hash da linha continua descrevendo o texto que entrou.
+  // Recalcular aqui trocaria a identidade da evidencia sem que ela mudasse.
+  const r = await revisar(knowledgeFalso({ evidence: ANEXO("Apolice residencial padrao") }));
+  const fatia = r.slices.find((s) => s.kind === "evidence");
+  assert.equal(r.pii.redigidos, 0);
+  assert.equal(fatia.evidence.hash, "h-original");
+  assert.equal(fatia.conteudo.fato, "Apolice residencial padrao");
+});
+
+test("intencao que nao pede contexto nao afirma nada sobre PII", async () => {
+  // Nulo diz "não cheguei a olhar". Zero diria "olhei e não havia", e este run
+  // não olhou fonte nenhuma.
+  const r = await createRetrieval({ knowledge: knowledgeFalso() }).fetch({
+    trace_id: "t", tenant: TENANT, intent: intentDe("CONNECT_CHANNEL"),
+  });
+  assert.equal(r.pii, undefined);
+});

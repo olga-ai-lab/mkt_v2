@@ -171,6 +171,12 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
            autonomy_used = coalesce($5, autonomy_used),
            latency_ms = coalesce($6, latency_ms),
            finished_at = coalesce($7::timestamptz, now()),
+           -- A linha Safety da secao 30. Passa por coalesce pelo mesmo motivo
+           -- que o resto: um finish que nao sabe de PII nao pode apagar o que
+           -- o retrieval ja tinha contado.
+           policy_versions = coalesce($8::jsonb, a.policy_versions),
+           injection_signals = coalesce($9::text[], a.injection_signals),
+           pii_redacted = coalesce($10, a.pii_redacted),
            model = coalesce(g.modelos, a.model),
            input_tokens = coalesce(g.entrada, a.input_tokens),
            output_tokens = coalesce(g.saida, a.output_tokens),
@@ -183,7 +189,9 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
                from ${S}.model_spend s where s.agent_run_id = $1) g
          where a.id = $1`,
         [id, p.status ?? null, p.respondability ?? null, p.reason_codes ?? null,
-         p.autonomy_used ?? null, p.latency_ms ?? null, p.finished_at ?? null]);
+         p.autonomy_used ?? null, p.latency_ms ?? null, p.finished_at ?? null,
+         json(p.policy_versions), p.injection_signals ?? null,
+         p.pii_redacted ?? null]);
     },
   };
 

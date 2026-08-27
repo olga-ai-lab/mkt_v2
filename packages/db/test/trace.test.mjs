@@ -38,7 +38,8 @@ const gasto = (run_id, { model, input_tokens, output_tokens, cost_cents, task_cl
 const runDe = async (id) => {
   const { rows } = await db.query(
     `select model, prompt_version, persona_version, input_tokens, output_tokens,
-            cost_cents, respondability, latency_ms, status::text as status
+            cost_cents, respondability, latency_ms, status::text as status,
+            policy_versions, injection_signals, pii_redacted
        from mkt.agent_runs where id = $1`, [id]);
   return rows[0];
 };
@@ -157,4 +158,100 @@ test("o ledger continua sendo quem responde sobre dinheiro", async () => {
        from mkt.model_spend where agent_run_id = $1`, [id]);
   assert.equal(rows[0].n, 1);
   assert.equal(Number(rows[0].total), Number((await runDe(id)).cost_cents));
+});
+
+// ── Safety (Mestra §30) ─────────────────────────────────────────────────────
+//
+// A última linha do trace que faltava. As três colunas têm em comum uma coisa
+// que os testes abaixo protegem: NULO E ZERO NÃO SÃO A MESMA COISA. Nulo diz
+// "não cheguei a olhar"; zero diz "olhei e não havia". Um run que parou antes
+// do plano não é um run que a policy aprovou, e é essa a pergunta que se faz
+// depois de um incidente.
+
+test("o run guarda QUAL policy decidiu, e em que versao", async () => {
+  // `evaluate()` devolvia `policy_versions` desde a Fase 0, o contrato
+  // RespondabilityResult exige o campo, e nada gravava. Num incidente a
+  // pergunta é "que regra barrou isso, na versão de qual dia".
+  const id = await abrirRun();
+  await ports.runs.finish(id, {
+    status: "SUCCEEDED", respondability: "EXECUTABLE",
+    policy_versions: [{ policy_id: "POL_DRAFT_DEFAULT", version: 1 }],
+    injection_signals: [], pii_redacted: 0,
+  });
+
+  const r = await runDe(id);
+  assert.deepEqual(r.policy_versions, [{ policy_id: "POL_DRAFT_DEFAULT", version: 1 }]);
+});
+
+test("run que parou antes do plano deixa policy_versions NULO, e nao vazio", async () => {
+  // Array vazio diria "avaliei e nenhuma policy casou" — que é uma afirmação
+  // sobre a policy. Este run nunca chegou lá.
+  const id = await abrirRun();
+  await ports.runs.finish(id, {
+    status: "FAILED", respondability: "CLARIFICATION_REQUIRED",
+    policy_versions: null, injection_signals: [], pii_redacted: null,
+  });
+
+  const r = await runDe(id);
+  assert.equal(r.policy_versions, null);
+  assert.equal(r.pii_redacted, null, "nulo diz nao olhei; zero diria olhei e nao havia");
+});
+
+test("sinal de injecao fica gravado no run, inclusive no que falhou", async () => {
+  // O run que estourou é justamente o que se investiga depois.
+  const id = await abrirRun();
+  await ports.runs.finish(id, {
+    status: "FAILED", respondability: "TEMPORARILY_UNAVAILABLE",
+    injection_signals: ["INSTRUCTION_OVERRIDE", "ROLE_IMPERSONATION"],
+    pii_redacted: 0,
+  });
+
+  const r = await runDe(id);
+  assert.deepEqual(r.injection_signals, ["INSTRUCTION_OVERRIDE", "ROLE_IMPERSONATION"]);
+  assert.equal(r.status, "FAILED");
+});
+
+test("run limpo grava lista vazia, e nao nulo", async () => {
+  const id = await abrirRun();
+  await ports.runs.finish(id, {
+    status: "SUCCEEDED", injection_signals: [], pii_redacted: 0, policy_versions: [],
+  });
+
+  const r = await runDe(id);
+  assert.deepEqual(r.injection_signals, []);
+  assert.equal(r.pii_redacted, 0);
+  assert.deepEqual(r.policy_versions, []);
+});
+
+test("um finish que nao sabe de Safety nao apaga o que ja estava la", async () => {
+  // Mesma disciplina do resto do UPDATE: quem não tem a informação não a
+  // sobrescreve com nulo.
+  const id = await abrirRun();
+  await ports.runs.finish(id, { injection_signals: ["INSTRUCTION_OVERRIDE"], pii_redacted: 4 });
+  await ports.runs.finish(id, { status: "SUCCEEDED", respondability: "EXECUTABLE" });
+
+  const r = await runDe(id);
+  assert.deepEqual(r.injection_signals, ["INSTRUCTION_OVERRIDE"]);
+  assert.equal(r.pii_redacted, 4);
+  assert.equal(r.respondability, "EXECUTABLE");
+});
+
+test("a pergunta do incidente — isso ja tinha acontecido antes? — tem indice", async () => {
+  const limpo = await abrirRun();
+  await ports.runs.finish(limpo, { status: "SUCCEEDED", injection_signals: [] });
+  const sujo = await abrirRun();
+  await ports.runs.finish(sujo, { status: "SUCCEEDED",
+                                  injection_signals: ["PROMPT_EXFILTRATION"] });
+
+  const { rows } = await db.query(
+    `select id from mkt.agent_runs
+      where org_id = $1 and injection_signals is not null
+        and cardinality(injection_signals) > 0
+      order by started_at desc`, [ids.org]);
+  assert.deepEqual(rows.map((x) => x.id), [sujo]);
+
+  const { rows: idx } = await db.query(
+    `select indexname from pg_indexes
+      where schemaname = 'mkt' and indexname = 'agent_runs_sinais'`);
+  assert.equal(idx.length, 1, "sem indice, essa pergunta vira scan de toda a tabela de runs");
 });

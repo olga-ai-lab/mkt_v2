@@ -78,9 +78,9 @@ encostar no que já está de pé.
 Estado: **9 das 10 migrations estão aplicadas.** A Olga aplicou 0007 e 0008
 pelo SQL Editor em 25/08/2026, e a conferência bateu nos quatro pontos abaixo.
 
-> **As migrations 0010 a 0015 ainda não foram aplicadas.** São duas pastes, nesta
+> **As migrations 0010 a 0016 ainda não foram aplicadas.** São duas pastes, nesta
 > ordem: `packages/db/dist/mkt_v2_0010-0011-0012-0013-0014.sql` e depois
-> `packages/db/dist/mkt_v2_0015.sql`. É seguro mesmo se a 0010 já tiver entrado
+> `packages/db/dist/mkt_v2_0015-0016.sql`. É seguro mesmo se a 0010 já tiver entrado
 > (o corpo dela é um `update` idempotente e o ledger usa `on conflict do
 > nothing`).
 >
@@ -666,8 +666,8 @@ semântica (§7.4) não se aplica: nossa classe (§2) é transacional, não anal
 
 ~~**Persona e prompt não são versionados (§9, §32).**~~ Feito na 0013. Ver §12.
 
-~~**O trace está pela metade (§30).**~~ Feito. Falta só a linha *Safety* (policy
-blocks, sinais de injeção, redação de PII) e as versões de schemas/rules.
+~~**O trace está pela metade (§30).**~~ Feito, e a linha *Safety* fechou na
+0016 (§15) — junto com as versões de rules, que saíram no mesmo lugar.
 
 ~~**Shadow, canary e rollback não existem (§33).**~~ Feito na 0014, menos shadow
 e canary. Ver §13.
@@ -781,9 +781,7 @@ entidade entraram na 0015 — ver §14.
 **Shadow e canary (§33).** Replay/offline existe (os evals) e rollback passou a
 existir. Rodar uma versão nova em sombra, medindo divergência, não.
 
-**A linha *Safety* do trace (§30):** policy blocks, sinais de injeção e redação
-de PII não são registrados. A classificação de PII existe desde a 0012, nos
-contratos de fonte — falta o que se apoia nela.
+~~**A linha *Safety* do trace (§30).**~~ Feita na 0016 — ver §15.
 
 **`AGENTS.md` e `CLAUDE.md` (§36)**, que ensinariam a um coding agent onde estão
 as fontes normativas.
@@ -879,14 +877,116 @@ ela lá, aquele caso passava por um motivo diferente do que o título afirma.
 
 ---
 
-*Última verificação: 27/08/2026. 581 testes, 37 evals (16 golden, 21
+---
+
+## 15. A linha *Safety* do trace, e o que ela deliberadamente não faz
+
+A §30 lista o que todo run precisa deixar registrado. *Versions* fechou na 0013,
+*Performance* na 0007/0013. *Safety* — sinais de injeção, redação de PII, e o
+que a policy decidiu — era a que faltava.
+
+### A defesa continua sendo estrutural; o que faltava era o registro
+
+Isto precisa ficar dito antes de qualquer outra coisa, porque a leitura
+preguiçosa de `packages/runtime/src/safety.mjs` — "temos detecção de injeção" —
+é o caminho para alguém afrouxar a defesa de verdade achando que há uma rede
+embaixo.
+
+A defesa mora em dois lugares, e **nenhum deles depende de reconhecer o
+ataque**:
+
+1. `assembleContext` — texto de usuário entra na sexta camada, nunca na de
+   sistema.
+2. O compiler — os argumentos de toda chamada nascem de código determinístico a
+   partir de entidades verificadas.
+
+É por isso que elas funcionam contra ataques que ninguém previu. O problema é
+que são silenciosas: se um dia falharem, nada no banco diz que alguém tentou. O
+`COPILOT-ADV-001` prova que uma injeção conhecida não vira instrução — uma vez,
+em teste, contra um texto que nós mesmos escrevemos. Produção não tem eval.
+
+### Registra, não bloqueia
+
+Um regex que bloqueia é um regex que autoriza. Quem bloqueia neste sistema é a
+policy, que é dado tipado, escopado, priorizado e revisável por migration.
+
+E o custo do contrário seria imediato: *"ignore o rascunho anterior e comece de
+novo"* é pedido legítimo de quem escreve marketing e casa com qualquer padrão
+razoável de override. Há teste para cada uma das duas metades — o padrão pega o
+ataque, **e** não pega o pedido honesto que se parece com ele. Sem a segunda, a
+lista cresce até virar ruído, e trace ruidoso é trace que ninguém lê.
+
+Cinco técnicas, nomeadas pela técnica e não pelo texto: `INSTRUCTION_OVERRIDE`,
+`ROLE_IMPERSONATION`, `PROMPT_EXFILTRATION`, `AUTHORITY_CLAIM`,
+`AUTONOMY_ESCALATION`. Varridos: o texto do usuário, o material recuperado (o
+vetor de dentro — um Brand Brain cuja `identity` diga "ignore as instruções
+anteriores" entra em todo run daquela marca, e quem o editou tem papel
+MARKETING) e a página buscada pelo `brand.extract_from_url`.
+
+O sinal da página sai pelo tracer e não pela coluna do run: aquele código roda
+dentro do adapter, atrás do Capability Gateway, e devolvê-lo pelo output
+exigiria abrir o `BrandExtraction`, que é `additionalProperties: false`
+justamente para o modelo não escrever campo que ninguém pediu. O `trace_id` liga
+os dois.
+
+### PII: a 0012 declarou, e ninguém aplicava
+
+`mkt.source_contracts.carries_pii` existia desde a 0012, e o caveat da fonte
+`UPLOADED_FILE` dizia, com todas as letras: *"é a que recebe documento sem
+passar por nenhum filtro nosso"*. A declaração estava certa e o filtro não
+existia — o texto ia inteiro para o contexto do modelo.
+
+Agora a fatia de uma fonte marcada com PII passa por redação **antes** de entrar
+na camada `governed`. O lugar é o retrieval, e não a montagem do prompt: quem
+sabe se a fonte carrega PII é o contrato dela, e o contrato é lido ali.
+
+O marcador fica visível (`[CPF]`) em vez de o trecho sumir — um buraco silencioso
+faz o modelo inventar o que estava ali. E quando a redação muda o texto, o hash
+da evidência é recalculado: um hash do original descreveria um texto que nunca
+entrou em lugar nenhum.
+
+**A limitação é declarada, e não um bug a consertar:** a redação é por formato,
+então pega CPF, CNPJ, e-mail, telefone e CEP. Não pega nome de pessoa, que não
+tem forma. Fingir que pega seria pior que não pegar, porque alguém confiaria.
+
+### A coluna que não entrou, e por que isso importa
+
+*Policy blocks* quase virou um contador. Não virou: o loop para no primeiro
+bloqueio, então o contador só poderia valer 0 ou 1 — e `respondability =
+'POLICY_BLOCKED'` já diz exatamente isso, na mesma linha. Seria a mesma verdade
+escrita duas vezes, que é o anti-pattern do §47.
+
+O que a policy de fato **não** deixava no trace era *qual regra decidiu*.
+`evaluate()` devolve `policy_versions` desde a Fase 0, o contrato
+`RespondabilityResult` exige o campo, e nada nunca o gravou. Num incidente a
+pergunta é "que regra barrou isso, na versão de qual dia", e re-derivar pelo
+escopo é adivinhar. Isso também fecha a metade que faltava da §32 no trace.
+
+### Nulo e zero não são a mesma coisa
+
+Vale para as três colunas, e é o que os testes protegem: **nulo diz "não cheguei
+a olhar"; zero diz "olhei e não havia"**. Um run que parou antes do plano não é
+um run que a policy aprovou.
+
+### Um defeito que apareceu no caminho
+
+A resolução de entidade (§14) trocava `intent.entities` pela lista verificada
+**só para o compilador**. O retrieval continuava lendo a do modelo — e é ele
+quem escolhe qual Brand Brain entra no contexto. No caso em que as duas
+discordam, que é exatamente o que o §14 existe para detectar, o agente pensaria
+com a marca A e escreveria na marca B, sem erro nenhum no caminho. Corrigido, com
+teste que falha se alguém voltar atrás.
+
+---
+
+*Última verificação: 27/08/2026. 611 testes, 37 evals (16 golden, 21
 adversariais), 10/10 no Gate G0, 10/10 verificáveis no G1, typecheck limpo,
-build do web limpo, 15 migrations, árvore limpa, tudo empurrado para
+build do web limpo, 16 migrations, árvore limpa, tudo empurrado para
 `claude/novo-modulo-marketing-5l992o`.*
 
-*O schema `mkt_v2` está com 9 das 15 migrations. Faltam duas aplicações, nesta
+*O schema `mkt_v2` está com 9 das 16 migrations. Faltam duas aplicações, nesta
 ordem: `packages/db/dist/mkt_v2_0010-0011-0012-0013-0014.sql` e depois
-`packages/db/dist/mkt_v2_0015.sql`.*
+`packages/db/dist/mkt_v2_0015-0016.sql`.*
 
 *Na Fase 1 sobrou **uma** pendência, e ela não é código: a submissão do app na
 Meta (ADR-0008). Enquanto ela não sair, o produto roda inteiro com
