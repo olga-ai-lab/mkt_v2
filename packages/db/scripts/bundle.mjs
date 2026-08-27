@@ -4,7 +4,8 @@
  * Serve para aplicar via SQL Editor do Supabase, sem CLI e sem senha de banco.
  *
  *   MKT_SCHEMA=mkt_v2 node packages/db/scripts/bundle.mjs
- *   node packages/db/scripts/bundle.mjs > /tmp/mkt.sql
+ *
+ * MKT_SCHEMA nao tem default: ver o comentario longo abaixo.
  */
 import { readFileSync, readdirSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -13,9 +14,39 @@ import { retarget } from "./migrate.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS = join(HERE, "..", "migrations");
-const OUT_DIR = join(HERE, "..", "dist");
+// Destino sobrescrevivel. Serve para gerar um bundle avulso sem sujar o dist/
+// versionado — e, principalmente, para o teste da trava poder EXECUTAR este
+// script sem que uma trava quebrada escreva o arquivo perigoso no repositorio.
+// Um teste que, ao falhar, produz exatamente o artefato que ele existe para
+// impedir e um teste que piora o que estava tentando proteger.
+const OUT_DIR = process.env.MKT_BUNDLE_OUT || join(HERE, "..", "dist");
 
-const SCHEMA = process.env.MKT_SCHEMA || "mkt";
+/**
+ * MKT_SCHEMA e OBRIGATORIO aqui — nao ha default, e isso e deliberado.
+ *
+ * O runtime pode ter default: la o schema e so o namespace das consultas, e
+ * errar da um erro de tabela inexistente. Aqui nao. O que sai deste script e um
+ * arquivo que alguem COLA NO SQL EDITOR de producao, com "drop schema X
+ * cascade" escrito no cabecalho como instrucao de reversao.
+ *
+ * No projeto Supabase da Olga, os schemas `mkt` e `rh` tem dados que NAO sao
+ * nossos (docs/HANDOFF.md §3.1). Um default de "mkt" gera, sem aviso, um
+ * arquivo que cria 28 tabelas no schema errado e ensina a apagar o schema dela
+ * para reverter. Ja aconteceu nesta sessao, por um `npm run db:bundle` sem
+ * variavel.
+ *
+ * Um default conveniente que aponta para o lugar proibido nao e conveniencia:
+ * e uma arma carregada com a trava desligada.
+ */
+const SCHEMA = process.env.MKT_SCHEMA;
+if (!SCHEMA) {
+  console.error(
+    "MKT_SCHEMA e obrigatorio. Este script gera um arquivo para colar no SQL\n" +
+    "Editor de producao — nao ha default seguro.\n\n" +
+    "  MKT_SCHEMA=mkt_v2 node packages/db/scripts/bundle.mjs\n\n" +
+    "O alvo deste projeto e mkt_v2. Ver docs/HANDOFF.md §3.1 antes de usar outro.");
+  process.exit(1);
+}
 if (!/^[a-z][a-z0-9_]*$/.test(SCHEMA)) {
   console.error(`MKT_SCHEMA invalido: "${SCHEMA}"`);
   process.exit(1);

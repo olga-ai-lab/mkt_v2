@@ -64,7 +64,7 @@ a dos handlers.
 ## Antes de dizer que terminou
 
 ```bash
-npm test              # 419 testes: contracts, policy, gateway, runtime, worker, web, db + typecheck
+npm test              # 422 testes: contracts, policy, gateway, runtime, worker, web, db + typecheck
 npm run gate:g0       # 10 critérios do Gate G0, executados
 npm run gate:g1       # 10 critérios verificáveis do Gate G1
 ```

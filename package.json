@@ -18,7 +18,7 @@
     "test:gateway": "node --test 'packages/gateway/test/**/*.test.mjs'",
     "test:worker": "node --test 'apps/worker/test/**/*.test.mjs'",
     "test:web": "node --test 'apps/web/test/**/*.test.mjs'",
-    "db:bundle": "node packages/db/scripts/bundle.mjs",
+    "db:bundle": "MKT_SCHEMA=mkt_v2 node packages/db/scripts/bundle.mjs",
     "test:runtime": "node --test 'packages/runtime/test/**/*.test.mjs'",
     "typecheck": "tsc --noEmit -p apps/web",
     "build:web": "npm run build --workspace @olga/web",

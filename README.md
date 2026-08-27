@@ -25,7 +25,7 @@ um PDF aprovado.
 
 ## Onde o projeto está
 
-**419 testes, 24 evals de agente, Gate G0 10/10, Gate G1 10/10 verificáveis.**
+**422 testes, 24 evals de agente, Gate G0 10/10, Gate G1 10/10 verificáveis.**
 
 O esqueleto anda de ponta a ponta — pedir aprovação → aprovar → agendar → outbox
 → workflow → gateway → adapter → publicado — provado contra Postgres em
