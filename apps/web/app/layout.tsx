@@ -19,6 +19,13 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           <Link href="/">Início</Link>
           <Link href="/approvals">Aprovações</Link>
           <Link href="/content">Conteúdo</Link>
+          {/*
+            Rotulado "Protótipo" e separado do resto de propósito: as três
+            primeiras rotas mostram o banco, esta mostra dado escrito à mão.
+            Um link que não dissesse isso faria alguém apresentar a tela de
+            desempenho para um cliente.
+          */}
+          <Link href="/prototipo">Protótipo</Link>
           <span className="nav-spacer" />
           {hasSessionCookie ? (
             <form action="/api/auth/logout" method="post">

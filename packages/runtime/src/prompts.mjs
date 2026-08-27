@@ -24,7 +24,7 @@
  * alguém precisa lembrar de fazer não é uma garantia.
  */
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import lock from "../prompts.lock.json" with { type: "json" };
 import { PROMPT_RESOLVER, PROMPT_PLANNER, PROMPT_RESPONDER } from "./agent-stages.mjs";
 import { PROMPT_REDATOR, PROMPT_ADAPTADOR } from "./composer.mjs";
 import { PROMPT_EXTRATOR } from "./extractor.mjs";
@@ -54,8 +54,22 @@ export function estadoAtual() {
     Object.entries(PROMPTS).map(([id, texto]) => [id, hashDoPrompt(texto)]));
 }
 
-const lock = JSON.parse(
-  readFileSync(new URL("../prompts.lock.json", import.meta.url), "utf8"));
+/**
+ * O lock entra por IMPORT, e não por `readFileSync`.
+ *
+ * Era `readFileSync(new URL("../prompts.lock.json", import.meta.url))`, que
+ * funciona no `node --test` e quebra no build do Next: o webpack reescreve
+ * `import.meta.url` e o que chega ao `readFileSync` deixa de ser um caminho.
+ * O build de produção falhava em `/api/agent` — a rota principal do produto —
+ * com um `ERR_INVALID_ARG_TYPE` que não dizia de onde vinha.
+ *
+ * Ninguém tinha visto porque `npm test` não roda `next build`: o typecheck
+ * passa, e o defeito só aparece ao empacotar. Agora `npm run build:web` faz
+ * parte do `npm test`, para o próximo deste tipo cair aqui e não no deploy.
+ *
+ * Um import de JSON é estaticamente analisável, então o bundler o resolve em
+ * vez de tentar ler disco — e `prompts.lock.json` continua sendo a fonte única.
+ */
 
 /** A versão do conjunto, que o trace registra. */
 export const PROMPTS_VERSION = lock.version;

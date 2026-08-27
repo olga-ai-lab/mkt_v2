@@ -979,9 +979,93 @@ teste que falha se alguém voltar atrás.
 
 ---
 
+---
+
+## 16. O repositório que o Lovable criou, e o que veio dele
+
+O front-end foi desenhado no Lovable com o pedido de sincronizar com este
+repositório. O Lovable não sincronizou: criou um repositório novo,
+`olga-ai-lab/marketplace-sync`, com um app TanStack Start + Vite — framework
+diferente do `apps/web`, que é Next.js e é onde vivem as dez rotas de API.
+
+Dois repositórios para um produto viram duas verdades sobre como ele funciona,
+e a que ninguém mantém é a que alguém acaba lendo. Então o desenho veio para cá.
+
+### A cópia foi literal, e isso não é sorte
+
+`src/mktos/` — doze telas, `logic.ts` de 831 linhas, `store.tsx`, `css.tsx` — é
+**React puro**: só `react` e imports relativos. Nenhum TanStack, nenhum shadcn,
+nenhum Next. Coube em `apps/web/mktos/` sem uma linha de reescrita; só entrou o
+`"use client"` de cada entrada.
+
+O `components/ui` do shadcn que o Lovable gerou (47 arquivos) **não veio**:
+nenhuma tela o importa.
+
+### Ele mora em `/prototipo`, e não em `/`
+
+Tudo ali é **dado de mentira**, escrito à mão em `logic.ts`. Nada chama API, lê
+banco ou passa pelo Capability Gateway; os botões mudam estado em memória e o
+"publicado" da tela nunca saiu para lugar nenhum.
+
+Uma tela que parece o produto e não é o produto é a coisa mais perigosa que este
+repositório pode conter — é o mesmo defeito da coluna vazia, do eval que aprova
+o caminho errado e do kill switch que grava sem bloquear. Por isso: rota
+separada, faixa fixa no topo dizendo o que é, e link de navegação rotulado
+"Protótipo".
+
+### O mapa do que existe
+
+`apps/web/mktos/README.md` tem a tabela tela a tela. O resumo:
+
+| | Telas |
+|---|---|
+| **completo** | Aprovações, Marca, Conteúdo — as três já têm tela real |
+| **parcial** | Hoje, Calendário, Agenda, Agentes, Config |
+| **nada** | Desempenho, Jornadas, Carteira, Newsletter |
+
+Quatro telas desenham coisas que não existem em lugar nenhum do backend — não há
+métrica de post, entidade de campanha, audiência nem newsletter. Transformar
+qualquer uma em produto começa por uma migration e uma capability, não por
+copiar o JSX.
+
+### Sobre o Lovable, daqui para frente
+
+O editor continua servindo para desenhar. O que não pode continuar é ele
+publicando num repositório próprio. Quem desenhar lá traz o resultado para
+`apps/web/mktos/`, e a cópia é literal.
+
+**`olga-ai-lab/marketplace-sync` não foi apagado** — apagar repositório é ato do
+dono, não meu. Ele está integralmente aqui; quando você confirmar, pode
+arquivá-lo ou removê-lo.
+
+### Um defeito encontrado no caminho: o build de produção estava quebrado
+
+Rodar `npm run build:web` para conferir o protótipo revelou que ele **já
+falhava**, e não por causa desta mudança:
+
+```
+Failed to collect page data for /api/agent
+TypeError: The "path" argument must be of type string... Received an instance of URL
+```
+
+`prompts.mjs` lia `prompts.lock.json` com
+`readFileSync(new URL("../prompts.lock.json", import.meta.url))`. Funciona no
+`node --test` e quebra no webpack, que reescreve `import.meta.url`. A rota
+principal do produto não empacotava.
+
+Ninguém tinha visto porque **`npm test` não rodava `next build`** — o typecheck
+passa, e o defeito só aparece ao empacotar. Eu escrevi "build do web limpo" nas
+verificações anteriores deste documento sem ter rodado o comando. Estava errado.
+
+Duas correções: o lock entra por `import ... with { type: "json" }`, que é
+estaticamente analisável; e **`npm run build:web` passou a fazer parte do
+`npm test`**, para o próximo defeito deste tipo cair no teste e não no deploy.
+
+---
+
 *Última verificação: 27/08/2026. 611 testes, 37 evals (16 golden, 21
 adversariais), 10/10 no Gate G0, 10/10 verificáveis no G1, typecheck limpo,
-build do web limpo, 16 migrations, árvore limpa, tudo empurrado para
+build do web verificado de verdade (agora dentro do `npm test`), 16 migrations, árvore limpa, tudo empurrado para
 `claude/novo-modulo-marketing-5l992o`.*
 
 *O schema `mkt_v2` está com 9 das 16 migrations. Faltam duas aplicações, nesta

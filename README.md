@@ -290,6 +290,21 @@ própria é uma contenção em que ninguém confia.
 
 O passo a passo está em [`docs/runbooks/conter-incidente.md`](docs/runbooks/conter-incidente.md).
 
+## O protótipo de telas, e por que ele não está em `/`
+
+`apps/web/mktos/` tem doze telas desenhadas no Lovable, servidas em
+`/prototipo`. **Tudo ali é dado de mentira**: nada chama API, lê banco ou passa
+pelo Capability Gateway.
+
+Uma tela que parece o produto e não é o produto é a coisa mais perigosa que este
+repositório pode conter — mesmo defeito da coluna vazia e do kill switch que
+grava sem bloquear. Por isso: rota separada, faixa fixa no topo e link rotulado.
+
+`apps/web/mktos/README.md` diz, tela a tela, o que tem backend atrás. Três estão
+completas (Aprovações, Marca, Conteúdo), cinco parciais, e quatro — Desempenho,
+Jornadas, Carteira, Newsletter — desenham coisas que não existem em lugar nenhum
+do sistema.
+
 ## Rodar
 
 ```bash
