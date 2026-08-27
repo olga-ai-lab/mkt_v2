@@ -9,6 +9,10 @@ import { canTransition } from "@olga/contracts";
 
 const json = (v) => (v == null ? null : JSON.stringify(v));
 
+/** Um id que nao e uuid nunca vira `where id = $1`: erro de tipo do Postgres
+ *  sobe como 500, e a resposta certa para um uuid inventado e "nao achei". */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "mkt" } = {}) {
   if (!/^[a-z][a-z0-9_]*$/.test(schema)) throw new Error(`schema invalido: ${schema}`);
   const S = schema;
@@ -1279,6 +1283,163 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
     },
   };
 
+  /**
+   * Resolucao de entidade: nome que uma pessoa digitou -> id canonico do tenant.
+   *
+   * Separada de `knowledge` de proposito. Conhecimento e o que o agente le
+   * DEPOIS de saber sobre o que esta falando; isto e o passo anterior, e o
+   * unico que decide identidade. Misturar os dois faria toda consulta de
+   * leitura virar um lugar capaz de trocar de marca.
+   *
+   * ── Tres regras que valem para todo metodo daqui ─────────────────────────
+   *
+   * 1. Toda consulta e escopada por org_id. Uma resolucao que atravessa tenant
+   *    nao e um bug de listagem: e o agente escrevendo no perfil de outro
+   *    cliente, que a Mestra §B classifica como S3.
+   *
+   * 2. Nenhum metodo escolhe entre candidatos. `porNome` devolve a LISTA e
+   *    quem chama decide o que fazer com duas linhas — porque escolher e
+   *    exatamente o que o §13 proibe ("registry/aliases/IDs, nao fuzzy
+   *    matching irrestrito").
+   *
+   * 3. A comparacao de texto passa por `mkt.norm` nos DOIS lados. Normalizar
+   *    so de um e o jeito de nunca encontrar nada; normalizar so na aplicacao
+   *    e o jeito de divergir do indice unico que garante que um apelido nao
+   *    resolve para duas coisas.
+   */
+  const entities = {
+    /**
+     * O id existe NESTE tenant? E a unica pergunta que verifica um id que o
+     * modelo escreveu.
+     *
+     * Devolve o rotulo junto porque quem pergunta quase sempre precisa dizer
+     * de volta o nome do que encontrou — e uma segunda ida ao banco para
+     * buscar o nome do que acabou de ser confirmado seria custo sem resposta
+     * nova.
+     */
+    async byId(org_id, entity_type, id) {
+      if (entity_type === "channel") {
+        const { rows } = await pool.query(
+          `select $1::text as id, $1::text as label
+             where $1::text = any (
+               select unnest(enum_range(null::${S}.channel))::text)`, [id]);
+        return rows[0] ?? null;
+      }
+      // Um id que nao e uuid nao chega a virar consulta: `where id = 'a marca'`
+      // seria erro de tipo do Postgres, e erro de tipo vira 500 em vez de
+      // "nao encontrei".
+      if (!UUID.test(String(id ?? ""))) return null;
+
+      if (entity_type === "brand") {
+        const { rows } = await pool.query(
+          `select id, name as label from ${S}.brands where org_id = $1 and id = $2`,
+          [org_id, id]);
+        return rows[0] ?? null;
+      }
+      if (entity_type === "content_version") {
+        const { rows } = await pool.query(
+          `select cv.id, ct.title as label
+             from ${S}.content_versions cv
+             join ${S}.contents ct on ct.id = cv.content_id
+            where cv.org_id = $1 and cv.id = $2`, [org_id, id]);
+        return rows[0] ?? null;
+      }
+      return null;
+    },
+
+    /**
+     * Quem se chama assim, nesta organizacao. Igualdade normalizada, e a lista
+     * inteira: duas linhas aqui e uma pergunta a fazer, nao um desempate.
+     */
+    async byNaturalKey(org_id, entity_type, raw) {
+      const texto = String(raw ?? "");
+      if (texto.trim() === "") return [];
+
+      if (entity_type === "brand") {
+        const { rows } = await pool.query(
+          `select id, name as label from ${S}.brands
+            where org_id = $1 and ${S}.norm(name) = ${S}.norm($2)
+            limit 10`, [org_id, texto]);
+        return rows;
+      }
+      if (entity_type === "content_version") {
+        // O titulo e do conteudo, e um conteudo tem varias versoes. Quem pede
+        // "o post do IPCA" quer a ULTIMA versao dele, entao a resolucao e por
+        // conteudo e a versao vem da linha mais recente — uma por conteudo,
+        // senao todo titulo com historico seria ambiguo por construcao.
+        const { rows } = await pool.query(
+          `select distinct on (ct.id) cv.id, ct.title as label
+             from ${S}.contents ct
+             join ${S}.content_versions cv on cv.content_id = ct.id
+            where ct.org_id = $1 and ${S}.norm(ct.title) = ${S}.norm($2)
+            order by ct.id, cv.version desc
+            limit 10`, [org_id, texto]);
+        return rows;
+      }
+      if (entity_type === "channel") {
+        const { rows } = await pool.query(
+          `select c::text as id, c::text as label
+             from unnest(enum_range(null::${S}.channel)) c
+            where ${S}.norm(c::text) = ${S}.norm($1)`, [texto]);
+        return rows;
+      }
+      return [];
+    },
+
+    /**
+     * O apelido registrado, se houver. Zero ou uma linha — nunca duas, e isso
+     * e o indice unico que garante, nao esta consulta.
+     */
+    async byAlias(org_id, entity_type, raw) {
+      const texto = String(raw ?? "");
+      if (texto.trim() === "") return null;
+      const { rows } = await pool.query(
+        `select canonical_id as id, alias as label
+           from ${S}.entity_aliases
+          where org_id = $1 and entity_type = $2 and ${S}.norm(alias) = ${S}.norm($3)`,
+        [org_id, entity_type, texto]);
+      return rows[0] ?? null;
+    },
+
+    /**
+     * Registra um apelido. Quem chama JA verificou que `canonical_id` existe
+     * no tenant — esta porta nao confere, e por isso nao e chamada por nada
+     * que receba id de fora sem passar por `byId` antes.
+     *
+     * Conflito nao vira update silencioso: apelido ja usado para outra coisa
+     * e uma decisao de alguem, e sobrescrever apagaria a decisao anterior sem
+     * que ninguem soubesse.
+     */
+    async addAlias({ org_id, entity_type, canonical_id, alias, actor_id = null }) {
+      const { rows } = await pool.query(
+        `insert into ${S}.entity_aliases
+           (org_id, entity_type, canonical_id, alias, created_by_actor_id)
+         values ($1,$2,$3,$4,$5)
+         on conflict do nothing
+         returning id`,
+        [org_id, entity_type, canonical_id, alias, actor_id]);
+      if (rows[0]) return { ok: true, id: rows[0].id };
+
+      // `entities.byAlias`, e nao `this.byAlias`: quem desestrutura a porta
+      // (`const { addAlias } = ports.entities`) perderia o `this` e receberia
+      // um TypeError no lugar da recusa.
+      const atual = await entities.byAlias(org_id, entity_type, alias);
+      return atual?.id === canonical_id
+        ? { ok: true, id: null, ja_existia: true }
+        : { ok: false, reason: "ALIAS_TAKEN", canonical_id: atual?.id ?? null };
+    },
+
+    /** Os apelidos de uma entidade, para a tela que os mostra e os remove. */
+    async aliasesOf(org_id, entity_type, canonical_id) {
+      const { rows } = await pool.query(
+        `select id, alias, created_by_actor_id, created_at
+           from ${S}.entity_aliases
+          where org_id = $1 and entity_type = $2 and canonical_id = $3
+          order by created_at`, [org_id, entity_type, canonical_id]);
+      return rows;
+    },
+  };
+
   return { routing, budget, registry, runs, policies, receipts, outbox, approvals,
-           connections, variants, publishing, content, knowledge, authoring };
+           connections, variants, publishing, content, knowledge, authoring, entities };
 }

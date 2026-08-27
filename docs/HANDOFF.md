@@ -78,10 +78,15 @@ encostar no que já está de pé.
 Estado: **9 das 10 migrations estão aplicadas.** A Olga aplicou 0007 e 0008
 pelo SQL Editor em 25/08/2026, e a conferência bateu nos quatro pontos abaixo.
 
-> **As migrations 0010 a 0014 ainda não foram aplicadas.** Cole
-> `packages/db/dist/mkt_v2_0010-0011-0012-0013-0014.sql` no SQL Editor — é uma
-> paste só, e é seguro mesmo se a 0010 já tiver entrado (o corpo dela é um
-> `update` idempotente e o ledger usa `on conflict do nothing`).
+> **As migrations 0010 a 0015 ainda não foram aplicadas.** São duas pastes, nesta
+> ordem: `packages/db/dist/mkt_v2_0010-0011-0012-0013-0014.sql` e depois
+> `packages/db/dist/mkt_v2_0015.sql`. É seguro mesmo se a 0010 já tiver entrado
+> (o corpo dela é um `update` idempotente e o ledger usa `on conflict do
+> nothing`).
+>
+> Sem a **0015**, nenhum nome de marca resolve para um id: quem preenche
+> `canonical_id` volta a ser o modelo, e um uuid inventado passa igual a um
+> correto.
 >
 > Sem a **0010**, `brand.extract_from_url` continua apontando para o adapter
 > `web_fetch` naquele banco e o onboarding de marca não funciona lá.
@@ -769,8 +774,9 @@ fosse o status. Voltar para a última `ACTIVE` não funcionava: uma v2
 
 ### O que ainda falta da Mestra
 
-**Camadas de conhecimento (§7):** faltam ontologia, aliases de entidade e guias
-de raciocínio. A camada semântica não se aplica à nossa classe (§2, transacional).
+**Camadas de conhecimento (§7):** faltam ontologia e guias de raciocínio. A
+camada semântica não se aplica à nossa classe (§2, transacional). Aliases de
+entidade entraram na 0015 — ver §14.
 
 **Shadow e canary (§33).** Replay/offline existe (os evals) e rollback passou a
 existir. Rodar uma versão nova em sombra, medindo divergência, não.
@@ -787,14 +793,100 @@ as fontes normativas.
 
 ---
 
-*Última verificação: 27/08/2026. 545 testes, 31 evals (14 golden, 17
+## 14. Entity Resolution: quem transforma um nome em id deixa de ser o modelo
+
+`olga://io/entity-resolution` existia desde a Fase 0 — com métodos, reason
+codes e tipos gerados — e **nada o implementava**. Um `grep` pelo nome do
+contrato não devolvia uma linha fora do próprio schema.
+
+Quem preenchia `canonical_id` era o LLM, dentro do `IntentResolution`. Um
+modelo não tem como saber um uuid: ou devolvia `null`, e todo pedido que
+nomeava uma marca morria em `CLARIFICATION_REQUIRED`, ou inventava um — e a
+recusa vinha por acidente, se e quando o `SELECT` do compilador não achasse a
+linha. Recusar por acidente é recusar às vezes.
+
+Os evals não pegavam porque substituem `__BRAND__` pelo id real do fixture
+antes de rodar. O caminho que eles aprovavam não era o que um cliente percorre.
+
+### O passo, e onde ele entra
+
+Entre o resolver (LLM) e o retrieval. Daqui para baixo, o loop trabalha com
+entidades **verificadas contra o tenant** — `intent.entities` não chega mais ao
+compilador. Sem essa troca, tudo isto seria auditoria sem consequência.
+
+| Ordem | Método | Quando |
+|---|---|---|
+| 1 | `exact_id` | o texto já é o id (a tela mandou o id no lugar do nome) |
+| 2 | `unique_natural_key` | igualdade de nome, depois de `mkt.norm` |
+| 3 | `alias` | igualdade contra um apelido **registrado** |
+| 4 | `exact_id` (banda `MEDIUM`) | o texto não resolveu e o palpite do modelo existe neste tenant |
+
+Fuzzy continua proibido (§13). Só há igualdade — depois de normalizar caixa,
+acento e espaço, que não é aproximação e sim a mesma palavra escrita de outro
+jeito. `mkt.norm` é aplicada nos **dois lados** de toda comparação: normalizar
+só de um é o jeito de nunca encontrar nada.
+
+O custo é real e é o certo: "Corretora Ipe Seguros" não resolve se a marca está
+cadastrada como "Ipê Seguros". O sistema pergunta. A alternativa — aceitar 0.87
+de similaridade — é publicar no perfil errado uma vez a cada tanto, e ninguém
+consegue dizer quanto é tanto. Para dois nomes que precisam conviver existe
+apelido: uma linha que alguém escreveu, com autor e data.
+
+### O palpite do modelo virou entrada não confiável
+
+A linha 4 é o que sustenta pronome: "publica isso", "a marca", "esse post" são
+pedidos legítimos cujo texto não resolve nada. Rejeitá-los quebraria a conversa
+inteira; aceitá-los sem checar deixaria um uuid alucinado virar destino. A
+trava que sobra é a única que importa — **o id tem de existir nesta
+organização**. O modelo pode errar de entidade; não pode atravessar tenant.
+
+Quando o nome resolve e o palpite discorda, **o cadastro vence** e a divergência
+vai para o trace (`loop.entities`). Deixar o palpite vetar uma resolução por
+nome seria dar ao modelo, na hora de discordar, uma autoridade sobre identidade
+que acabamos de dizer que ele não tem.
+
+### Ambiguidade é pergunta, e os dois códigos não se confundem
+
+| Código | O que aconteceu | O que a pessoa faz |
+|---|---|---|
+| `AMBIGUOUS_ENTITY` | dois cadastros com o mesmo nome | escolhe |
+| `NORMALIZATION_FAILED` | nenhum cadastro com esse nome | confere o nome |
+| `UNSUPPORTED_VALUE` | tipo de entidade que o sistema não resolve | nada — vira `UNSUPPORTED`, não pergunta |
+
+O índice único `(org_id, entity_type, mkt.norm(alias))` é a regra, e não a
+otimização: é ele que transforma apelido em chave natural em vez de palpite.
+Sem ele a resolução teria de escolher entre dois candidatos, e escolher é o que
+o §13 proíbe.
+
+Tipo desconhecido é **fail-closed**: `connection` — que é em qual conta se
+publica — para o loop em vez de atravessar sem verificação. Um tipo novo que
+ninguém lembrou de classificar vira erro visível, não um id não conferido
+chegando ao compilador.
+
+### O prompt do resolver mudou (versão 2)
+
+Ele agora pede `raw` e `canonical_id: null` explicitamente. Enquanto pedia o
+id, o modelo o inventava. `prompts.lock.json` guarda as duas versões.
+
+### Cinco evals novos, e o que cada um trava
+
+`COPILOT-GOLD-005` (nome digitado sem acento resolve — impossível antes),
+`COPILOT-GOLD-006` (apelido), `COPILOT-ADV-006` (uuid inventado não vira alvo),
+`COPILOT-ADV-007` (homônimos viram pergunta, não a primeira linha do índice),
+`COPILOT-ADV-008` (o palpite não redireciona um nome resolvido). Mais
+`CONTENT-ADV-006`, para a entidade intrusa que saiu do `CONTENT-ADV-003` — com
+ela lá, aquele caso passava por um motivo diferente do que o título afirma.
+
+---
+
+*Última verificação: 27/08/2026. 581 testes, 37 evals (16 golden, 21
 adversariais), 10/10 no Gate G0, 10/10 verificáveis no G1, typecheck limpo,
-build do web limpo, 14 migrations, árvore limpa, tudo empurrado para
+build do web limpo, 15 migrations, árvore limpa, tudo empurrado para
 `claude/novo-modulo-marketing-5l992o`.*
 
-*O schema `mkt_v2` está com 9 das 14 migrations: faltam a 0010 a 0014, e o
-bundle das cinco está pronto em
-`packages/db/dist/mkt_v2_0010-0011-0012-0013-0014.sql`.*
+*O schema `mkt_v2` está com 9 das 15 migrations. Faltam duas aplicações, nesta
+ordem: `packages/db/dist/mkt_v2_0010-0011-0012-0013-0014.sql` e depois
+`packages/db/dist/mkt_v2_0015.sql`.*
 
 *Na Fase 1 sobrou **uma** pendência, e ela não é código: a submissão do app na
 Meta (ADR-0008). Enquanto ela não sair, o produto roda inteiro com

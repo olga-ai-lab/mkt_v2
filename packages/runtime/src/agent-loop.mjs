@@ -60,6 +60,15 @@ const AMBIGUIDADE_MATERIAL = new Set([
 ]);
 
 /**
+ * Tipos que são valor, e não referência — `canonical_id` nulo neles é normal.
+ *
+ * Duplica de propósito a lista de `entity-resolver.mjs`: esta checagem existe
+ * justamente para o caso em que aquele arquivo NÃO está montado, e importar
+ * dele faria a rede de segurança depender do que ela protege.
+ */
+const TIPOS_SEM_ID = new Set(["objective", "audience", "tone", "format"]);
+
+/**
  * Em que estado o loop para quando um compilador se recusa a montar args.
  *
  * O arquivo dos compiladores sempre disse que "entidade faltando é pergunta,
@@ -178,12 +187,38 @@ export function buildEvidence({ trace_id, items = [] }) {
 }
 
 /**
+ * A pergunta que se faz quando uma referência não resolveu.
+ *
+ * Cada código pede uma coisa diferente de quem lê, e por isso não há uma frase
+ * só: ambíguo é "achei várias, qual delas?", e quem recebe escolhe;
+ * normalização falha é "não achei nenhuma", e quem recebe confere o nome.
+ * Trocar uma pela outra manda a pessoa fazer a coisa errada.
+ */
+function perguntaSobre(unresolved) {
+  const nomes = (rc) => unresolved.filter((u) => u.reason_code === rc)
+    .map((u) => u.raw ?? u.entity_type).join(", ");
+  const frases = {
+    AMBIGUOUS_ENTITY: (n) => `Há mais de um registro com esse nome: ${n}. Qual deles?`,
+    NORMALIZATION_FAILED: (n) => `Não encontrei: ${n}.`,
+    UNSUPPORTED_VALUE: (n) => `Ainda não sei tratar: ${n}.`,
+  };
+  const codigos = [...new Set(unresolved.map((u) => u.reason_code))];
+  return codigos.map((rc) => (frases[rc] ?? ((n) => `Não consegui usar: ${n}.`))(nomes(rc)))
+    .join(" ");
+}
+
+/**
  * @param {{ resolver: any, planner: any, responder: any, retrieval?: any,
- *           compiler: any, gateway: any, registry: any, policies: any,
- *           runs?: any, tracer?: any, ids: any, clock?: any }} deps
+ *           entityResolver?: any, compiler: any, gateway: any, registry: any,
+ *           policies: any, runs?: any, tracer?: any, ids: any, clock?: any }} deps
+ *
+ * `entityResolver` é opcional na assinatura e obrigatório na prática: sem ele
+ * o loop volta a confiar no `canonical_id` que o modelo escreveu, e é isso que
+ * o aviso no boot cobra. Opcional aqui só para os testes que não tocam
+ * entidade não precisarem montar um banco.
  */
 export function createAgentLoop({
-  resolver, planner, responder, retrieval,
+  resolver, planner, responder, retrieval, entityResolver,
   compiler, gateway, registry, policies,
   runs, tracer, ids, clock,
 }) {
@@ -284,14 +319,49 @@ export function createAgentLoop({
           "Preciso de uma informação a mais antes de seguir.");
       }
 
-      // Referência que não resolveu para ID canônico não vira palpite.
+      // ── 1b. ENTITY RESOLUTION ────────────────────────────────────────────
       //
-      // NORMALIZATION_FAILED, e não AMBIGUOUS_ENTITY: os dois casos são
-      // diferentes e pedem coisas diferentes do usuário. Ambíguo é "achei
-      // vários, qual deles?"; normalização falha é "não achei nenhum". Quem
-      // recebe a primeira mensagem escolhe; quem recebe a segunda confere o
-      // nome. Trocar uma pela outra manda a pessoa fazer a coisa errada.
-      const semId = (intent.entities ?? []).filter((e) => e.canonical_id == null);
+      // O passo que a Mestra §13 exige ("Entity Resolution usa
+      // registry/aliases/IDs e não fuzzy matching irrestrito") e que não
+      // existia. Até aqui `canonical_id` era o que o modelo tinha escrito, e o
+      // loop conferia apenas se ele era não-nulo — o que aprova um uuid
+      // inventado com a mesma facilidade que um correto.
+      //
+      // Daqui para baixo, `entidades` (verificadas contra o tenant) substitui
+      // `intent.entities` (a palavra do modelo). Essa troca é o ponto do
+      // passo: se o compilador continuasse lendo `intent.entities`, tudo isto
+      // seria auditoria sem consequência.
+      let entidadesVerificadas = intent.entities ?? [];
+      if (entityResolver) {
+        const er = await entityResolver.resolve({ trace_id, tenant, intent });
+        assertValid("olga://io/entity-resolution", er.resolution);
+        emitir("loop.entities", {
+          resolved: er.resolution.resolved.map(
+            (r) => ({ t: r.entity_type, m: r.method, c: r.confidence_band })),
+          unresolved: er.resolution.unresolved ?? [],
+          // O palpite do modelo apontava para outro id. Não muda a decisão —
+          // o cadastro decide —, e é o sinal que diz que o resolver está se
+          // perdendo antes de alguém perceber pelo suporte.
+          ...(er.divergencias?.length ? { divergencias: er.divergencias } : {}),
+        });
+        if (!er.ok) {
+          const codigos = [...new Set(er.resolution.unresolved.map((u) => u.reason_code))];
+          // Perguntar só faz sentido quando a resposta da pessoa resolve. "Achei
+          // duas marcas com esse nome" ela responde; "não sei tratar referência
+          // do tipo `connection`" ela não — isso é limite do sistema, e vestir
+          // de pergunta faria alguém tentar reescrever o pedido para sempre.
+          const estado = codigos.includes("UNSUPPORTED_VALUE")
+            ? "UNSUPPORTED" : "CLARIFICATION_REQUIRED";
+          return encerrar(estado, codigos, perguntaSobre(er.resolution.unresolved));
+        }
+        entidadesVerificadas = er.entities;
+      }
+
+      // Sem o passo montado, a checagem antiga é o que resta: `canonical_id`
+      // nulo não vira palpite. Ela é fraca de propósito — quem confia nela
+      // está confiando no modelo, e o boot avisa isso.
+      const semId = entidadesVerificadas.filter(
+        (e) => e.canonical_id == null && !TIPOS_SEM_ID.has(e.type));
       if (semId.length > 0) {
         return encerrar("CLARIFICATION_REQUIRED", ["NORMALIZATION_FAILED"],
           `Não encontrei: ${semId.map((e) => e.raw ?? e.type).join(", ")}.`);
@@ -398,7 +468,7 @@ export function createAgentLoop({
         let compilado;
         try {
           compilado = await compiler.compile(step, {
-            entities: intent.entities,
+            entities: entidadesVerificadas,
             context: { ...recuperado, produced: produzido },
             tenant, agent,
           });

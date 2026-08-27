@@ -95,10 +95,22 @@ const REGRAS_COMUNS =
  * código que o usa são revisados juntos: um prompt longe da função que o manda
  * é um prompt que muda sem ninguém ver o efeito.
  */
+/**
+ * O resolver NOMEIA; quem identifica é o entity-resolver, contra o banco.
+ *
+ * A instrução sobre `canonical_id` não é cosmética. Enquanto o prompt pedia o
+ * id, o modelo o inventava — e um uuid inventado só era recusado por acidente,
+ * quando o SELECT do compilador não achava a linha. Pedir `null` faz a
+ * resolução acontecer no lugar onde ela pode ser verificada.
+ */
 export const PROMPT_RESOLVER =
   `${REGRAS_COMUNS}\n` +
   "Sua tarefa: identificar a intenção, as entidades e as ambiguidades do pedido. " +
-  "confidence_band é HIGH, MEDIUM ou LOW — nunca um percentual.";
+  "confidence_band é HIGH, MEDIUM ou LOW — nunca um percentual.\n" +
+  "Em cada entidade, escreva em `raw` o texto exato que a pessoa usou e deixe " +
+  "`canonical_id` como null. Você não tem como saber um identificador interno, " +
+  "e um identificador inventado é pior que a ausência dele: quem resolve nome " +
+  "para id é o sistema, contra o cadastro da organização.";
 
 export const PROMPT_PLANNER =
   `${REGRAS_COMUNS}\n` +

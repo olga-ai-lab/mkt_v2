@@ -26,6 +26,7 @@ import { createAllCompilers } from "@olga/runtime/capability-compilers";
 import { createRetrieval } from "@olga/runtime/retrieval";
 import { createComposer } from "@olga/runtime/composer";
 import { createBrandExtractor } from "@olga/runtime/extractor";
+import { createEntityResolver } from "@olga/runtime/entity-resolver";
 import { createGateway } from "@olga/gateway";
 import { createWorkerPorts } from "./ports-worker.mjs";
 import { createAdapters, createEnvSecrets } from "./adapters.mjs";
@@ -105,6 +106,11 @@ export function createWorkerApp({ pool, inngest, providers, env = process.env, t
       planner: createLlmPlanner({ modelGateway }),
       responder: createLlmResponder({ modelGateway }),
       retrieval: createRetrieval({ knowledge: ports.knowledge }),
+      // Sem esta linha, `canonical_id` volta a ser o que o modelo escreveu, e
+      // o loop confere apenas se ele é não-nulo. Foi assim que o produto
+      // rodou até a 0015: um uuid inventado passava igual a um correto, e a
+      // recusa só vinha quando o SELECT do compilador não achava a linha.
+      entityResolver: createEntityResolver({ entities: ports.entities }),
       compiler: createCompiler(createAllCompilers({ publishing: ports.publishing })),
       gateway,
       registry: {

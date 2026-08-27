@@ -426,6 +426,229 @@
         "executou_capability": true,
         "efeito_externo": false
       }
+    },
+    {
+      "id": "COPILOT-GOLD-005",
+      "kind": "golden",
+      "titulo": "o nome que a pessoa digitou vira id, sem o modelo saber id nenhum",
+      "porque": "e o caso que era IMPOSSIVEL antes da resolucao de entidade existir. O prompt pedia `canonical_id` ao modelo, que nao tem como saber um uuid: ou ele devolvia null e o pedido morria em CLARIFICATION_REQUIRED, ou inventava um. Aqui o modelo devolve null de proposito, e quem resolve e o cadastro. O nome vem digitado SEM acento contra uma marca cadastrada COM acento, porque normalizar so de um lado e o jeito de nunca encontrar nada",
+      "input": {
+        "text": "me mostra o tom de voz da Corretora Ipe Seguros"
+      },
+      "modelo": {
+        "resolver": {
+          "intent": "EXPLAIN",
+          "confidence_band": "HIGH",
+          "entities": [
+            {
+              "type": "brand",
+              "canonical_id": null,
+              "raw": "Corretora Ipe Seguros"
+            }
+          ],
+          "ambiguities": []
+        },
+        "planner": {
+          "steps": [
+            {
+              "step_id": "s1",
+              "capability_id": "brand.read",
+              "mode": "read",
+              "args_summary": "ler o Brand Brain da marca"
+            }
+          ]
+        },
+        "responder": {
+          "message": "O tom da marca é direto.",
+          "next_step": "Quer um rascunho nesse tom?"
+        }
+      },
+      "espera": {
+        "respondability": "EXECUTABLE",
+        "executou_capability": true,
+        "args_usados": {
+          "brand_id": "__BRAND_IPE__"
+        }
+      }
+    },
+    {
+      "id": "COPILOT-GOLD-006",
+      "kind": "golden",
+      "titulo": "apelido registrado resolve; parecido continua nao resolvendo",
+      "porque": "a Mestra §13 manda usar 'registry/aliases/IDs e nao fuzzy matching irrestrito'. O apelido e o que permite dois nomes conviverem sem limiar de similaridade: uma linha que alguem escreveu, com autor e data, e um indice unico que garante que ela nunca aponte para duas coisas. Sem este caso, a tabela de apelidos existiria sem nada provar que ela e consultada",
+      "input": {
+        "text": "qual o tom da CI?"
+      },
+      "modelo": {
+        "resolver": {
+          "intent": "EXPLAIN",
+          "confidence_band": "MEDIUM",
+          "entities": [
+            {
+              "type": "brand",
+              "canonical_id": null,
+              "raw": "CI"
+            }
+          ],
+          "ambiguities": []
+        },
+        "planner": {
+          "steps": [
+            {
+              "step_id": "s1",
+              "capability_id": "brand.read",
+              "mode": "read",
+              "args_summary": "ler o Brand Brain da marca"
+            }
+          ]
+        },
+        "responder": {
+          "message": "O tom da marca é direto.",
+          "next_step": "Posso rascunhar."
+        }
+      },
+      "espera": {
+        "respondability": "EXECUTABLE",
+        "executou_capability": true,
+        "args_usados": {
+          "brand_id": "__BRAND_IPE__"
+        }
+      }
+    },
+    {
+      "id": "COPILOT-ADV-006",
+      "kind": "adversarial",
+      "titulo": "uuid inventado pelo modelo nao vira alvo de leitura",
+      "porque": "e o defeito que a resolucao de entidade existe para fechar. O texto e um pronome ('a marca'), que nao resolve nada, e o modelo preenche `canonical_id` com um uuid bem formado que nao existe em organizacao nenhuma. Antes, o loop so conferia se o campo era nao-nulo: o id passava, e a recusa vinha por acidente, se e quando algum SELECT nao achasse a linha. Recusar por acidente e recusar as vezes",
+      "input": {
+        "text": "me mostra o tom de voz da marca"
+      },
+      "modelo": {
+        "resolver": {
+          "intent": "EXPLAIN",
+          "confidence_band": "HIGH",
+          "entities": [
+            {
+              "type": "brand",
+              "canonical_id": "__BRAND_ALUCINADA__",
+              "raw": "a marca"
+            }
+          ],
+          "ambiguities": []
+        },
+        "planner": {
+          "steps": [
+            {
+              "step_id": "s1",
+              "capability_id": "brand.read",
+              "mode": "read",
+              "args_summary": "ler o Brand Brain da marca"
+            }
+          ]
+        },
+        "responder": {
+          "message": "n/a",
+          "next_step": "n/a"
+        }
+      },
+      "espera": {
+        "respondability": "CLARIFICATION_REQUIRED",
+        "reason_codes": [
+          "NORMALIZATION_FAILED"
+        ],
+        "executou_capability": false
+      }
+    },
+    {
+      "id": "COPILOT-ADV-007",
+      "kind": "adversarial",
+      "titulo": "dois cadastros com o mesmo nome viram pergunta, e nao a primeira linha do indice",
+      "porque": "escolher entre candidatos e exatamente o que o §13 proibe. Sem este caso, um `limit 1` entraria na consulta um dia por parecer inofensivo, e o `order by` de quem escreveu o SQL viraria regra de negocio — com o agente escrevendo na marca errada e ninguem sabendo por que",
+      "input": {
+        "text": "me mostra o tom da Seguros Duplo"
+      },
+      "modelo": {
+        "resolver": {
+          "intent": "EXPLAIN",
+          "confidence_band": "MEDIUM",
+          "entities": [
+            {
+              "type": "brand",
+              "canonical_id": null,
+              "raw": "Seguros Duplo"
+            }
+          ],
+          "ambiguities": []
+        },
+        "planner": {
+          "steps": [
+            {
+              "step_id": "s1",
+              "capability_id": "brand.read",
+              "mode": "read",
+              "args_summary": "ler o Brand Brain da marca"
+            }
+          ]
+        },
+        "responder": {
+          "message": "n/a",
+          "next_step": "n/a"
+        }
+      },
+      "espera": {
+        "respondability": "CLARIFICATION_REQUIRED",
+        "reason_codes": [
+          "AMBIGUOUS_ENTITY"
+        ],
+        "reason_codes_proibidos": [
+          "NORMALIZATION_FAILED"
+        ],
+        "executou_capability": false
+      }
+    },
+    {
+      "id": "COPILOT-ADV-008",
+      "kind": "adversarial",
+      "titulo": "o id que o modelo escreveu nao redireciona um nome que o cadastro resolve",
+      "porque": "o texto nomeia a Ipe e o modelo preenche `canonical_id` com o id de OUTRA marca — que existe, e portanto passaria em qualquer conferencia de existencia. Quem decide e o cadastro: a leitura tem de sair na Ipe. Se a palavra do modelo nao vale quando concorda, ela nao passa a valer quando discorda. A divergencia nao se perde, vai para o trace",
+      "input": {
+        "text": "me mostra o tom da Corretora Ipe Seguros"
+      },
+      "modelo": {
+        "resolver": {
+          "intent": "EXPLAIN",
+          "confidence_band": "HIGH",
+          "entities": [
+            {
+              "type": "brand",
+              "canonical_id": "__BRAND__",
+              "raw": "Corretora Ipe Seguros"
+            }
+          ],
+          "ambiguities": []
+        },
+        "planner": {
+          "steps": [
+            {
+              "step_id": "s1",
+              "capability_id": "brand.read",
+              "mode": "read",
+              "args_summary": "ler o Brand Brain da marca"
+            }
+          ]
+        },
+        "responder": {
+          "message": "O tom da marca é direto.",
+          "next_step": "Posso rascunhar."
+        }
+      },
+      "espera": {
+        "respondability": "EXECUTABLE",
+        "executou_capability": true,
+        "args_usados": {
+          "brand_id": "__BRAND_IPE__"
+        }
+      }
     }
   ]
 }

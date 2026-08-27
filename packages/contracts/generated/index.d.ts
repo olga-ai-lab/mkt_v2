@@ -550,9 +550,9 @@ export interface EntityResolution {
     entity_type: string;
     canonical_id: string;
     /**
-     * Fuzzy merge irrestrito e proibido no caminho principal (MKT-08 §8).
+     * Como o ID canonico foi obtido. Fuzzy merge irrestrito e proibido no caminho principal (MKT-08 §8, Mestra §13): 'alias' e igualdade exata contra um apelido REGISTRADO em mkt.entity_aliases, com indice unico por (org, tipo) — nao e semelhanca, e uma tabela que alguem preencheu.
      */
-    method: "exact_id" | "unique_natural_key" | "user_confirmed";
+    method: "exact_id" | "unique_natural_key" | "alias" | "user_confirmed";
     confidence_band?: "HIGH" | "MEDIUM" | "LOW";
   }[];
   unresolved?: {

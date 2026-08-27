@@ -112,6 +112,25 @@ test("com providers, o loop monta com os compiladores da Fase 1", () => {
   assert.ok(app.modelGateway, "o loop precisa do Model Gateway");
 });
 
+test("o loop de producao resolve entidade contra o banco, e nao pelo modelo", () => {
+  // Sem esta linha montada, `canonical_id` volta a ser o que o modelo
+  // escreveu, e o loop confere apenas se ele e nao-nulo — que aprova um uuid
+  // inventado com a mesma facilidade que um correto. Foi assim que o produto
+  // rodou ate a 0015.
+  //
+  // A porta e a metade verificavel aqui; a outra metade e que
+  // `createEntityResolver` recusa montar sem ela (provado em
+  // packages/runtime/test/entity-resolver.test.mjs). Juntas, as duas dizem que
+  // a montagem abaixo nao pode existir sem a resolucao ligada.
+  const providers = { anthropic: { complete: async () => ({ content: "{}" }) } };
+  const app = createWorkerApp({ pool, providers, env: {}, tracer: null, schema: "mkt" });
+
+  for (const m of ["byId", "byNaturalKey", "byAlias"]) {
+    assert.equal(typeof app.ports.entities?.[m], "function", `falta entities.${m}`);
+  }
+  assert.ok(app.agentLoop);
+});
+
 test("o loop montado recusa capability sem compilador", async () => {
   // A prova de que os compiladores estao mesmo ligados: uma capability fora
   // das tres da Fase 1 nao tem builder, e o loop para em vez de deixar o

@@ -31,14 +31,14 @@ um PDF aprovado.
 | `packages/contracts` | JSON Schema dos 16 contratos de I/O, dos 5 registries e dos enums fechados. Tipos TS gerados | 15 testes |
 | `packages/policy` | Policy engine determinístico: invariantes de código + regras como dado, default deny | 19 testes |
 | `packages/gateway` | Capability Gateway com os 8 passos do MKT-09B §10, e os adapters: meta_graph, web_fetch, brand_extract e internal | 111 testes |
-| `packages/db` | 14 migrations, 32 tabelas, RLS forçada, state machine no banco | 209 testes |
+| `packages/db` | 15 migrations, 32 tabelas, RLS forçada, state machine no banco | 227 testes |
 | `packages/runtime` | Model Gateway, Agent Runtime, loop de agente, retrieval, redator, extrator, persona, contenção e governança de Brand Brain | 142 testes |
 | `apps/worker` | Workflow durável de publicação, replay-safe | 25 testes |
 | `apps/web` | Home, login, conteúdo, fila de aprovação, revisão e edição de Brand Brain. Tokens do MKT-06A e microcopy de todo reason code | 24 testes |
 | `docs/adr` | 11 ADRs fechando o que o MKT-09B deixava OPEN | — |
 | `docs/AGT-BASE.md` | O contrato comum que os 13 pacotes repetiam | — |
 
-**545 testes e 31 evals de agente** (14 golden, 17 adversariais). `npm run gate:g0` e `npm run gate:g1`
+**581 testes e 37 evals de agente** (16 golden, 21 adversariais). `npm run gate:g0` e `npm run gate:g1`
 verificam os critérios de cada gate executando cada um deles — e o G1 nunca se
 declara fechado sozinho, porque o que falta nele não é código.
 
@@ -199,6 +199,33 @@ alguém precisa lembrar de fazer não é uma garantia.
 fora criaria uma segunda contabilidade que um dia discordaria da primeira. Um run
 que não chamou modelo fecha com `model` e `cost_cents` nulos, e não zero: zero
 diria "consultei e não custou".
+
+## Um nome vira um id por consulta, e não por palpite do modelo
+
+`olga://io/entity-resolution` existia desde a Fase 0 e **nada o implementava**.
+Quem preenchia `canonical_id` era o LLM — que não tem como saber um uuid. Ou
+devolvia `null`, e todo pedido que nomeava uma marca morria em
+`CLARIFICATION_REQUIRED`, ou inventava um, e a recusa vinha por acidente,
+quando o `SELECT` do compilador não achava a linha.
+
+O passo entra entre o resolver e o retrieval, e daqui para baixo o loop
+trabalha com entidades **verificadas contra o tenant**: `intent.entities` não
+chega mais ao compilador. Quatro caminhos, do mais forte para o mais fraco —
+o próprio id, o nome cadastrado, o apelido registrado, e por último o palpite
+do modelo, aceito só depois de conferido que existe nesta organização.
+
+Fuzzy continua proibido (Mestra §13). Só há igualdade, depois de `mkt.norm`
+aplicada nos **dois lados** — caixa, acento e espaço, que não é aproximação e
+sim a mesma palavra escrita de outro jeito. "Corretora Ipe Seguros" não resolve
+para "Ipê Seguros": o sistema pergunta. Aceitar 0.87 de similaridade é publicar
+no perfil errado uma vez a cada tanto, e ninguém consegue dizer quanto é tanto.
+Para dois nomes que precisam conviver existe apelido — uma linha que alguém
+escreveu, com autor e data, e um índice único que garante que ela nunca aponte
+para duas coisas.
+
+Dois cadastros com o mesmo nome viram `AMBIGUOUS_ENTITY` ("achei várias, qual
+delas?"); nenhum vira `NORMALIZATION_FAILED` ("não achei"). Os códigos não se
+confundem porque pedem coisas diferentes de quem lê.
 
 ## Conter um incidente sem esperar um deploy
 

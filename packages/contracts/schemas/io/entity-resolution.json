@@ -72,9 +72,10 @@
             "enum": [
               "exact_id",
               "unique_natural_key",
+              "alias",
               "user_confirmed"
             ],
-            "description": "Fuzzy merge irrestrito e proibido no caminho principal (MKT-08 §8)."
+            "description": "Como o ID canonico foi obtido. Fuzzy merge irrestrito e proibido no caminho principal (MKT-08 §8, Mestra §13): 'alias' e igualdade exata contra um apelido REGISTRADO em mkt.entity_aliases, com indice unico por (org, tipo) — nao e semelhanca, e uma tabela que alguem preencheu."
           },
           "confidence_band": {
             "enum": [

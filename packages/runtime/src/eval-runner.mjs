@@ -37,6 +37,7 @@ import { createAllCompilers } from "./capability-compilers.mjs";
 import { createRetrieval } from "./retrieval.mjs";
 import { createComposer } from "./composer.mjs";
 import { createBrandExtractor } from "./extractor.mjs";
+import { createEntityResolver } from "./entity-resolver.mjs";
 
 /**
  * Provider roteirizado. Devolve o que o caso mandou, por ponta.
@@ -142,6 +143,11 @@ export function createEvalLoop({ ports, workerPorts, criarGateway, modelo, onCal
     planner: createLlmPlanner({ modelGateway }),
     responder: createLlmResponder({ modelGateway }),
     retrieval: createRetrieval({ knowledge: ports.knowledge }),
+    // Montado aqui pelo mesmo motivo que tudo o mais e real: um eval que roda
+    // um loop diferente do de producao aprova um caminho que ninguem percorre.
+    // Era exatamente esse o defeito — os casos substituem `__BRAND__` pelo id
+    // real do fixture, entao a resolucao por nome nunca era exercida.
+    entityResolver: createEntityResolver({ entities: ports.entities }),
     compiler: createCompiler(createAllCompilers({ publishing: ports.publishing })),
     gateway,
     registry: {

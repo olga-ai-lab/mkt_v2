@@ -11,3 +11,4 @@ export { createBrandExtractor } from "./extractor.mjs";
 export { createBrandActivationService, lacunasDe, PAPEIS_QUE_ATIVAM,
          PAPEIS_QUE_PROPOEM, BrandActivationError } from "./brand-activation.mjs";
 export { createContainmentService, ContainmentError, PAPEIS_QUE_CONTEM } from "./containment.mjs";
+export { createEntityResolver, TIPOS_COM_ID, TIPOS_DE_VALOR } from "./entity-resolver.mjs";

@@ -93,6 +93,35 @@ before(async () => {
     [ids.org, w2.rows[0].id]);
   ids.conn_intrusa = conn2.rows[0].id;
 
+  // ── O cadastro contra o qual a resolucao de entidade e provada ───────────
+  //
+  // A marca principal se chama 'Marca', que nao prova nada sobre normalizacao.
+  // Estas tres existem para os casos que exercem o passo:
+  //
+  //   'Corretora Ipe Seguros'  -> acento e caixa, resolvida por nome digitado
+  //                               sem acento
+  //   apelido 'CI'             -> a linha que alguem escreveu, e o unico jeito
+  //                               de dois nomes conviverem sem fuzzy
+  //   'Seguros Duplo' (x2)     -> homonimos, para a ambiguidade ser pergunta e
+  //                               nao desempate por `order by`
+  const bIpe = await db.query(
+    `insert into mkt.brands (org_id, workspace_id, name, website_url)
+     values ($1,$2,'Corretora Ipê Seguros','https://ipe.example') returning id`,
+    [ids.org, ids.ws]);
+  ids.brand_ipe = bIpe.rows[0].id;
+  await db.query(
+    `insert into mkt.brand_brain_versions (org_id, brand_id, version, status)
+     values ($1,$2,1,'ACTIVE')`, [ids.org, ids.brand_ipe]);
+  await db.query(
+    `insert into mkt.entity_aliases (org_id, entity_type, canonical_id, alias, created_by_actor_id)
+     values ($1,'brand',$2,'CI','u-fixture')`, [ids.org, ids.brand_ipe]);
+
+  for (const _ of [1, 2]) {
+    await db.query(
+      `insert into mkt.brands (org_id, workspace_id, name, website_url)
+       values ($1,$2,'Seguros Duplo','https://duplo.example')`, [ids.org, ids.ws]);
+  }
+
   const c = await db.query(
     `insert into mkt.contents (org_id, workspace_id, brand_id, title)
      values ($1,$2,$3,'Post') returning id`, [ids.org, ids.ws, ids.brand]);
@@ -200,6 +229,10 @@ before(async () => {
     __BRAND__: ids.brand, __CV__: ids.cv, __CV_SEM_LASTRO__: ids.cv_sem_lastro,
     __CV_DRAFT__: ids.cv_draft, __CV_PROIBIDO__: ids.cv_proibido,
     __CONN__: ids.conn, __CONN_INTRUSA__: ids.conn_intrusa,
+    __BRAND_IPE__: ids.brand_ipe,
+    // Um uuid bem formado que nao existe em organizacao nenhuma. Fixo, e nao
+    // aleatorio: um caso que falha tem de falhar sempre com o mesmo valor.
+    __BRAND_ALUCINADA__: "e2b1c7a0-0000-4000-8000-0000000abcde",
   };
   for (const f of readdirSync(EVALS_DIR).filter((x) => x.endsWith(".json"))) {
     let bruto = readFileSync(new URL(f, EVALS_DIR), "utf8");
