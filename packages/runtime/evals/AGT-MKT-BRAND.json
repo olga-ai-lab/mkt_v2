@@ -411,6 +411,83 @@
           }
         }
       }
+    },
+    {
+      "id": "BRAND-GOLD-003",
+      "kind": "golden",
+      "titulo": "re-onboarding de marca que ja tem Brand Brain propoe candidata, e nao mexe na ativa",
+      "porque": "e o caminho de manutencao da marca, e o que garante que a ativa continua valendo ate alguem trocar",
+      "input": {
+        "text": "le o site de novo e atualiza a marca"
+      },
+      "facts": {
+        "brand_brain_status": "ACTIVE",
+        "evidence_coverage": true,
+        "claim_types": [
+          "GENERAL"
+        ],
+        "workspace_first_publish": false
+      },
+      "modelo": {
+        "resolver": {
+          "intent": "ONBOARD_BRAND",
+          "confidence_band": "HIGH",
+          "entities": [
+            {
+              "type": "brand",
+              "canonical_id": "__BRAND__",
+              "raw": "a marca"
+            }
+          ],
+          "ambiguities": []
+        },
+        "planner": {
+          "steps": [
+            {
+              "step_id": "s1",
+              "capability_id": "brand.extract_from_url",
+              "mode": "read",
+              "args_summary": "ler o site de novo"
+            },
+            {
+              "step_id": "s2",
+              "capability_id": "brand.propose_version",
+              "mode": "write",
+              "args_summary": "propor a versao atualizada"
+            }
+          ]
+        },
+        "extrator": {
+          "identity": {
+            "summary": "Corretora de risco climatico."
+          },
+          "tone": {
+            "voice": "Direta."
+          },
+          "claims_allowed": [
+            {
+              "text": "Atende enchente desde 1998",
+              "quote": "Atendemos enchente e alagamento desde 1998"
+            }
+          ],
+          "disclaimers": [
+            {
+              "text": "Consulte as condicoes gerais",
+              "quote": "Consulte as condicoes gerais da apolice"
+            }
+          ]
+        },
+        "responder": {
+          "message": "Propus uma versao nova.",
+          "next_step": "Compare com a atual e ative se preferir."
+        }
+      },
+      "espera": {
+        "respondability": "EXECUTABLE",
+        "executou_capability": true,
+        "efeito_externo": false,
+        "evidencia_de": "SOURCE_ARTIFACT"
+      }
     }
   ]
 }

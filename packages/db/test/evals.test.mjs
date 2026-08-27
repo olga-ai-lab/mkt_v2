@@ -61,8 +61,15 @@ before(async () => {
     returning id, org_id, workspace_id`);
   ids.brand = r.rows[0].id; ids.org = r.rows[0].org_id; ids.ws = r.rows[0].workspace_id;
 
-  await db.query(`insert into mkt.brand_brain_versions (org_id, brand_id, version, status)
-                  values ($1,$2,1,'ACTIVE')`, [ids.org, ids.brand]);
+  // O Brand Brain do fixture tem proibicoes e disclaimers: sem eles o
+  // compliance.review confere lista vazia, e um eval que aprova uma
+  // conferencia vazia da confianca sem lastro.
+  await db.query(
+    `insert into mkt.brand_brain_versions
+       (org_id, brand_id, version, status, prohibitions, disclaimers)
+     values ($1,$2,1,'ACTIVE',
+             '["cobertura total","garantido"]'::jsonb,
+             '["Consulte as condicoes gerais."]'::jsonb)`, [ids.org, ids.brand]);
 
   // Orcamento: sem ele o Model Gateway recusa rodar com BUDGET_NOT_CONFIGURED
   // — que e o desenho certo, e por isso o eval precisa configurar um.
@@ -165,6 +172,17 @@ before(async () => {
     [ids.org, ids.cv_sem_lastro, evTmp.rows[0].id]);
   await db.query(`delete from mkt.evidence where id = $1`, [evTmp.rows[0].id]);
 
+  // Um conteudo que usa um termo proibido da marca, para o compliance ter o que
+  // achar. Em AI_REVIEW porque e ali que a revisao acontece.
+  const cProibido = await db.query(
+    `insert into mkt.contents (org_id, workspace_id, brand_id, title)
+     values ($1,$2,$3,'Proibido') returning id`, [ids.org, ids.ws, ids.brand]);
+  const cvProibido = await db.query(
+    `insert into mkt.content_versions (org_id, content_id, version, master_body, state)
+     values ($1,$2,1,'Nosso seguro tem cobertura total para o seu imovel.','DRAFT')
+     returning id`, [ids.org, cProibido.rows[0].id]);
+  ids.cv_proibido = cvProibido.rows[0].id;
+
   // Um rascunho limpo, que e o que a cadeia editorial recebe de verdade: sem
   // claim material, em DRAFT, esperando a revisao de IA. O `ids.cv` nao serve
   // para isso — ele nasce APPROVED para os casos que chegam a publicar.
@@ -180,7 +198,7 @@ before(async () => {
   // Substitui os marcadores dos arquivos pelos ids reais do fixture.
   const subs = {
     __BRAND__: ids.brand, __CV__: ids.cv, __CV_SEM_LASTRO__: ids.cv_sem_lastro,
-    __CV_DRAFT__: ids.cv_draft,
+    __CV_DRAFT__: ids.cv_draft, __CV_PROIBIDO__: ids.cv_proibido,
     __CONN__: ids.conn, __CONN_INTRUSA__: ids.conn_intrusa,
   };
   for (const f of readdirSync(EVALS_DIR).filter((x) => x.endsWith(".json"))) {

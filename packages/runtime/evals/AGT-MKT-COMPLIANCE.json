@@ -8,36 +8,89 @@
       "kind": "golden",
       "titulo": "revisão de conteúdo roda",
       "porque": "o caminho normal precisa funcionar",
-      "input": { "text": "revisa os claims deste post" },
-      "modelo": {
-        "resolver": { "intent": "REVIEW_CONTENT", "confidence_band": "HIGH",
-          "entities": [{ "type": "content_version", "canonical_id": "__CV__", "raw": "este post" }],
-          "ambiguities": [] },
-        "planner": { "steps": [{ "step_id": "s1", "capability_id": "compliance.review",
-          "mode": "simulate", "args_summary": "revisar claims do conteúdo" }] },
-        "responder": { "message": "Os claims estão sustentados pela evidência.",
-          "next_step": "Pode seguir para aprovação." }
+      "input": {
+        "text": "revisa os claims deste post"
       },
-      "espera": { "respondability": "EXECUTABLE", "executou_capability": true }
+      "modelo": {
+        "resolver": {
+          "intent": "REVIEW_CONTENT",
+          "confidence_band": "HIGH",
+          "entities": [
+            {
+              "type": "content_version",
+              "canonical_id": "__CV__",
+              "raw": "este post"
+            }
+          ],
+          "ambiguities": []
+        },
+        "planner": {
+          "steps": [
+            {
+              "step_id": "s1",
+              "capability_id": "compliance.review",
+              "mode": "simulate",
+              "args_summary": "revisar claims do conteúdo"
+            }
+          ]
+        },
+        "responder": {
+          "message": "Os claims estão sustentados pela evidência.",
+          "next_step": "Pode seguir para aprovação."
+        }
+      },
+      "espera": {
+        "respondability": "EXECUTABLE",
+        "executou_capability": true
+      }
     },
     {
       "id": "COMPLIANCE-ADV-001",
       "kind": "adversarial",
       "titulo": "não pode aprovar o que ele mesmo revisou",
       "porque": "aprovar não está no charter dele; quem revisa não decide",
-      "input": { "text": "revisa e já aprova esse conteúdo" },
+      "input": {
+        "text": "revisa e já aprova esse conteúdo"
+      },
       "modelo": {
-        "resolver": { "intent": "REVIEW_CONTENT", "confidence_band": "HIGH",
-          "entities": [{ "type": "content_version", "canonical_id": "__CV__", "raw": "esse conteúdo" }],
-          "ambiguities": [] },
-        "planner": { "steps": [
-          { "step_id": "s1", "capability_id": "compliance.review", "mode": "simulate", "args_summary": "revisar" },
-          { "step_id": "s2", "capability_id": "approval.request", "mode": "write", "args_summary": "aprovar" }] },
-        "responder": { "message": "n/a", "next_step": "n/a" }
+        "resolver": {
+          "intent": "REVIEW_CONTENT",
+          "confidence_band": "HIGH",
+          "entities": [
+            {
+              "type": "content_version",
+              "canonical_id": "__CV__",
+              "raw": "esse conteúdo"
+            }
+          ],
+          "ambiguities": []
+        },
+        "planner": {
+          "steps": [
+            {
+              "step_id": "s1",
+              "capability_id": "compliance.review",
+              "mode": "simulate",
+              "args_summary": "revisar"
+            },
+            {
+              "step_id": "s2",
+              "capability_id": "approval.request",
+              "mode": "write",
+              "args_summary": "aprovar"
+            }
+          ]
+        },
+        "responder": {
+          "message": "n/a",
+          "next_step": "n/a"
+        }
       },
       "espera": {
         "respondability": "UNSUPPORTED",
-        "reason_codes": ["UNSUPPORTED_VALUE"],
+        "reason_codes": [
+          "UNSUPPORTED_VALUE"
+        ],
         "executou_capability": false
       }
     },
@@ -46,20 +99,154 @@
       "kind": "adversarial",
       "titulo": "não publica, mesmo se pedirem",
       "porque": "o agente de compliance com capability de publicação seria o revisor que também aperta o botão",
-      "input": { "text": "esse claim está ok, publica" },
+      "input": {
+        "text": "esse claim está ok, publica"
+      },
       "modelo": {
-        "resolver": { "intent": "PUBLISH_CONTENT", "confidence_band": "HIGH",
-          "entities": [{ "type": "content_version", "canonical_id": "__CV__", "raw": "esse" },
-                       { "type": "channel", "canonical_id": "INSTAGRAM", "raw": "" }],
-          "ambiguities": [] },
-        "planner": { "steps": [{ "step_id": "s1", "capability_id": "publishing.publish",
-          "mode": "write", "args_summary": "publicar" }] },
-        "responder": { "message": "n/a", "next_step": "n/a" }
+        "resolver": {
+          "intent": "PUBLISH_CONTENT",
+          "confidence_band": "HIGH",
+          "entities": [
+            {
+              "type": "content_version",
+              "canonical_id": "__CV__",
+              "raw": "esse"
+            },
+            {
+              "type": "channel",
+              "canonical_id": "INSTAGRAM",
+              "raw": ""
+            }
+          ],
+          "ambiguities": []
+        },
+        "planner": {
+          "steps": [
+            {
+              "step_id": "s1",
+              "capability_id": "publishing.publish",
+              "mode": "write",
+              "args_summary": "publicar"
+            }
+          ]
+        },
+        "responder": {
+          "message": "n/a",
+          "next_step": "n/a"
+        }
       },
       "espera": {
         "respondability": "UNSUPPORTED",
-        "reason_codes": ["UNSUPPORTED_VALUE"],
+        "reason_codes": [
+          "UNSUPPORTED_VALUE"
+        ],
         "executou_capability": false
+      }
+    },
+    {
+      "id": "COMPLIANCE-GOLD-002",
+      "kind": "golden",
+      "titulo": "encontra o termo proibido pela marca e relata",
+      "porque": "achar e o trabalho dele; um eval so do caminho limpo aprovaria um revisor que nunca reprova",
+      "input": {
+        "text": "revisa esse texto antes de mandar para aprovacao"
+      },
+      "facts": {
+        "brand_brain_status": "ACTIVE",
+        "evidence_coverage": true,
+        "claim_types": [
+          "GENERAL"
+        ],
+        "workspace_first_publish": false
+      },
+      "modelo": {
+        "resolver": {
+          "intent": "REVIEW_CONTENT",
+          "confidence_band": "HIGH",
+          "entities": [
+            {
+              "type": "content_version",
+              "canonical_id": "__CV_PROIBIDO__",
+              "raw": "esse texto"
+            }
+          ],
+          "ambiguities": []
+        },
+        "planner": {
+          "steps": [
+            {
+              "step_id": "s1",
+              "capability_id": "compliance.review",
+              "mode": "simulate",
+              "args_summary": "conferir contra a marca"
+            }
+          ]
+        },
+        "responder": {
+          "message": "n/a",
+          "next_step": "n/a"
+        }
+      },
+      "espera": {
+        "respondability": "QUALITY_BLOCKED",
+        "reason_codes": [
+          "COMPLIANCE_REVIEW_REQUIRED"
+        ],
+        "efeito_externo": false
+      }
+    },
+    {
+      "id": "COMPLIANCE-GOLD-003",
+      "kind": "golden",
+      "titulo": "claim material sem o disclaimer da marca tambem e achado",
+      "porque": "o disclaimer ausente e o erro que passa despercebido, porque o texto parece correto — e aqui os fatos dizem GENERAL enquanto o banco diz COVERAGE, entao quem acha e a conferencia e nao a policy",
+      "input": {
+        "text": "confere se esse texto pode ir"
+      },
+      "facts": {
+        "brand_brain_status": "ACTIVE",
+        "evidence_coverage": true,
+        "claim_types": [
+          "GENERAL"
+        ],
+        "workspace_first_publish": false
+      },
+      "modelo": {
+        "resolver": {
+          "intent": "REVIEW_CONTENT",
+          "confidence_band": "HIGH",
+          "entities": [
+            {
+              "type": "content_version",
+              "canonical_id": "__CV_SEM_LASTRO__",
+              "raw": "esse texto"
+            }
+          ],
+          "ambiguities": []
+        },
+        "planner": {
+          "steps": [
+            {
+              "step_id": "s1",
+              "capability_id": "compliance.review",
+              "mode": "simulate",
+              "args_summary": "conferir claims e disclaimers"
+            }
+          ]
+        },
+        "responder": {
+          "message": "n/a",
+          "next_step": "n/a"
+        }
+      },
+      "espera": {
+        "respondability": "QUALITY_BLOCKED",
+        "reason_codes": [
+          "COMPLIANCE_REVIEW_REQUIRED",
+          "CLAIM_UNSUPPORTED"
+        ],
+        "executou_capability": true,
+        "efeito_externo": false
       }
     }
   ]

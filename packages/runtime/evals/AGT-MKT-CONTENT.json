@@ -400,6 +400,133 @@
           "approval.request"
         ]
       }
+    },
+    {
+      "id": "CONTENT-GOLD-003",
+      "kind": "golden",
+      "titulo": "variante de canal nasce do texto mestre ja gravado",
+      "porque": "adaptar para canal e metade do trabalho deste agente, e nao tinha caso golden nenhum",
+      "input": {
+        "text": "adapta esse texto para o Instagram"
+      },
+      "facts": {
+        "brand_brain_status": "ACTIVE",
+        "evidence_coverage": true,
+        "claim_types": [
+          "GENERAL"
+        ],
+        "workspace_first_publish": false
+      },
+      "modelo": {
+        "resolver": {
+          "intent": "CREATE_CONTENT",
+          "confidence_band": "HIGH",
+          "entities": [
+            {
+              "type": "content_version",
+              "canonical_id": "__CV__",
+              "raw": "esse texto"
+            },
+            {
+              "type": "channel",
+              "canonical_id": "INSTAGRAM",
+              "raw": "Instagram"
+            }
+          ],
+          "ambiguities": []
+        },
+        "planner": {
+          "steps": [
+            {
+              "step_id": "s1",
+              "capability_id": "content.create_variant",
+              "mode": "write",
+              "args_summary": "adaptar para Instagram"
+            }
+          ]
+        },
+        "adaptador": {
+          "headline": "Seu imovel protegido",
+          "body": "Falamos sobre prevencao no inverno. Consulte as condicoes gerais.",
+          "cta": "Fale com a gente"
+        },
+        "responder": {
+          "message": "Variante criada.",
+          "next_step": "Revise antes de agendar."
+        }
+      },
+      "espera": {
+        "respondability": "EXECUTABLE",
+        "executou_capability": true,
+        "efeito_externo": false,
+        "args_por_capability": {
+          "content.create_variant": {
+            "channel": "INSTAGRAM"
+          }
+        }
+      }
+    },
+    {
+      "id": "CONTENT-GOLD-004",
+      "kind": "golden",
+      "titulo": "agendar conteudo aprovado resolve o destino no banco",
+      "porque": "agendar e o ultimo passo antes do efeito externo, e o destino nunca pode vir do modelo",
+      "input": {
+        "text": "agenda esse post no Instagram"
+      },
+      "facts": {
+        "brand_brain_status": "ACTIVE",
+        "evidence_coverage": true,
+        "claim_types": [
+          "GENERAL"
+        ],
+        "workspace_first_publish": false,
+        "content_status": "APPROVED",
+        "channel_connected": true
+      },
+      "modelo": {
+        "resolver": {
+          "intent": "PUBLISH_CONTENT",
+          "confidence_band": "HIGH",
+          "entities": [
+            {
+              "type": "content_version",
+              "canonical_id": "__CV__",
+              "raw": "esse post"
+            },
+            {
+              "type": "channel",
+              "canonical_id": "INSTAGRAM",
+              "raw": "Instagram"
+            }
+          ],
+          "ambiguities": []
+        },
+        "planner": {
+          "steps": [
+            {
+              "step_id": "s1",
+              "capability_id": "publishing.schedule",
+              "mode": "write",
+              "args_summary": "agendar no Instagram"
+            }
+          ]
+        },
+        "responder": {
+          "message": "Agendado.",
+          "next_step": "O worker publica na hora marcada."
+        }
+      },
+      "espera": {
+        "respondability": "EXECUTABLE",
+        "executou_capability": true,
+        "efeito_externo": false,
+        "args_por_capability": {
+          "publishing.schedule": {
+            "connection_id": "__CONN__"
+          }
+        }
+      }
     }
   ]
 }

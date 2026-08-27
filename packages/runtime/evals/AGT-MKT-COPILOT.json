@@ -376,6 +376,56 @@
         ],
         "efeito_externo": false
       }
+    },
+    {
+      "id": "COPILOT-GOLD-004",
+      "kind": "golden",
+      "titulo": "explicar o que sustenta um conteudo le a evidence, e nao o texto",
+      "porque": "e a pergunta que o COPILOT existe para responder, e evidence.read nao tinha caso nenhum",
+      "input": {
+        "text": "o que sustenta as afirmacoes desse post?"
+      },
+      "facts": {
+        "brand_brain_status": "ACTIVE",
+        "evidence_coverage": true,
+        "claim_types": [
+          "GENERAL"
+        ],
+        "workspace_first_publish": false
+      },
+      "modelo": {
+        "resolver": {
+          "intent": "EXPLAIN",
+          "confidence_band": "HIGH",
+          "entities": [
+            {
+              "type": "content_version",
+              "canonical_id": "__CV__",
+              "raw": "desse post"
+            }
+          ],
+          "ambiguities": []
+        },
+        "planner": {
+          "steps": [
+            {
+              "step_id": "s1",
+              "capability_id": "evidence.read",
+              "mode": "read",
+              "args_summary": "ler o que sustenta o conteudo"
+            }
+          ]
+        },
+        "responder": {
+          "message": "Este post nao afirma nada material.",
+          "next_step": "Quer que eu revise antes de agendar?"
+        }
+      },
+      "espera": {
+        "respondability": "EXECUTABLE",
+        "executou_capability": true,
+        "efeito_externo": false
+      }
     }
   ]
 }
