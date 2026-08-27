@@ -204,7 +204,7 @@ export function createBrandExtractAdapter({ fetcher, extract, knowledge, clock }
           // Falha do extrator (orcamento, rota, saida invalida) ja vem nomeada.
           // Repetir nao conserta nenhuma delas, entao nenhuma e retentavel.
           throw new CapabilityError(e.reason_code, e.message,
-            { error_class: "PERMANENT", retryable: false });
+            { error_class: "PERMANENT", retryable: false, provider_message: e.message });
         }
         throw e;
       }

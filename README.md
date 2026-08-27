@@ -12,6 +12,9 @@ página sustenta → propor uma versão candidata → uma pessoa ativar, em
 `packages/db/test/brand-onboarding.test.mjs` e
 `packages/db/test/brand-activation.test.mjs`.
 
+E a cadeia editorial: rascunho → revisão de IA → revisão humana → aprovado, em
+`packages/db/test/ai-review.test.mjs`.
+
 > O LLM interpreta; os contratos decidem; o código calcula; as ferramentas
 > executam; a evidência sustenta.
 
@@ -27,15 +30,15 @@ um PDF aprovado.
 |---|---|---|
 | `packages/contracts` | JSON Schema dos 16 contratos de I/O, dos 3 registries e dos enums fechados. Tipos TS gerados | 15 testes |
 | `packages/policy` | Policy engine determinístico: invariantes de código + regras como dado, default deny | 19 testes |
-| `packages/gateway` | Capability Gateway com os 8 passos do MKT-09B §10, e os adapters: meta_graph, web_fetch, brand_extract e internal | 107 testes |
-| `packages/db` | 10 migrations, 29 tabelas, RLS forçada, state machine no banco | 158 testes |
-| `packages/runtime` | Model Gateway, Agent Runtime, loop de agente, retrieval, redator, extrator de marca e ativação de Brand Brain | 129 testes |
+| `packages/gateway` | Capability Gateway com os 8 passos do MKT-09B §10, e os adapters: meta_graph, web_fetch, brand_extract e internal | 111 testes |
+| `packages/db` | 11 migrations, 29 tabelas, RLS forçada, state machine no banco | 171 testes |
+| `packages/runtime` | Model Gateway, Agent Runtime, loop de agente, retrieval, redator, extrator de marca e governança de Brand Brain | 130 testes |
 | `apps/worker` | Workflow durável de publicação, replay-safe | 25 testes |
 | `apps/web` | Home, login, conteúdo, fila de aprovação, revisão e edição de Brand Brain. Tokens do MKT-06A e microcopy de todo reason code | 24 testes |
 | `docs/adr` | 11 ADRs fechando o que o MKT-09B deixava OPEN | — |
 | `docs/AGT-BASE.md` | O contrato comum que os 13 pacotes repetiam | — |
 
-**477 testes e 23 evals de agente.** `npm run gate:g0` e `npm run gate:g1`
+**495 testes e 28 evals de agente.** `npm run gate:g0` e `npm run gate:g1`
 verificam os critérios de cada gate executando cada um deles — e o G1 nunca se
 declara fechado sozinho, porque o que falta nele não é código.
 
@@ -112,6 +115,31 @@ modelo leu um site" e "a marca autoriza estes claims" seria ele mesmo. Em
 `/brands/[id]/brain` os dois atos são separados por papel — derivar é de
 `MARKETING` ou `OWNER`, ativar é de `OWNER` — e a tela diz o que a versão não
 tem antes de alguém assumi-la.
+
+## A revisão de IA, e por que são duas capabilities
+
+A J11 não liga `DRAFT` à revisão humana: `AI_REVIEW` vem antes. E nada movia
+`DRAFT` para `AI_REVIEW` — `quality.precheck` era a revisão de IA em intenção,
+mas o `side_effect` dela é `none`, e capability que não escreve não muda estado.
+Todo conteúdo escrito pelo agente ficava preso, e `approval.request` recusava,
+corretamente, por uma etapa que ninguém tinha como cumprir.
+
+A saída não foi trocar o `side_effect` do precheck. `mode: simulate` significa
+"calcula um veredito e não produz efeito", e um simulate que escreve é mentira
+no lugar onde a policy decide, o gateway roteia e os evals conferem. Então são
+duas capabilities sobre a **mesma conferência**, que é uma função só:
+
+| | mode | o que faz |
+|---|---|---|
+| `quality.precheck` | `simulate` | devolve o laudo, e nada mais |
+| `quality.ai_review` | `write` | devolve o mesmo laudo e, quando ele passa, transiciona |
+
+**O laudo que reprova não é falha da capability.** Achar problema é ela
+funcionando: devolve `valid: false`, não transiciona, e quem para o loop é o
+laudo. Lançar diria "tente de novo em alguns minutos" para um claim sem lastro.
+
+**`AI_REVIEW` não entra sozinho.** O laudo é gravado na mesma transação, em
+`mkt.marketing_events`: estado sem evidência é confiança sem lastro.
 
 ## Rodar
 

@@ -40,6 +40,7 @@ function portas(over = {}) {
     publishing: {
       async requestApproval() { return { approval_id: "ap1", state: "HUMAN_REVIEW" }; },
       async schedule() { return { publication_id: "p1", outbox_id: "9" }; },
+      async markAiReviewed() { return { ok: true, state: "AI_REVIEW", repetido: false }; },
       ...(over.publishing ?? {}),
     },
     compose: over.compose ?? {
@@ -53,14 +54,16 @@ const montar = (over) => createInternalAdapter(portas(over));
 
 // ── O mapa de capabilities ──────────────────────────────────────────────────
 
-test("cobre as nove capabilities que o registry manda para internal", () => {
+test("cobre as dez capabilities que o registry manda para internal", () => {
   // Esta lista e a do capability_registry com provider_adapter nulo. Se uma
   // capability nova entrar la sem entrar aqui, o gateway responderia
   // "capability interna sem executor" em producao — este teste antecipa isso.
+  // (Quem confere contra o registry DE VERDADE e packages/db/test, que tem
+  // banco; aqui a lista e literal porque este arquivo nao tem.)
   const esperadas = [
     "brand.read", "brand.propose_version", "evidence.read",
     "content.create_draft", "content.create_variant",
-    "quality.precheck", "compliance.review",
+    "quality.precheck", "quality.ai_review", "compliance.review",
     "approval.request", "publishing.schedule",
   ].sort();
   assert.deepEqual([...montar().capabilities].sort(), esperadas);
@@ -309,4 +312,63 @@ test("schedule grava a autonomia CONCEDIDA, nao a pedida", async () => {
     granted_autonomy: "A2",
   });
   assert.equal(recebido.autonomy_used, "A2");
+});
+
+// ── quality.ai_review: o laudo que vira estado ──────────────────────────────
+
+test("laudo que passa move o conteudo, e o laudo vai junto para a porta", async () => {
+  let recebido = null;
+  const a = montar({
+    publishing: {
+      async markAiReviewed(x) { recebido = x; return { ok: true, state: "AI_REVIEW", repetido: false }; },
+    },
+  });
+  const r = await a.call({
+    capability: cap("quality.ai_review"), request: pedido({ content_version_id: "cv1" }),
+  });
+
+  assert.equal(r.output.valid, true);
+  assert.equal(recebido.content_version_id, "cv1");
+  // A porta grava o laudo junto do estado: AI_REVIEW sem o que a IA conferiu
+  // e estado sem lastro.
+  assert.ok(Array.isArray(recebido.checks) && recebido.checks.length > 0);
+});
+
+test("laudo que reprova nao move nada, e nao e falha da capability", async () => {
+  // Achar problema e ela funcionando. Lancar diria "tente de novo em alguns
+  // minutos" para um claim que nao melhora com o tempo.
+  let chamou = false;
+  const a = montar({
+    knowledge: {
+      async claimsFor() { return [{ id: "c1", text: "Cobre tudo.", material: true, claim_type: "COVERAGE", evidencias: 0 }]; },
+    },
+    publishing: { async markAiReviewed() { chamou = true; return { ok: true, state: "AI_REVIEW" }; } },
+  });
+
+  const r = await a.call({
+    capability: cap("quality.ai_review"), request: pedido({ content_version_id: "cv1" }),
+  });
+
+  assert.equal(r.output.valid, false);
+  assert.ok(r.output.reason_codes.includes("CLAIM_UNSUPPORTED"));
+  assert.equal(chamou, false, "nao pode ter transicionado com o laudo reprovando");
+});
+
+test("precheck e ai_review devolvem exatamente o mesmo laudo", async () => {
+  // A conferencia e uma funcao so. Se os dois divergissem, o conteudo entraria
+  // em revisao dizendo ter passado por um check que o outro reprovaria.
+  const a = montar();
+  const pre = await a.call({ capability: cap("quality.precheck"), request: pedido({ content_version_id: "cv1" }) });
+  const rev = await a.call({ capability: cap("quality.ai_review"), request: pedido({ content_version_id: "cv1" }) });
+  assert.deepEqual(rev.output.checks, pre.output.checks);
+  assert.deepEqual(rev.output.reason_codes, pre.output.reason_codes);
+});
+
+test("conteudo que ja passou da etapa e recusa nomeada", async () => {
+  const a = montar({
+    publishing: { async markAiReviewed() { return { ok: false, state: "APPROVED" }; } },
+  });
+  await assert.rejects(
+    () => a.call({ capability: cap("quality.ai_review"), request: pedido({ content_version_id: "cv1" }) }),
+    (e) => e instanceof CapabilityError && e.reason_code === "CONTENT_NOT_APPROVED");
 });

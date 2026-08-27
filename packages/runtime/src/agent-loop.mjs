@@ -432,21 +432,29 @@ export function createAgentLoop({
             "Não consegui concluir esta ação agora.");
         }
 
-        // ── 7b. O que uma capability de SIMULACAO achou ────────────────────
+        // ── 7b. O que uma conferencia achou ────────────────────────────────
         //
-        // quality.precheck e compliance.review nao produzem efeito: produzem
+        // quality.precheck, quality.ai_review e compliance.review produzem
         // laudo. O gateway devolve esse laudo em `output`, ja validado contra
-        // olga://io/validated-result — e ate aqui o loop o descartava.
+        // olga://io/validated-result — e o loop ja o descartou uma vez.
         //
         // Descartar era pior que ignorar: o agente rodava a conferencia, ela
         // dizia "claim material sem evidence", e a resposta saia como se
         // estivesse tudo certo. Conferir e nao contar e o unico resultado pior
         // que nao conferir.
         //
+        // O gatilho e o LAUDO, e nao o `mode` da capability. Era `mode ===
+        // "simulate"` enquanto so capability de simulacao produzia laudo;
+        // quality.ai_review e write e produz um, e um laudo que reprova nao
+        // vira menos verdadeiro por quem o emitiu ter permissao de escrever.
+        // Ela nao transiciona quando reprova — mas se o loop nao parasse aqui,
+        // o passo seguinte pediria aprovacao de um conteudo que a conferencia
+        // acabou de recusar.
+        //
         // Laudo negativo PARA o loop. Nao por policy — policy avalia fatos,
         // nao texto — mas porque seguir para uma escrita depois de a propria
         // conferencia reprovar seria decidir contra o que se acabou de apurar.
-        if (cap.mode === "simulate" && saida.output?.valid === false) {
+        if (saida.output?.valid === false) {
           const achados = saida.output.reason_codes ?? [];
           emitir("loop.simulacao_reprovou", { step: step.step_id, reason_codes: achados });
           return encerrar("QUALITY_BLOCKED", achados,

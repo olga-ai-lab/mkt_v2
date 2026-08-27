@@ -497,6 +497,64 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
      * @param {{ org_id: string, workspace_id: string, content_version_id: string,
      *           reason_codes?: string[], trace_id?: string|null }} args
      */
+    /**
+     * DRAFT -> AI_REVIEW, com o laudo que justificou a transicao.
+     *
+     * ── Por que o laudo e gravado, e nao so o estado ──────────────────────
+     *
+     * Sem ele, AI_REVIEW e um estado sem lastro: alguem olha o conteudo em
+     * revisao daqui a tres meses e nao tem como responder "o que a IA conferiu,
+     * e o que ela achou". Estado sem evidencia e confianca sem lastro, que e
+     * exatamente o que este produto existe para nao produzir.
+     *
+     * Os dois saem na MESMA transacao. Gravar o evento depois do commit do
+     * estado abriria a janela em que o conteudo esta em revisao e o motivo
+     * sumiu — e essa e a janela em que a auditoria pergunta.
+     *
+     * Este e o primeiro escritor de mkt.marketing_events. A tabela existe desde
+     * a 0005 para fatos de dominio, e o outbox NAO servia aqui: outbox e para
+     * evento que precisa ser ENTREGUE, e o relay drenaria este para um
+     * barramento onde ninguem escuta.
+     *
+     * ── Idempotencia ─────────────────────────────────────────────────────
+     *
+     * Conteudo ja em AI_REVIEW devolve ok sem gravar de novo. Rodar a revisao
+     * duas vezes e normal — o loop pode ser reexecutado — e a segunda nao pode
+     * virar um segundo evento dizendo que passou outra vez.
+     */
+    async markAiReviewed({ org_id, workspace_id, content_version_id, checks = [], trace_id = null }) {
+      return emTransacao(async (c) => {
+        const cv = await c.query(
+          `select state::text as state from ${S}.content_versions
+            where id = $1 and org_id = $2
+            for update`, [content_version_id, org_id]);
+        if (!cv.rows[0]) {
+          const e = new Error("versao de conteudo inexistente");
+          e.reason_code = "SCHEMA_VALIDATION_FAILED";
+          throw e;
+        }
+
+        const estado = cv.rows[0].state;
+        if (estado === "AI_REVIEW") return { ok: true, state: estado, repetido: true };
+        if (!canTransition(estado, "AI_REVIEW")) return { ok: false, state: estado };
+
+        await c.query(
+          `update ${S}.content_versions set state = 'AI_REVIEW' where id = $1`,
+          [content_version_id]);
+
+        await c.query(
+          `insert into ${S}.marketing_events
+             (org_id, workspace_id, event_type, actor_type, object_type, object_id,
+              properties, trace_id, occurred_at)
+           values ($1,$2,'olga/content.ai_review.passed','agent','content_version',$3,
+                   $4::jsonb,$5, now())`,
+          [org_id, workspace_id ?? null, content_version_id,
+           JSON.stringify({ checks }), trace_id]);
+
+        return { ok: true, state: "AI_REVIEW", repetido: false };
+      });
+    },
+
     async requestApproval({ org_id, workspace_id, content_version_id, reason_codes = [],
                             trace_id = null }) {
       const compliance = reason_codes.includes("COMPLIANCE_REVIEW_REQUIRED");

@@ -55,8 +55,12 @@ function comoFalha(e) {
       { error_class: "TRANSIENT", retryable: true, provider_message: String(e?.message ?? e) });
   }
   if (e?.reason_code) {
+    // A mensagem viaja em `provider_message` porque e ela que diz O QUE falta:
+    // "conteudo em DRAFT nao pode ir para HUMAN_REVIEW: falta passar por
+    // AI_REVIEW" e util no trace, e o reason code sozinho nao conta isso.
+    // Nao e microcopy — quem fala com o usuario e a chave do reason code.
     return new CapabilityError(e.reason_code, e.message,
-      { error_class: "PERMANENT", retryable: false });
+      { error_class: "PERMANENT", retryable: false, provider_message: e.message });
   }
   return e; // desconhecido: o gateway normaliza, e nunca vira sucesso
 }
@@ -91,7 +95,7 @@ export const SUPERFICIE_INTERNA = {
   authoring: ["createDraft", "createVariant", "proposeBrandVersion"],
   knowledge: ["brandBrain", "brandBrainForContent", "contentVersion", "claimsFor",
               "evidenceFor", "duplicateOf"],
-  publishing: ["requestApproval", "schedule"],
+  publishing: ["requestApproval", "schedule", "markAiReviewed"],
 };
 
 /** Falha alto e cedo, com o nome do que falta. Nao considera `compose`. */
@@ -185,17 +189,24 @@ export function createInternalAdapter({ authoring, knowledge, publishing, compos
   // ── Simulacao: contagem, nao julgamento ───────────────────────────────────
 
   /**
-   * quality.precheck.
+   * Os checks da revisao de IA, num lugar so.
    *
-   * Os tres codigos que o registry declara para esta capability sao
-   * exatamente os tres checks daqui — CLAIM_UNSUPPORTED, EVIDENCE_INSUFFICIENT
-   * e CONTENT_DUPLICATE_RISK. Nao e coincidencia: o registry e o contrato, e
-   * um check a mais aqui seria um codigo que o registry nao declarou.
+   * Duas capabilities fazem esta mesma conferencia e fazem coisas diferentes
+   * com o resultado: `quality.precheck` devolve o laudo e nao toca em nada;
+   * `quality.ai_review` devolve o mesmo laudo e, quando ele passa, move o
+   * conteudo de DRAFT para AI_REVIEW.
+   *
+   * A conferencia mora aqui, e nao em cada uma, porque duas copias da mesma
+   * regra sao duas chances de divergir — e o dia em que divergissem, o
+   * conteudo entraria em revisao dizendo ter passado por um check que a outra
+   * capability teria reprovado.
+   *
+   * Os tres codigos que o registry declara sao exatamente os tres checks
+   * daqui — CLAIM_UNSUPPORTED, EVIDENCE_INSUFFICIENT e CONTENT_DUPLICATE_RISK.
+   * Nao e coincidencia: o registry e o contrato, e um check a mais aqui seria
+   * um codigo que o registry nao declarou.
    */
-  async function qualityPrecheck({ args, tenant, trace_id }) {
-    const k = exigirPorta(knowledge, "knowledge", "quality.precheck");
-    const cvid = args.content_version_id;
-
+  async function conferirQualidade({ k, tenant, cvid, trace_id }) {
     const [claims, evidencias, duplicado] = await Promise.all([
       k.claimsFor(tenant.org_id, cvid),
       k.evidenceFor(tenant.org_id, cvid),
@@ -226,10 +237,70 @@ export function createInternalAdapter({ authoring, knowledge, publishing, compos
     if (materiais.length > 0 && evidencias.length === 0) reason_codes.push("EVIDENCE_INSUFFICIENT");
     if (duplicado) reason_codes.push("CONTENT_DUPLICATE_RISK");
 
+    return { trace_id, valid: reason_codes.length === 0, checks: limpar(checks), reason_codes };
+  }
+
+  /** quality.precheck: o laudo, e nada mais. `side_effect` dela e `none`. */
+  async function qualityPrecheck({ args, tenant, trace_id }) {
+    const k = exigirPorta(knowledge, "knowledge", "quality.precheck");
+    const cvid = args.content_version_id;
     return {
       external_id: String(cvid),
-      output: { trace_id, valid: reason_codes.length === 0, checks: limpar(checks), reason_codes },
+      output: await conferirQualidade({ k, tenant, cvid, trace_id }),
     };
+  }
+
+  /**
+   * quality.ai_review — o laudo que vira estado.
+   *
+   * ── O buraco que esta capability fecha ────────────────────────────────────
+   *
+   * A J11 nao liga DRAFT a revisao humana: AI_REVIEW vem antes. E ate agora
+   * NADA movia DRAFT para AI_REVIEW. `quality.precheck` era a revisao de IA em
+   * intencao, mas o `side_effect` dela e `none` no registry, e capability que
+   * nao escreve nao muda estado. Resultado: todo conteudo criado pelo agente
+   * ficava preso em DRAFT, e `approval.request` recusava — corretamente — por
+   * uma etapa que ninguem tinha como cumprir.
+   *
+   * ── Por que nao foi so trocar o side_effect do precheck ───────────────────
+   *
+   * Porque `mode: simulate` significa "calcula um veredito e nao produz
+   * efeito". Um simulate que escreve e uma mentira no registry, e o registry e
+   * o lugar onde a policy, o gateway e os evals leem o que uma capability faz.
+   * Mentir ali quebra as tres de uma vez.
+   *
+   * Entao sao duas capabilities sobre a MESMA conferencia: uma pergunta "como
+   * esta?" e a outra diz "entao passa". A conferencia e a mesma funcao.
+   *
+   * ── O laudo que reprova nao e falha da capability ─────────────────────────
+   *
+   * Achar problema e ela funcionando. Por isso ela nao lanca: devolve o laudo
+   * com `valid: false`, nao transiciona, e quem para o loop e o laudo — do
+   * mesmo jeito que ja acontecia com o precheck. Lancar diria "tente de novo
+   * em alguns minutos" para um claim sem lastro, que nao melhora com o tempo.
+   */
+  async function qualityAiReview({ args, tenant, trace_id }) {
+    const k = exigirPorta(knowledge, "knowledge", "quality.ai_review");
+    const p = exigirPorta(publishing, "publishing", "quality.ai_review");
+    const cvid = args.content_version_id;
+
+    const laudo = await conferirQualidade({ k, tenant, cvid, trace_id });
+    if (!laudo.valid) {
+      // Sem transicao. O conteudo continua em DRAFT, que e onde ele deve estar
+      // enquanto o que ele afirma nao se sustenta.
+      return { external_id: String(cvid), output: laudo };
+    }
+
+    const r = await p.markAiReviewed({
+      org_id: tenant.org_id, workspace_id: tenant.workspace_id,
+      content_version_id: cvid, checks: laudo.checks, trace_id,
+    });
+    if (!r.ok) {
+      throw new CapabilityError("CONTENT_NOT_APPROVED",
+        `conteudo em ${r.state} nao esta esperando revisao de IA`);
+    }
+
+    return { external_id: String(cvid), output: laudo };
   }
 
   /**
@@ -443,6 +514,7 @@ export function createInternalAdapter({ authoring, knowledge, publishing, compos
     "brand.read": brandRead,
     "evidence.read": evidenceRead,
     "quality.precheck": qualityPrecheck,
+    "quality.ai_review": qualityAiReview,
     "compliance.review": complianceReview,
     "content.create_draft": contentCreateDraft,
     "content.create_variant": contentCreateVariant,

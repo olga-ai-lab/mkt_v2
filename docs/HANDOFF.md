@@ -4,10 +4,10 @@
 **De:** sessões de 24–26/08/2026
 **Estado:** Fases 0 e 1 fechadas em código; o primeiro bloco da Fase 2
 (onboarding de marca a partir da URL) anda de ponta a ponta.
-465 testes, 23 evals, 10/10 no G0, 10/10 verificáveis no G1, 10 migrations.
+495 testes, 28 evals, 10/10 no G0, 10/10 verificáveis no G1, 11 migrations.
 **Pendências reais:** a submissão do app na Meta, que segura o G1 e não é
-código, e a migration **0010, que ainda não foi aplicada em `mkt_v2`** —
-ver §4.
+código, e as migrations **0010 e 0011, que ainda não foram aplicadas em
+`mkt_v2`** — ver §3.1.
 
 > O LLM interpreta; os contratos decidem; o código calcula; as ferramentas
 > executam; a evidência sustenta.
@@ -78,13 +78,19 @@ encostar no que já está de pé.
 Estado: **9 das 10 migrations estão aplicadas.** A Olga aplicou 0007 e 0008
 pelo SQL Editor em 25/08/2026, e a conferência bateu nos quatro pontos abaixo.
 
-> **A 0010 ainda não foi aplicada.** O bundle pronto para colar no SQL Editor
-> está em `packages/db/dist/mkt_v2_0010.sql`. Enquanto ela não entrar,
-> `brand.extract_from_url` continua apontando para o adapter `web_fetch` naquele
-> banco — e o adapter `brand_extract` do código nunca será chamado, então o
-> onboarding de marca não funciona lá. A migration é um `update` numa linha do
-> `capability_registry` e derruba a própria transação se não casar exatamente
-> uma linha.
+> **A 0010 e a 0011 ainda não foram aplicadas.** Cole
+> `packages/db/dist/mkt_v2_0010-0011.sql` no SQL Editor — é uma paste só, e é
+> seguro mesmo se a 0010 já tiver entrado (o corpo dela é um `update`
+> idempotente e o ledger usa `on conflict do nothing`).
+>
+> Sem a **0010**, `brand.extract_from_url` continua apontando para o adapter
+> `web_fetch` naquele banco e o onboarding de marca não funciona lá.
+>
+> Sem a **0011**, nada move `DRAFT` para `AI_REVIEW`, e todo conteúdo que o
+> agente escrever fica preso antes da revisão humana.
+>
+> As duas conferem o próprio efeito e derrubam a transação se o resultado não
+> bater.
 
 | | esperado | obtido |
 |---|---|---|
@@ -368,6 +374,7 @@ governança — mudar o `side_effect` no registry é migração — e não foi t
 por conta própria.
 
 
+
 ## 5. Regras de engajamento neste repositório
 
 **Antes de qualquer commit:**
@@ -539,9 +546,7 @@ que se apoiar.
 
 **Decisões de governança, esperando quem manda:**
 
-4. **Nada move `DRAFT` para `AI_REVIEW`.** `quality.precheck` é a revisão de IA
-   em intenção, mas o `side_effect` dela é `none` no registry, e capability que
-   não escreve não muda estado. Mudar isso é migração.
+4. ~~**Nada move `DRAFT` para `AI_REVIEW`.**~~ Feito, na 0011. Ver §10.
 5. **Promover `AGT-MKT-BRAND`** (ver §8).
 
 **Código, em ordem de quanto dói:**
@@ -563,12 +568,59 @@ que se apoiar.
 
 ---
 
-*Última verificação: 27/08/2026. 477 testes, 23 evals, 10/10 no Gate G0,
-10/10 verificáveis no G1, typecheck limpo, build do web limpo, 10 migrations,
+## 10. A cadeia editorial, e os dois becos que ela tinha
+
+Fechada na migration 0011. A sequência agora anda inteira:
+
+```
+content.create_draft ─> quality.ai_review ─> approval.request ─> decisão humana
+      DRAFT                 AI_REVIEW           HUMAN_REVIEW        APPROVED
+```
+
+### Os dois becos, e eles eram do mesmo tipo
+
+**Nada movia `DRAFT` para `AI_REVIEW`.** A J11 não liga DRAFT à revisão humana,
+e `approval.request` recusava — corretamente — por uma etapa que ninguém tinha
+como cumprir. `quality.precheck` era a revisão de IA em intenção, mas o
+`side_effect` dela é `none`, e capability que não escreve não muda estado.
+
+**Nenhum agente tinha `approval.request` no charter.** A capability está ACTIVE
+desde a 0006, tem compilador e tem policy — e os quatro charters passavam ao
+largo dela. Uma capability que ninguém pode chamar é uma porta murada: existe no
+registry, passa em todo teste de unidade, e nunca é alcançada. A 0011 agora
+avisa (`raise warning`) quando encontra uma.
+
+### As decisões que valem revisão
+
+**Não foi só trocar o `side_effect` do precheck.** `mode: simulate` significa
+"calcula um veredito e não produz efeito". Um simulate que escreve é mentira no
+registry — e o registry é onde a policy decide, o gateway roteia e os evals
+conferem. Então são duas capabilities sobre a **mesma conferência**, que é uma
+função só: `quality.precheck` (simulate) pergunta "como está?" e
+`quality.ai_review` (write) diz "então passa".
+
+**O laudo que reprova não é falha da capability.** Achar problema é ela
+funcionando: devolve `valid: false`, não transiciona, e quem para o loop é o
+laudo. Lançar diria "tente de novo em alguns minutos" para um claim sem lastro,
+que não melhora com o tempo.
+
+**O gatilho no loop deixou de ser o `mode`.** Era `mode === "simulate"` enquanto
+só simulate produzia laudo. Um laudo que reprova não fica menos verdadeiro
+porque quem o emitiu tem permissão de escrever.
+
+**`AI_REVIEW` não entra sozinho: o laudo é gravado junto**, na mesma transação,
+em `mkt.marketing_events` — que ganhou o primeiro escritor dela. Estado sem
+evidência é confiança sem lastro. O outbox não servia: outbox é evento que
+precisa ser **entregue**, e este é fato que precisa ficar **registrado**.
+
+---
+
+*Última verificação: 27/08/2026. 495 testes, 28 evals, 10/10 no Gate G0,
+10/10 verificáveis no G1, typecheck limpo, build do web limpo, 11 migrations,
 árvore limpa, tudo empurrado para `claude/novo-modulo-marketing-5l992o`.*
 
-*O schema `mkt_v2` está com 9 das 10 migrations: falta a 0010, e o bundle dela
-está pronto em `packages/db/dist/mkt_v2_0010.sql`.*
+*O schema `mkt_v2` está com 9 das 11 migrations: faltam a 0010 e a 0011, e o
+bundle das duas está pronto em `packages/db/dist/mkt_v2_0010-0011.sql`.*
 
 *Na Fase 1 sobrou **uma** pendência, e ela não é código: a submissão do app na
 Meta (ADR-0008). Enquanto ela não sair, o produto roda inteiro com

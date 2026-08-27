@@ -168,6 +168,13 @@ export function createReadCompilers() {
       content_version_id: exigirEntidade(entities, "content_version", "conteúdo"),
     }),
 
+    // Mesma compilação do precheck, e é isso mesmo: as duas conferem o mesmo
+    // conteúdo. O que muda é o que cada uma faz com o laudo, e isso é decisão
+    // da capability, não do compilador.
+    "quality.ai_review": ({ entities }) => ({
+      content_version_id: exigirEntidade(entities, "content_version", "conteúdo"),
+    }),
+
     "compliance.review": ({ entities }) => ({
       content_version_id: exigirEntidade(entities, "content_version", "conteúdo"),
     }),

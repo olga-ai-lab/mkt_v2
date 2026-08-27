@@ -556,3 +556,59 @@ test("defeito de compilador continua subindo, em vez de virar resposta bonita", 
   });
   await assert.rejects(() => loop.run(pedidoOnboarding()), TypeError);
 });
+
+// ── O laudo para o loop, e quem o emitiu nao muda isso ──────────────────────
+
+test("laudo que reprova para o loop mesmo vindo de uma capability de escrita", async () => {
+  // O gatilho era `mode === "simulate"`, enquanto so simulate produzia laudo.
+  // quality.ai_review e write e produz um — e um laudo que reprova nao vira
+  // menos verdadeiro por quem o emitiu ter permissao de escrever.
+  const executados = [];
+  const CAP_REVIEW = {
+    capability_id: "quality.ai_review", version: 1, status: "ACTIVE", mode: "write",
+    side_effect: "internal", risk_tier: "LOW", permissions: ["OWNER", "MARKETING"],
+    idempotency: { required: false },
+  };
+
+  const { loop } = montar({
+    agent: { ...AGENT, capabilities: ["quality.ai_review", "approval.request"] },
+    cap: CAP_REVIEW,
+    plan: {
+      ...planBase(),
+      steps: [
+        { step_id: "s1", capability_id: "quality.ai_review", mode: "write",
+          args_summary: "passar o rascunho pela revisao de IA" },
+        { step_id: "s2", capability_id: "approval.request", mode: "write",
+          args_summary: "pedir revisao humana" },
+      ],
+    },
+    compiler: createCompiler({
+      "quality.ai_review": ({ entities }) => ({ content_version_id: entities[0]?.canonical_id }),
+      "approval.request": ({ entities }) => ({ content_version_id: entities[0]?.canonical_id }),
+    }),
+    gateway: {
+      execute: async (request) => {
+        executados.push(request.capability_id);
+        return {
+          respondability: { state: "EXECUTABLE", reason_codes: [], granted_autonomy: "A2" },
+          execution: {
+            trace_id: request.trace_id, capability_id: request.capability_id,
+            status: "SUCCEEDED", provider: null, external_id: null, error: null,
+            attempts: 1, started_at: new Date().toISOString(), finished_at: new Date().toISOString(),
+          },
+          // A capability funcionou; o laudo dela e que reprova.
+          output: { trace_id: request.trace_id, valid: false,
+                    checks: [{ check: "claims_supported", passed: false }],
+                    reason_codes: ["CLAIM_UNSUPPORTED"] },
+        };
+      },
+    },
+  });
+
+  const r = await loop.run(pedido());
+
+  assert.equal(r.response.respondability, "QUALITY_BLOCKED");
+  assert.deepEqual(r.response.reason_codes, ["CLAIM_UNSUPPORTED"]);
+  assert.deepEqual(executados, ["quality.ai_review"],
+    "pedir aprovacao depois da propria conferencia recusar seria decidir contra o que se apurou");
+});

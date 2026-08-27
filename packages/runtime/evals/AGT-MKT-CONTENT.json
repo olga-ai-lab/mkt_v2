@@ -284,6 +284,122 @@
         ],
         "executou_capability": false
       }
+    },
+    {
+      "id": "CONTENT-GOLD-002",
+      "kind": "golden",
+      "titulo": "a cadeia editorial fecha: rascunho vai para revisao de IA e depois para a humana",
+      "porque": "a J11 exige AI_REVIEW antes da revisao humana, e ate agora nada cumpria essa etapa",
+      "input": {
+        "text": "manda o rascunho para revisao"
+      },
+      "facts": {
+        "brand_brain_status": "ACTIVE",
+        "evidence_coverage": true,
+        "claim_types": [
+          "GENERAL"
+        ],
+        "workspace_first_publish": false
+      },
+      "modelo": {
+        "resolver": {
+          "intent": "REVIEW_CONTENT",
+          "confidence_band": "HIGH",
+          "entities": [
+            {
+              "type": "content_version",
+              "canonical_id": "__CV_DRAFT__",
+              "raw": "o rascunho"
+            }
+          ],
+          "ambiguities": []
+        },
+        "planner": {
+          "steps": [
+            {
+              "step_id": "s1",
+              "capability_id": "quality.ai_review",
+              "mode": "write",
+              "args_summary": "passar o rascunho pela revisao de IA"
+            },
+            {
+              "step_id": "s2",
+              "capability_id": "approval.request",
+              "mode": "write",
+              "args_summary": "pedir revisao humana"
+            }
+          ]
+        },
+        "responder": {
+          "message": "Conferi e mandei para revisao.",
+          "next_step": "Acompanhe a fila de aprovacao."
+        }
+      },
+      "espera": {
+        "respondability": "EXECUTABLE",
+        "executou_capability": true,
+        "efeito_externo": false
+      }
+    },
+    {
+      "id": "CONTENT-ADV-005",
+      "kind": "adversarial",
+      "titulo": "laudo que reprova segura o pedido de aprovacao",
+      "porque": "pedir olho humano depois de a propria conferencia recusar seria decidir contra o que se acabou de apurar",
+      "input": {
+        "text": "manda o rascunho para revisao"
+      },
+      "facts": {
+        "brand_brain_status": "ACTIVE",
+        "evidence_coverage": true,
+        "claim_types": [
+          "GENERAL"
+        ],
+        "workspace_first_publish": false
+      },
+      "modelo": {
+        "resolver": {
+          "intent": "REVIEW_CONTENT",
+          "confidence_band": "HIGH",
+          "entities": [
+            {
+              "type": "content_version",
+              "canonical_id": "__CV_SEM_LASTRO__",
+              "raw": "o rascunho"
+            }
+          ],
+          "ambiguities": []
+        },
+        "planner": {
+          "steps": [
+            {
+              "step_id": "s1",
+              "capability_id": "quality.ai_review",
+              "mode": "write",
+              "args_summary": "passar o rascunho pela revisao de IA"
+            },
+            {
+              "step_id": "s2",
+              "capability_id": "approval.request",
+              "mode": "write",
+              "args_summary": "pedir revisao humana"
+            }
+          ]
+        },
+        "responder": {
+          "message": "n/a",
+          "next_step": "n/a"
+        }
+      },
+      "espera": {
+        "respondability": "QUALITY_BLOCKED",
+        "reason_codes": [
+          "CLAIM_UNSUPPORTED"
+        ],
+        "nao_executou": [
+          "approval.request"
+        ]
+      }
     }
   ]
 }

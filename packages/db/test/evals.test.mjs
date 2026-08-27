@@ -165,9 +165,22 @@ before(async () => {
     [ids.org, ids.cv_sem_lastro, evTmp.rows[0].id]);
   await db.query(`delete from mkt.evidence where id = $1`, [evTmp.rows[0].id]);
 
+  // Um rascunho limpo, que e o que a cadeia editorial recebe de verdade: sem
+  // claim material, em DRAFT, esperando a revisao de IA. O `ids.cv` nao serve
+  // para isso — ele nasce APPROVED para os casos que chegam a publicar.
+  const cLimpo = await db.query(
+    `insert into mkt.contents (org_id, workspace_id, brand_id, title)
+     values ($1,$2,$3,'Rascunho limpo') returning id`, [ids.org, ids.ws, ids.brand]);
+  const cvLimpo = await db.query(
+    `insert into mkt.content_versions (org_id, content_id, version, master_body, state)
+     values ($1,$2,1,'Falamos sobre prevencao de enchente no inverno.','DRAFT') returning id`,
+    [ids.org, cLimpo.rows[0].id]);
+  ids.cv_draft = cvLimpo.rows[0].id;
+
   // Substitui os marcadores dos arquivos pelos ids reais do fixture.
   const subs = {
     __BRAND__: ids.brand, __CV__: ids.cv, __CV_SEM_LASTRO__: ids.cv_sem_lastro,
+    __CV_DRAFT__: ids.cv_draft,
     __CONN__: ids.conn, __CONN_INTRUSA__: ids.conn_intrusa,
   };
   for (const f of readdirSync(EVALS_DIR).filter((x) => x.endsWith(".json"))) {

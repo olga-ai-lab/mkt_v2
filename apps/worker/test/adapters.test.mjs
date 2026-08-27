@@ -44,7 +44,7 @@ test("modo real sem portas falha ao montar, nao na hora de publicar", () => {
 });
 
 test("porta interna faltando derruba a montagem nos DOIS modos", () => {
-  // Nao e so no modo real: as nove capabilities internas nao dependem da Meta,
+  // Nao e so no modo real: as capabilities internas nao dependem da Meta,
   // entao um `knowledge` incompleto quebraria o COPILOT mesmo com
   // META_ADAPTER=fake — no primeiro pedido de um cliente, nao no boot.
   const capenga = { ...portas, knowledge: { ...portas.knowledge } };
@@ -55,12 +55,19 @@ test("porta interna faltando derruba a montagem nos DOIS modos", () => {
   }
 });
 
-test("o adapter interno entra nos dois modos", () => {
-  for (const mode of ["fake", "real"]) {
+test("o adapter interno entra nos dois modos, com a mesma lista", () => {
+  // A lista NAO e conferida por numero aqui. Quantas capabilities o registry
+  // manda para "internal" e pergunta de banco, e quem a responde e
+  // packages/db/test/internal-executor.test.mjs. Um numero literal neste
+  // arquivo so quebraria a cada capability nova, sem provar nada a mais.
+  const listas = ["fake", "real"].map((mode) => {
     const { adapters } = createAdapters({ mode, ports: portas, secrets });
     assert.equal(adapters.internal.name, "internal", mode);
-    assert.equal(adapters.internal.capabilities.length, 9, mode);
-  }
+    return [...adapters.internal.capabilities].sort();
+  });
+  assert.ok(listas[0].length > 0);
+  assert.deepEqual(listas[0], listas[1],
+    "o modo da Meta nao pode mudar o que as capabilities internas fazem");
 });
 
 test("modo desconhecido nao vira falso silenciosamente", () => {
