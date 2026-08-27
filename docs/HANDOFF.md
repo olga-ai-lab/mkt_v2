@@ -1028,15 +1028,44 @@ métrica de post, entidade de campanha, audiência nem newsletter. Transformar
 qualquer uma em produto começa por uma migration e uma capability, não por
 copiar o JSX.
 
-### Sobre o Lovable, daqui para frente
+### Os dois repositórios ficam, e isso não é para consertar
 
-O editor continua servindo para desenhar. O que não pode continuar é ele
-publicando num repositório próprio. Quem desenhar lá traz o resultado para
-`apps/web/mktos/`, e a cópia é literal.
+Foi a primeira conclusão, e estava errada. Dois fatos do repositório do Lovable
+mudam a resposta:
 
-**`olga-ai-lab/marketplace-sync` não foi apagado** — apagar repositório é ato do
-dono, não meu. Ele está integralmente aqui; quando você confirmar, pode
-arquivá-lo ou removê-lo.
+1. `.lovable/project.json` declara `template: tanstack_start_ts_current` — ele
+   **monta um app inteiro na raiz** a partir de um template fixo. Não sabe
+   escrever dentro de `apps/web/` de um monorepo que já existe; apontá-lo para o
+   `mkt_v2` faria com que tentasse ser dono do `package.json` da raiz.
+2. O `README` gerado diz: *"Push to `main` on GitHub and your changes sync back
+   into Lovable"* — a sincronia é de **mão dupla**. O repositório é um canal
+   vivo, não um export.
+
+Ou seja: `marketplace-sync` é a **prancheta**, e precisa continuar viva para o
+Lovable continuar servindo para desenhar. O erro não foi ter dois repositórios;
+foi esperar que o Lovable soubesse escrever num monorepo.
+
+```
+Lovable  →  marketplace-sync (main)  →  npm run sync:prototipo  →  apps/web/mktos/
+```
+
+### A regra que impede os dois de brigarem
+
+| | Quem manda | Onde se mexe |
+|---|---|---|
+| **Layout e visual** | Lovable | desenha lá, sincroniza para cá |
+| **Ligação com dados e API** | `mkt_v2` | `apps/web/app/<rota>/page.tsx` — nunca no Lovable |
+
+É por isso que `apps/web/mktos/` é cópia literal. Tudo o que liga tela a banco
+mora fora dela, e por isso sobrevive a toda sincronização.
+
+`scripts/sync-prototipo.mjs` mantém um `.sync.json` com o hash de cada arquivo
+copiado, e **para** se algum tiver sido editado à mão, em vez de apagar o
+trabalho da pessoa em silêncio. Mesmo mecanismo do `prompts.lock.json`, e
+verificado nos dois sentidos: edição local barra a sincronização; mudança vinda
+do Lovable entra e é registrada.
+
+**Não apague `marketplace-sync`.** Ele é o editor, não um repositório órfão.
 
 ### Um defeito encontrado no caminho: o build de produção estava quebrado
 

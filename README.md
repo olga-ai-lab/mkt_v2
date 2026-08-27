@@ -305,6 +305,20 @@ completas (Aprovações, Marca, Conteúdo), cinco parciais, e quatro — Desempe
 Jornadas, Carteira, Newsletter — desenham coisas que não existem em lugar nenhum
 do sistema.
 
+O desenho vem do Lovable, que mantém o repositório `marketplace-sync` como
+prancheta — ele monta um app na raiz a partir de um template e não sabe escrever
+dentro de um monorepo, então os dois repositórios existem de propósito:
+
+```sh
+npm run sync:prototipo          # traz o que mudou no Lovable
+npm run sync:prototipo -- --check
+```
+
+Cada lado é dono de uma coisa: **layout** é do Lovable, **ligação com dados** é
+daqui e mora em `apps/web/app/<rota>/page.tsx`. `apps/web/mktos/.sync.json`
+guarda o hash de cada arquivo copiado e a sincronização para se algum tiver sido
+editado à mão — em vez de apagar o trabalho em silêncio.
+
 ## Rodar
 
 ```bash

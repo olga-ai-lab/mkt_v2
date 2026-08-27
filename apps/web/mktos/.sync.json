@@ -1,0 +1,23 @@
+{
+  "_": "GERADO. Nao edite arquivos de apps/web/mktos/ a mao — ver o cabecalho de scripts/sync-prototipo.mjs.",
+  "origem": "https://github.com/olga-ai-lab/marketplace-sync",
+  "commit": "56776eba6ce847c64e8b44963ee2341a0c3b5b3c",
+  "arquivos": {
+    "MarketingOS.tsx": "5953a6630ca184a2",
+    "css.tsx": "280a5dbc67d29ded",
+    "logic.ts": "513fbb51acbccd90",
+    "screens/TelaAgenda.tsx": "530b6c1c5ae98474",
+    "screens/TelaAgentes.tsx": "3a6ce84ca012a6b1",
+    "screens/TelaAprovacoes.tsx": "705a9037b54937a2",
+    "screens/TelaCalendario.tsx": "360f03fa76a90c99",
+    "screens/TelaCarteira.tsx": "0e186fcbe1861081",
+    "screens/TelaConfig.tsx": "ef882c9825c61ed3",
+    "screens/TelaConteudo.tsx": "9458e772448132c8",
+    "screens/TelaDesempenho.tsx": "5410ae1f8bd26a68",
+    "screens/TelaHoje.tsx": "9e89e87982fc718f",
+    "screens/TelaJornadas.tsx": "14bd6992ac2ac193",
+    "screens/TelaMarca.tsx": "635cc865d32d3057",
+    "screens/TelaNewsletter.tsx": "1d7bd53be046375f",
+    "store.tsx": "e55debf4ef2e0722"
+  }
+}

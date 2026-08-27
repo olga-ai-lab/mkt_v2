@@ -52,11 +52,46 @@ O caminho, na ordem:
    pelo Capability Gateway. O protótipo chama `logic.ts` direto; o produto não
    pode.
 
-## Sobre o Lovable
+## O fluxo com o Lovable
 
-O editor continua servindo para desenhar (o projeto é
-`lovable.dev/projects/5d440991-abfa-4268-a359-e4a995f7904e`). O que não pode
-continuar é ele publicando num repositório próprio: `olga-ai-lab/marketplace-sync`
-nasceu de um pedido de sincronizar com este repositório que o Lovable não
-atendeu. Quem desenhar lá traz o resultado para cá — esta pasta é o destino, e
-a cópia é literal, porque o código não depende do framework dele.
+**Os dois repositórios continuam existindo, e isso não é para consertar.**
+
+O Lovable monta um app inteiro na *raiz* do repositório, a partir de um template
+fixo (`.lovable/project.json` diz qual: `tanstack_start_ts_current`). Ele não
+sabe escrever dentro de `apps/web/` de um monorepo que já existe — apontá-lo
+para o `mkt_v2` faria com que tentasse ser dono do `package.json` da raiz.
+
+E a sincronia dele é de **mão dupla**: o que se empurra para `main` lá volta a
+aparecer no editor. Então `olga-ai-lab/marketplace-sync` não é sobra de um
+acidente — é a prancheta, e precisa continuar viva para o Lovable continuar
+servindo para desenhar.
+
+```
+Lovable  →  marketplace-sync (main)  →  npm run sync:prototipo  →  apps/web/mktos/
+ desenha        prancheta                    um comando               a cópia
+```
+
+### A regra que impede os dois de brigarem
+
+Cada lado é dono de uma coisa, e só de uma:
+
+| | Quem manda | Onde se mexe |
+|---|---|---|
+| **Layout e visual** | Lovable | desenha lá, sincroniza para cá |
+| **Ligação com dados e API** | `mkt_v2` | `apps/web/app/<rota>/page.tsx` — **nunca** no Lovable |
+
+É por isso que esta pasta é cópia **literal** e ninguém a edita à mão. Tudo o
+que liga tela a banco mora fora daqui, e por isso sobrevive a toda
+sincronização.
+
+`.sync.json` é o que faz essa regra valer em vez de ser um combinado: guarda o
+hash de cada arquivo copiado, e a sincronização **para** se algum tiver sido
+editado à mão — em vez de apagar o trabalho da pessoa em silêncio. Mesmo
+mecanismo do `prompts.lock.json`.
+
+```sh
+npm run sync:prototipo          # traz o que mudou no Lovable
+npm run sync:prototipo -- --check   # só diz se há diferença
+```
+
+O projeto no editor é `lovable.dev/projects/5d440991-abfa-4268-a359-e4a995f7904e`.
