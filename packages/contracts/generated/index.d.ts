@@ -1036,6 +1036,543 @@ export interface AgentDefinition {
 }
 
 /**
+ * O contrato conversacional de um agente (Mestra §9), versionado. NAO tem `mission`: missao e charter, e mora em mkt.agent_registry desde a 0004 — repeti-la aqui criaria duas fontes para a mesma frase, e um dia elas divergiriam com o prompt vencendo na pratica e o registry vencendo na policy.
+ */
+export interface AgentPersona {
+  agent_id: string;
+  version: number;
+  status: "DRAFT" | "CANDIDATE" | "ACTIVE" | "DEPRECATED" | "BLOCKED";
+  /**
+   * Quem o agente e, na primeira pessoa de quem fala com o cliente.
+   */
+  identity: string;
+  /**
+   * Clareza, objetividade, formalidade.
+   */
+  tone: string;
+  /**
+   * A profundidade que a resposta assume por padrao.
+   */
+  depth: "EXECUTIVO" | "ANALISTA" | "OPERACIONAL";
+  /**
+   * O que fazer quando nao ha certeza. E a consequencia operacional do `costliest_error`, e por isso os dois andam juntos.
+   */
+  uncertainty: string;
+  /**
+   * O erro que custa mais caro neste papel (gate G0 da Mestra §4). Nao e decorativo: e ele que decide para que lado o agente erra quando esta inseguro.
+   */
+  costliest_error: string;
+  /**
+   * O que este agente NAO decide nem afirma. Diferente de policy: policy bloqueia, isto instrui.
+   */
+  limits?: string[];
+  /**
+   * Avisos e comportamentos obrigatorios no texto que ele produz.
+   */
+  compliance?: string[];
+  /**
+   * Bons e maus exemplos, versionados junto da persona — que e o que os torna revisaveis.
+   *
+   * @maxItems 12
+   */
+  examples?:
+    | []
+    | [
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        }
+      ]
+    | [
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        }
+      ]
+    | [
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        }
+      ]
+    | [
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        }
+      ]
+    | [
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        }
+      ]
+    | [
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        }
+      ]
+    | [
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        }
+      ]
+    | [
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        }
+      ]
+    | [
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        }
+      ]
+    | [
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        }
+      ]
+    | [
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        }
+      ]
+    | [
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        },
+        {
+          kind: "BOM" | "MAU";
+          situacao: string;
+          resposta: string;
+          porque?: string;
+        }
+      ];
+  owner: string;
+}
+
+/**
  * Fecha o G7. O Capability Gateway so executa o que esta ACTIVE neste registry.
  */
 export type CapabilityDefinition = {
@@ -1118,6 +1655,7 @@ export type Channel = "INSTAGRAM" | "FACEBOOK" | "LINKEDIN" | "BLOG" | "EMAIL" |
  * MKT-17 §5.1. Determina a autonomia maxima permitida.
  */
 export type RiskTier = "LOW" | "MEDIUM" | "HIGH";
+export type CapabilityMode = "read" | "simulate" | "write";
 /**
  * Fatos avaliaveis pelo Policy Engine. O avaliador nunca le texto livre.
  */
@@ -1190,6 +1728,10 @@ export interface RulePolicy {
     channel?: Channel | null;
     agent_id?: string | null;
     risk_tier?: RiskTier | null;
+    /**
+     * Escopo por MODO da capability. Existe para o kill switch do §34 da Mestra caber numa linha: {mode: 'write', effect: 'BLOCK'} contem toda escrita de uma vez, sem listar capability por capability — e listar uma a uma, durante um incidente, e como se esquece uma.
+     */
+    mode?: CapabilityMode | null;
   };
   conditions: {
     fact: PolicyFact;

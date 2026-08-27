@@ -9,6 +9,7 @@ import { Pool } from "pg";
 import { createPostgresPorts } from "@olga/runtime/ports-postgres";
 import { createApprovalService } from "@olga/runtime/approvals";
 import { createBrandActivationService } from "@olga/runtime/brand-activation";
+import { createContainmentService } from "@olga/runtime/containment";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -28,3 +29,5 @@ export const brandActivationService = createBrandActivationService({
   authoring: ports.authoring,
   tracer,
 });
+
+export const containmentService = createContainmentService({ policies: ports.policies, tracer });

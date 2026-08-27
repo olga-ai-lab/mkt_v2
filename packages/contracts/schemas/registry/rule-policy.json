@@ -71,6 +71,17 @@
               "type": "null"
             }
           ]
+        },
+        "mode": {
+          "oneOf": [
+            {
+              "$ref": "olga://enums/capability-mode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Escopo por MODO da capability. Existe para o kill switch do §34 da Mestra caber numa linha: {mode: 'write', effect: 'BLOCK'} contem toda escrita de uma vez, sem listar capability por capability — e listar uma a uma, durante um incidente, e como se esquece uma."
         }
       }
     },

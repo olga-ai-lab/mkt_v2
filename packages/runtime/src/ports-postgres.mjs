@@ -68,6 +68,16 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
      * sem persona ACTIVE nao deixa de responder — cai na postura conservadora do
      * PERSONA_PADRAO — e `persona_version` volta nulo, que e o que faz o trace
      * dizer a verdade em vez de registrar uma versao inexistente.
+     *
+     * ── A ordenacao, que e a terceira correcao ──────────────────────────
+     *
+     * Era `order by version desc` puro: a MAIOR versao, qualquer que fosse o
+     * status. Isso quebrava o rollback que o AGT-BASE §05 descreve — voltar
+     * para a ultima ACTIVE — porque uma v2 DEPRECATED continuaria sendo servida
+     * sobre a v1 ACTIVE, e marcar a v2 como DEPRECATED nao desfazia nada.
+     *
+     * A maior versao continua sendo o desempate, e e ela que faz um agente
+     * CANDIDATE — que nao tem linha ACTIVE nenhuma — rodar em modo interno.
      */
     async getAgent(agent_id) {
       const { rows } = await pool.query(
@@ -80,7 +90,8 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
            left join ${S}.agent_personas p
              on p.agent_id = a.agent_id and p.status = 'ACTIVE'
           where a.agent_id = $1
-          order by a.version desc limit 1`, [agent_id]);
+          order by (a.status = 'ACTIVE') desc, a.version desc
+          limit 1`, [agent_id]);
 
       const r = rows[0];
       if (!r) return null;
@@ -173,6 +184,13 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
   };
 
   const policies = {
+    /**
+     * As policies que valem para este tenant, lidas A CADA RUN.
+     *
+     * Sem cache, e isso e requisito e nao descuido: e o que faz uma contencao
+     * valer no run seguinte. Um cache de cinco minutos aqui seria cinco minutos
+     * de posts saindo depois de alguem apertar o botao de parar.
+     */
     async listActive(org_id) {
       const { rows } = await pool.query(
         `select policy_id, version, status::text, priority, scope, conditions,
@@ -180,6 +198,72 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
            from ${S}.rule_policies
           where status = 'ACTIVE' and (org_id is null or org_id = $1)
           order by priority asc`, [org_id]);
+      return rows;
+    },
+
+    /**
+     * Escreve (ou reativa) uma policy de contencao.
+     *
+     * Separada de `listActive` de proposito: quem le policy para DECIDIR nao
+     * escreve policy. O gateway e o loop recebem so a leitura.
+     *
+     * Reaplicar a mesma contencao nao cria uma segunda linha — atualiza a que
+     * existe e sobe a versao. Durante um incidente o botao e apertado duas
+     * vezes, e a segunda nao pode virar uma policy duplicada que alguem depois
+     * levanta pela metade.
+     */
+    async upsertContainment({ org_id, policy_id, priority, scope, effect, max_autonomy,
+                              reason_code, message_key, reason, created_by, expires_at }) {
+      const { rows } = await pool.query(
+        `insert into ${S}.rule_policies
+           (org_id, policy_id, version, status, priority, scope, conditions, effect,
+            max_autonomy, reason_code, message_key, reason, created_by, expires_at)
+         values ($1,$2,1,'ACTIVE',$3,$4::jsonb,'[]'::jsonb,$5::${S}.policy_effect,
+                 $6,$7,$8,$9,$10,$11)
+         on conflict (org_id, policy_id, version) do update set
+           status = 'ACTIVE',
+           priority = excluded.priority,
+           scope = excluded.scope,
+           effect = excluded.effect,
+           max_autonomy = excluded.max_autonomy,
+           reason = excluded.reason,
+           created_by = excluded.created_by,
+           expires_at = excluded.expires_at,
+           created_at = now()
+         returning policy_id, effect::text as effect, scope, max_autonomy,
+                   reason, created_by, created_at, expires_at`,
+        [org_id, policy_id, priority, json(scope), effect, max_autonomy ?? null,
+         reason_code ?? null, message_key ?? null, reason, created_by, expires_at ?? null]);
+      return rows[0];
+    },
+
+    /**
+     * Levanta uma contencao — marcando BLOCKED, e nao apagando.
+     *
+     * Apagar tiraria do historico que houve contencao, e "houve contencao entre
+     * terca e quinta" e exatamente o que se pergunta depois. O motivo de
+     * levantar sobrescreve o de abaixar de proposito: quem consulta a linha
+     * depois quer saber por que ela nao vale mais.
+     */
+    async liftContainment({ org_id, policy_id, lifted_by, reason }) {
+      const { rows } = await pool.query(
+        `update ${S}.rule_policies
+            set status = 'BLOCKED',
+                created_by = $3,
+                reason = $4
+          where org_id = $1 and policy_id = $2 and status = 'ACTIVE'
+          returning policy_id`, [org_id, policy_id, lifted_by, reason]);
+      return { ok: rows.length === 1 };
+    },
+
+    /** O que esta contido agora neste tenant, do mais recente para o mais antigo. */
+    async listContainment(org_id) {
+      const { rows } = await pool.query(
+        `select policy_id, effect::text as effect, scope, max_autonomy, reason,
+                created_by, created_at, expires_at
+           from ${S}.rule_policies
+          where org_id = $1 and status = 'ACTIVE' and created_by is not null
+          order by created_at desc`, [org_id]);
       return rows;
     },
   };

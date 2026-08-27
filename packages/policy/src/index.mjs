@@ -91,10 +91,23 @@ export const INVARIANTS = [
   },
 ];
 
+/**
+ * O escopo casa quando TODA chave declarada bate. Chave ausente nao restringe.
+ *
+ * `mode` entrou por ultimo, e para uma coisa so: o kill switch de escrita do
+ * §34 da Mestra precisa caber numa linha — `{mode: "write"}` com efeito BLOCK
+ * contem toda escrita de uma vez. Listar capability por capability durante um
+ * incidente e como se esquece uma, e a que se esquece e a que continua
+ * publicando.
+ */
 function scopeMatches(policy, ctx) {
   const s = policy.scope ?? {};
-  for (const key of ["capability_id", "channel", "agent_id", "risk_tier"]) {
-    if (s[key] != null && s[key] !== ctx[key]) return false;
+  for (const key of ["capability_id", "capability_mode", "channel", "agent_id", "risk_tier"]) {
+    // O contrato chama de `mode`; o contexto de avaliacao chama de
+    // `capability_mode`. Aceitar os dois nomes aqui evita renomear um campo que
+    // ja esta em uso no gateway e no loop.
+    const declarado = key === "capability_mode" ? (s.mode ?? s.capability_mode) : s[key];
+    if (declarado != null && declarado !== ctx[key]) return false;
   }
   return true;
 }

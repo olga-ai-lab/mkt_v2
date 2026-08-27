@@ -105,6 +105,19 @@ async function conteudo({ material = false, claim_type = "GENERAL" } = {}) {
   return { content_version_id: cv.rows[0].id, channel_variant_id: variante.rows[0].id };
 }
 
+/**
+ * O evento DESTE conteudo, entre os que o relay entregou.
+ *
+ * O relay drena o outbox inteiro, como em producao. Pegar `entregues[0]` supunha
+ * um mundo vazio — e quando outro arquivo de teste agendava algo em paralelo, o
+ * teste consumia o evento do vizinho e falhava por um motivo que nao era o dele.
+ */
+const meuEvento = (p, content_version_id) => {
+  const e = p.entregues.find((x) => x.data?.content_version_id === content_version_id);
+  if (!e) throw new Error(`o relay nao entregou o evento de ${content_version_id}`);
+  return e;
+};
+
 const durableStep = (memo = {}) => ({
   run: async (name, fn) => {
     if (name in memo) return memo[name];
@@ -245,13 +258,21 @@ test("ACEITE — aprovar, agendar e publicar, do inicio ao fim", async () => {
   assert.ok(ag.outbox_id, "agendar tem de deixar o pedido no outbox");
 
   // 4. O relay drena.
+  //
+  // Ele drena o outbox INTEIRO, como em producao — e por isso este teste
+  // procura o proprio evento em vez de exigir que o mundo esteja vazio. Exigir
+  // `sent.length === 1` fazia esta asserção falhar quando outro arquivo de
+  // teste agendava algo em paralelo: o que quebrava era a suposicao do teste, e
+  // nao o pipeline.
   const p = pipeline();
   const r = await p.relay();
-  assert.equal(r.sent.length, 1);
-  assert.equal(p.entregues[0].name, "olga/content.publish.requested");
+  assert.ok(r.sent.length >= 1, "o relay tem de entregar o que estava no outbox");
+
+  const meu = meuEvento(p, content_version_id);
+  assert.equal(meu.name, "olga/content.publish.requested");
 
   // 5. O workflow consome e publica.
-  const data = { ...p.entregues[0].data, trace_id: "tr_e2e", requested_autonomy: "A3",
+  const data = { ...meu.data, trace_id: "tr_e2e", requested_autonomy: "A3",
                  approval_id, actor: { role: "OWNER", org_id: ids.org } };
   const out = await p.handler(data, durableStep());
 
@@ -290,8 +311,9 @@ test("ACEITE — reentrega do mesmo pedido nao publica duas vezes", async () => 
 
   const p = pipeline();
   await p.relay();
-  const data = { ...p.entregues[0].data, trace_id: "tr_dup", requested_autonomy: "A3",
-                 approval_id, actor: { role: "OWNER", org_id: ids.org } };
+  const data = { ...meuEvento(p, content_version_id).data, trace_id: "tr_dup",
+                 requested_autonomy: "A3", approval_id,
+                 actor: { role: "OWNER", org_id: ids.org } };
 
   await p.handler(data, durableStep());
   const segunda = await p.handler(data, durableStep());
@@ -386,8 +408,9 @@ test("depois de publicar, a listagem mostra o canal publicado", async () => {
 
   const p = pipeline();
   await p.relay();
-  await p.handler({ ...p.entregues[0].data, trace_id: "tr_lista", requested_autonomy: "A3",
-                    approval_id, actor: { role: "OWNER", org_id: ids.org } }, durableStep());
+  await p.handler({ ...meuEvento(p, content_version_id).data, trace_id: "tr_lista",
+                    requested_autonomy: "A3", approval_id,
+                    actor: { role: "OWNER", org_id: ids.org } }, durableStep());
 
   const lista = await ports.content.listByWorkspace(ids.org, ids.ws);
   const linha = lista.find((x) => x.content_version_id === content_version_id);
@@ -422,8 +445,8 @@ test("G1 — receipt carrega o external ID do provider, e o trace liga pedido a 
   const p = pipeline();
   await p.relay();
   const out = await p.handler(
-    { ...p.entregues[0].data, trace_id: trace, requested_autonomy: "A3", approval_id,
-      actor: { role: "OWNER", org_id: ids.org } },
+    { ...meuEvento(p, content_version_id).data, trace_id: trace, requested_autonomy: "A3",
+      approval_id, actor: { role: "OWNER", org_id: ids.org } },
     durableStep());
   assert.equal(out.status, "SUCCEEDED");
 

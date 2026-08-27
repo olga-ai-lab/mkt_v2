@@ -10,3 +10,4 @@ export { createComposer, LIMITE_POR_CANAL } from "./composer.mjs";
 export { createBrandExtractor } from "./extractor.mjs";
 export { createBrandActivationService, lacunasDe, PAPEIS_QUE_ATIVAM,
          PAPEIS_QUE_PROPOEM, BrandActivationError } from "./brand-activation.mjs";
+export { createContainmentService, ContainmentError, PAPEIS_QUE_CONTEM } from "./containment.mjs";

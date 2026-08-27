@@ -18,7 +18,8 @@
     "./retrieval": "./src/retrieval.mjs",
     "./composer": "./src/composer.mjs",
     "./extractor": "./src/extractor.mjs",
-    "./brand-activation": "./src/brand-activation.mjs"
+    "./brand-activation": "./src/brand-activation.mjs",
+    "./containment": "./src/containment.mjs"
   },
   "dependencies": {
     "@olga/contracts": "*",
