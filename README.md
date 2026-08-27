@@ -31,14 +31,14 @@ um PDF aprovado.
 | `packages/contracts` | JSON Schema dos 16 contratos de I/O, dos 5 registries e dos enums fechados. Tipos TS gerados | 15 testes |
 | `packages/policy` | Policy engine determinístico: invariantes de código + regras como dado, default deny | 19 testes |
 | `packages/gateway` | Capability Gateway com os 8 passos do MKT-09B §10, e os adapters: meta_graph, web_fetch, brand_extract e internal | 111 testes |
-| `packages/db` | 13 migrations, 31 tabelas, RLS forçada, state machine no banco | 188 testes |
-| `packages/runtime` | Model Gateway, Agent Runtime, loop de agente, retrieval, redator, extrator, persona e governança de Brand Brain | 142 testes |
+| `packages/db` | 14 migrations, 32 tabelas, RLS forçada, state machine no banco | 209 testes |
+| `packages/runtime` | Model Gateway, Agent Runtime, loop de agente, retrieval, redator, extrator, persona, contenção e governança de Brand Brain | 142 testes |
 | `apps/worker` | Workflow durável de publicação, replay-safe | 25 testes |
 | `apps/web` | Home, login, conteúdo, fila de aprovação, revisão e edição de Brand Brain. Tokens do MKT-06A e microcopy de todo reason code | 24 testes |
 | `docs/adr` | 11 ADRs fechando o que o MKT-09B deixava OPEN | — |
 | `docs/AGT-BASE.md` | O contrato comum que os 13 pacotes repetiam | — |
 
-**524 testes e 28 evals de agente.** `npm run gate:g0` e `npm run gate:g1`
+**545 testes e 31 evals de agente** (14 golden, 17 adversariais). `npm run gate:g0` e `npm run gate:g1`
 verificam os critérios de cada gate executando cada um deles — e o G1 nunca se
 declara fechado sozinho, porque o que falta nele não é código.
 
@@ -199,6 +199,36 @@ alguém precisa lembrar de fazer não é uma garantia.
 fora criaria uma segunda contabilidade que um dia discordaria da primeira. Um run
 que não chamou modelo fecha com `model` e `cost_cents` nulos, e não zero: zero
 diria "consultei e não custou".
+
+## Conter um incidente sem esperar um deploy
+
+O kill switch **é uma policy**, e não uma flag nova. O mecanismo já existia:
+avaliado deterministicamente, escopado por capability, modo, agente, canal e
+risco, com "policy só restringe" como invariante de código. Uma tabela de flags
+ao lado seria um segundo lugar capaz de bloquear a mesma coisa.
+
+O que faltava era a operação — durante um incidente ninguém escreve migration:
+
+```bash
+curl -X POST "$OLGA_URL/api/containment" -H "authorization: Bearer $TOKEN" \
+  -d '{"action":"kill_writes","reason":"incidente: post duplicado na conta X"}'
+```
+
+| Ação | O que faz |
+|---|---|
+| `kill_writes` | para toda escrita do workspace, e deixa a leitura de pé |
+| `kill_agent` / `kill_capability` | para um agente ou uma capability |
+| `degrade_agent` | baixa o teto para A1 — interpreta e explica, não executa |
+| `lift` | levanta, com motivo, marcando BLOCKED em vez de apagar |
+
+A policy é lida a cada run, sem cache: a contenção vale no run seguinte. O
+motivo é obrigatório — uma linha que bloqueia sem dizer por quê vira, duas
+semanas depois, uma linha que ninguém sabe se pode remover.
+
+`expires_at` **não** levanta nada sozinho. Uma contenção que some por conta
+própria é uma contenção em que ninguém confia.
+
+O passo a passo está em [`docs/runbooks/conter-incidente.md`](docs/runbooks/conter-incidente.md).
 
 ## Rodar
 

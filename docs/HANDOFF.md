@@ -4,9 +4,9 @@
 **De:** sessões de 24–26/08/2026
 **Estado:** Fases 0 e 1 fechadas em código; o primeiro bloco da Fase 2
 (onboarding de marca a partir da URL) anda de ponta a ponta.
-524 testes, 28 evals, 10/10 no G0, 10/10 verificáveis no G1, 13 migrations.
+545 testes, 31 evals (14 golden, 17 adversariais), 10/10 no G0, 10/10 no G1, 14 migrations.
 **Pendências reais:** a submissão do app na Meta, que segura o G1 e não é
-código, e as migrations **0010 a 0013, que ainda não foram aplicadas em `mkt_v2`** —
+código, e as migrations **0010 a 0014, que ainda não foram aplicadas em `mkt_v2`** —
 ver §3.1.
 
 > O LLM interpreta; os contratos decidem; o código calcula; as ferramentas
@@ -78,10 +78,10 @@ encostar no que já está de pé.
 Estado: **9 das 10 migrations estão aplicadas.** A Olga aplicou 0007 e 0008
 pelo SQL Editor em 25/08/2026, e a conferência bateu nos quatro pontos abaixo.
 
-> **As migrations 0010 a 0013 ainda não foram aplicadas.** Cole
-> `packages/db/dist/mkt_v2_0010-0011-0012-0013.sql` no SQL Editor — é uma paste
-> só, e é seguro mesmo se a 0010 já tiver entrado (o corpo dela é um `update`
-> idempotente e o ledger usa `on conflict do nothing`).
+> **As migrations 0010 a 0014 ainda não foram aplicadas.** Cole
+> `packages/db/dist/mkt_v2_0010-0011-0012-0013-0014.sql` no SQL Editor — é uma
+> paste só, e é seguro mesmo se a 0010 já tiver entrado (o corpo dela é um
+> `update` idempotente e o ledger usa `on conflict do nothing`).
 >
 > Sem a **0010**, `brand.extract_from_url` continua apontando para o adapter
 > `web_fetch` naquele banco e o onboarding de marca não funciona lá.
@@ -96,7 +96,10 @@ pelo SQL Editor em 25/08/2026, e a conferência bateu nos quatro pontos abaixo.
 > Sem a **0013**, o agente responde com a postura conservadora padrão em vez da
 > persona dele, e o trace não registra com que persona o run falou.
 >
-> As quatro conferem o próprio efeito e derrubam a transação se o resultado não
+> Sem a **0014**, não há kill switch: conter um incidente volta a exigir uma
+> migration escrita na hora.
+>
+> As cinco conferem o próprio efeito e derrubam a transação se o resultado não
 > bater.
 
 | | esperado | obtido |
@@ -384,6 +387,7 @@ por conta própria.
 
 
 
+
 ## 5. Regras de engajamento neste repositório
 
 **Antes de qualquer commit:**
@@ -660,14 +664,14 @@ semântica (§7.4) não se aplica: nossa classe (§2) é transacional, não anal
 ~~**O trace está pela metade (§30).**~~ Feito. Falta só a linha *Safety* (policy
 blocks, sinais de injeção, redação de PII) e as versões de schemas/rules.
 
-**Shadow, canary e rollback não existem (§33).** Temos replay/offline (os
-evals). O §46 lista "feature flag e caminho de rollback" como pré-requisito do
-primeiro piloto, e o `AGT-MKT-COPILOT` já está ACTIVE sem eles.
+~~**Shadow, canary e rollback não existem (§33).**~~ Feito na 0014, menos shadow
+e canary. Ver §13.
 
-**Estamos abaixo do piso de golden do §46**: ele pede 10–30 casos golden
-representativos, e temos 8. Adversariais estão bem, com 17.
+~~**Estamos abaixo do piso de golden do §46.**~~ Feito: 14 golden, 17
+adversariais.
 
-**Não há `AGENTS.md` nem `CLAUDE.md` (§36)**, nem `ops/runbooks/`.
+**Não há `AGENTS.md` nem `CLAUDE.md` (§36).** `docs/runbooks/` passou a existir,
+com o de contenção de incidente.
 
 **O naming do apêndice A não é seguido**: nossas capabilities são `brand.read`,
 não `capability.brand.read`; as rules são `POL_*`, não `rule.<name>`.
@@ -731,13 +735,66 @@ zero: zero diria "consultei e não custou".
 
 ---
 
-*Última verificação: 27/08/2026. 524 testes, 28 evals, 10/10 no Gate G0,
-10/10 verificáveis no G1, typecheck limpo, build do web limpo, 13 migrations,
-árvore limpa, tudo empurrado para `claude/novo-modulo-marketing-5l992o`.*
+## 13. Contenção de incidente, e o que ainda falta da Mestra
 
-*O schema `mkt_v2` está com 9 das 13 migrations: faltam a 0010, 0011, 0012 e
-0013, e o bundle das quatro está pronto em
-`packages/db/dist/mkt_v2_0010-0011-0012-0013.sql`.*
+Terceiro e quarto itens da auditoria. Fecham §34, §46 e o piso de golden.
+
+### O kill switch é uma policy, e não uma flag nova
+
+O mecanismo já existia. O que faltava era a operação — durante um incidente
+ninguém escreve migration. `docs/runbooks/conter-incidente.md` é o passo a
+passo; `POST /api/containment` é a porta.
+
+| Ação | O que faz |
+|---|---|
+| `kill_writes` | para toda escrita do workspace, e deixa a leitura de pé |
+| `kill_agent` | para um agente inteiro |
+| `kill_capability` | para uma capability |
+| `degrade_agent` | baixa o teto para A1 — interpreta e explica, não executa |
+| `lift` | levanta, com motivo, marcando BLOCKED em vez de apagar |
+
+Motivo é obrigatório. Uma linha que bloqueia sem dizer por quê vira, duas
+semanas depois, uma linha que ninguém sabe se pode remover — e alguém remove.
+
+`expires_at` **não** levanta nada sozinho: uma contenção que some por conta
+própria é uma contenção em que ninguém confia.
+
+### O rollback de agente estava quebrado
+
+`getAgent` fazia `order by version desc` puro — a maior versão, qualquer que
+fosse o status. Voltar para a última `ACTIVE` não funcionava: uma v2
+`DEPRECATED` continuaria sendo servida sobre a v1 `ACTIVE`. Junto vieram os
+índices de `ACTIVE` único em `agent_registry` e `capability_registry`, que
+`model_routing` já tinha desde a 0007.
+
+### O que ainda falta da Mestra
+
+**Camadas de conhecimento (§7):** faltam ontologia, aliases de entidade e guias
+de raciocínio. A camada semântica não se aplica à nossa classe (§2, transacional).
+
+**Shadow e canary (§33).** Replay/offline existe (os evals) e rollback passou a
+existir. Rodar uma versão nova em sombra, medindo divergência, não.
+
+**A linha *Safety* do trace (§30):** policy blocks, sinais de injeção e redação
+de PII não são registrados. A classificação de PII existe desde a 0012, nos
+contratos de fonte — falta o que se apoia nela.
+
+**`AGENTS.md` e `CLAUDE.md` (§36)**, que ensinariam a um coding agent onde estão
+as fontes normativas.
+
+**Naming do apêndice A**: capabilities são `brand.read` e não
+`capability.brand.read`; rules são `POL_*` e não `rule.<name>`.
+
+---
+
+*Última verificação: 27/08/2026. 545 testes, 31 evals (14 golden, 17
+adversariais), 10/10 no Gate G0, 10/10 verificáveis no G1, typecheck limpo,
+build do web limpo, 14 migrations, árvore limpa, tudo empurrado para
+`claude/novo-modulo-marketing-5l992o`.*
+
+*O schema `mkt_v2` está com 9 das 14 migrations: faltam a 0010 a 0014, e o
+bundle das cinco está pronto em
+`packages/db/dist/mkt_v2_0010-0011-0012-0013-0014.sql`.*
 
 *Na Fase 1 sobrou **uma** pendência, e ela não é código: a submissão do app na
 Meta (ADR-0008). Enquanto ela não sair, o produto roda inteiro com
