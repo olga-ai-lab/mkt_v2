@@ -28,17 +28,17 @@ um PDF aprovado.
 
 | Peça | O que faz | Prova |
 |---|---|---|
-| `packages/contracts` | JSON Schema dos 16 contratos de I/O, dos 3 registries e dos enums fechados. Tipos TS gerados | 15 testes |
+| `packages/contracts` | JSON Schema dos 16 contratos de I/O, dos 4 registries e dos enums fechados. Tipos TS gerados | 15 testes |
 | `packages/policy` | Policy engine determinístico: invariantes de código + regras como dado, default deny | 19 testes |
 | `packages/gateway` | Capability Gateway com os 8 passos do MKT-09B §10, e os adapters: meta_graph, web_fetch, brand_extract e internal | 111 testes |
-| `packages/db` | 11 migrations, 29 tabelas, RLS forçada, state machine no banco | 171 testes |
-| `packages/runtime` | Model Gateway, Agent Runtime, loop de agente, retrieval, redator, extrator de marca e governança de Brand Brain | 130 testes |
+| `packages/db` | 12 migrations, 30 tabelas, RLS forçada, state machine no banco | 178 testes |
+| `packages/runtime` | Model Gateway, Agent Runtime, loop de agente, retrieval, redator, extrator de marca e governança de Brand Brain | 135 testes |
 | `apps/worker` | Workflow durável de publicação, replay-safe | 25 testes |
 | `apps/web` | Home, login, conteúdo, fila de aprovação, revisão e edição de Brand Brain. Tokens do MKT-06A e microcopy de todo reason code | 24 testes |
 | `docs/adr` | 11 ADRs fechando o que o MKT-09B deixava OPEN | — |
 | `docs/AGT-BASE.md` | O contrato comum que os 13 pacotes repetiam | — |
 
-**495 testes e 28 evals de agente.** `npm run gate:g0` e `npm run gate:g1`
+**507 testes e 28 evals de agente.** `npm run gate:g0` e `npm run gate:g1`
 verificam os critérios de cada gate executando cada um deles — e o G1 nunca se
 declara fechado sozinho, porque o que falta nele não é código.
 
@@ -140,6 +140,35 @@ laudo. Lançar diria "tente de novo em alguns minutos" para um claim sem lastro.
 
 **`AI_REVIEW` não entra sozinho.** O laudo é gravado na mesma transação, em
 `mkt.marketing_events`: estado sem evidência é confiança sem lastro.
+
+## Freshness é parte da verdade
+
+"Dado correto e desatualizado pode gerar resposta falsa" (Documentação Mestra
+§3). O retrieval carregava um `maxAgeDays = 90` único, aplicado igual ao Brand
+Brain, a uma página de site e ao registro da marca no nosso próprio banco.
+
+Cada fonte agora tem contrato em `mkt.source_contracts` (Mestra §7.5), com
+autoridade temporal, prazo, qualidade padrão, PII, escopo de permissão e
+caveats:
+
+| Fonte | Carimbo que conta | Vence em | Qualidade |
+|---|---|---|---|
+| `BRAND_BRAIN` | `activated_at` | 180 dias | HIGH |
+| `SOURCE_ARTIFACT` | `retrieved_at` | 30 dias | MEDIUM |
+| `UPLOADED_FILE` | `retrieved_at` | 365 dias | MEDIUM |
+| `DOMAIN_RECORD` | `created_at` | nunca | HIGH |
+| `PROVIDER_RESPONSE` | `recorded_at` | nunca | HIGH |
+
+**`max_age_days` nulo é uma afirmação**, não um campo esquecido: aquela fonte
+não vence. Um registro nosso não fica velho — fica errado, e errado não se
+detecta por idade.
+
+**Fonte sem contrato vence**, com o motivo. É fail-closed: a alternativa deixa
+uma fonte nova entrar em produção sem ninguém decidir quando ela envelhece.
+
+**A autoridade temporal nem sempre é o `created_at`.** Um Brand Brain vale a
+partir do `activated_at`, porque foi ali que uma pessoa assumiu aquilo como a
+marca. Escolher o carimbo errado envelhece a fonte errada.
 
 ## Rodar
 

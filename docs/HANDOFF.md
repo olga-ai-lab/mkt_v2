@@ -4,9 +4,9 @@
 **De:** sessões de 24–26/08/2026
 **Estado:** Fases 0 e 1 fechadas em código; o primeiro bloco da Fase 2
 (onboarding de marca a partir da URL) anda de ponta a ponta.
-495 testes, 28 evals, 10/10 no G0, 10/10 verificáveis no G1, 11 migrations.
+507 testes, 28 evals, 10/10 no G0, 10/10 verificáveis no G1, 12 migrations.
 **Pendências reais:** a submissão do app na Meta, que segura o G1 e não é
-código, e as migrations **0010 e 0011, que ainda não foram aplicadas em
+código, e as migrations **0010, 0011 e 0012, que ainda não foram aplicadas em
 `mkt_v2`** — ver §3.1.
 
 > O LLM interpreta; os contratos decidem; o código calcula; as ferramentas
@@ -78,9 +78,9 @@ encostar no que já está de pé.
 Estado: **9 das 10 migrations estão aplicadas.** A Olga aplicou 0007 e 0008
 pelo SQL Editor em 25/08/2026, e a conferência bateu nos quatro pontos abaixo.
 
-> **A 0010 e a 0011 ainda não foram aplicadas.** Cole
-> `packages/db/dist/mkt_v2_0010-0011.sql` no SQL Editor — é uma paste só, e é
-> seguro mesmo se a 0010 já tiver entrado (o corpo dela é um `update`
+> **A 0010, a 0011 e a 0012 ainda não foram aplicadas.** Cole
+> `packages/db/dist/mkt_v2_0010-0011-0012.sql` no SQL Editor — é uma paste só, e
+> é seguro mesmo se a 0010 já tiver entrado (o corpo dela é um `update`
 > idempotente e o ledger usa `on conflict do nothing`).
 >
 > Sem a **0010**, `brand.extract_from_url` continua apontando para o adapter
@@ -89,7 +89,11 @@ pelo SQL Editor em 25/08/2026, e a conferência bateu nos quatro pontos abaixo.
 > Sem a **0011**, nada move `DRAFT` para `AI_REVIEW`, e todo conteúdo que o
 > agente escrever fica preso antes da revisão humana.
 >
-> As duas conferem o próprio efeito e derrubam a transação se o resultado não
+> Sem a **0012**, o retrieval não encontra contrato de fonte nenhum e marca
+> TODA fatia como vencida — é a escolha fail-closed, e ela trava o agente até a
+> migration entrar.
+>
+> As três conferem o próprio efeito e derrubam a transação se o resultado não
 > bater.
 
 | | esperado | obtido |
@@ -375,6 +379,7 @@ por conta própria.
 
 
 
+
 ## 5. Regras de engajamento neste repositório
 
 **Antes de qualquer commit:**
@@ -557,11 +562,7 @@ que se apoiar.
    no registry e ignorada em execução. Foi por isso que a 0010 atualizou a v1 em
    vez de criar uma v2 — está declarado na própria migration. Resolver é trocar
    por "a ACTIVE desta capability", e mexe nos dublês de vários testes.
-8. **Contrato de fonte.** `createRetrieval` tem `maxAgeDays = 90` configurável
-   porque a resposta certa depende de um contrato de fonte que o MKT-17 coloca na
-   Fase 2 e que ainda não existe. Um Brand Brain montado a partir de uma página
-   lida há um ano ainda não é considerado vencido por causa da fonte — só pela
-   idade da própria versão.
+8. ~~**Contrato de fonte.**~~ Feito na 0012. Ver §11.
 9. **Golden dataset e evals de qualidade** (achado G11). Depende das três
    corretoras piloto, não de código. Os evals de hoje medem governança, e a
    separação é deliberada.
@@ -615,12 +616,79 @@ precisa ser **entregue**, e este é fato que precisa ficar **registrado**.
 
 ---
 
-*Última verificação: 27/08/2026. 495 testes, 28 evals, 10/10 no Gate G0,
-10/10 verificáveis no G1, typecheck limpo, build do web limpo, 11 migrations,
+## 11. Contrato de fonte, e a auditoria contra a Mestra
+
+A Documentação Mestra de Engenharia de Agentes V11 entrou no projeto em
+27/08/2026. A auditoria do que temos contra ela está resumida abaixo; o
+primeiro item dela já foi feito.
+
+### O que a 0012 resolveu (Mestra §7.5)
+
+`createRetrieval` carregava `maxAgeDays = 90`: um teto único, aplicado igual ao
+Brand Brain, a uma página de site e ao registro da marca no nosso próprio banco.
+A Mestra §3 explica o custo — "freshness é parte da verdade: dado correto e
+desatualizado pode gerar resposta falsa" — e o §7.5 diz onde a resposta mora.
+
+Agora cada fonte tem contrato em `mkt.source_contracts`, com autoridade
+temporal, prazo, qualidade padrão, PII, escopo de permissão e caveats. Três
+decisões que valem revisão:
+
+- **`max_age_days` nulo é uma afirmação**, não um campo esquecido: aquela fonte
+  não vence. Um registro nosso não fica velho — fica errado, e errado não se
+  detecta por idade.
+- **Fonte sem contrato vence**, com o motivo. Fail-closed: a alternativa deixa
+  uma fonte nova entrar em produção sem ninguém decidir quando ela envelhece.
+- **A qualidade saiu do código.** Era `"HIGH"` fixo para toda fatia, o que fazia
+  uma página de site valer tanto quanto um registro nosso. Hoje vem do contrato,
+  e a linha que declara a própria qualidade vence sobre ele.
+
+O retrieval também deixou de devolver só um booleano: junto de `stale` vai
+`vencidas`, com qual fonte e por quê.
+
+### O que a auditoria contra a Mestra encontrou, e ainda não foi feito
+
+**Camadas de conhecimento (§7)** — de seis, temos rules/policies e parte do
+canônico. Faltam ontologia, aliases de entidade e guias de raciocínio. A camada
+semântica (§7.4) não se aplica: nossa classe (§2) é transacional, não analítica.
+
+**Persona e prompt não são versionados (§9, §32).** O §9 pede oito campos de
+persona versionados; temos dois — `mission` no registry e `uncertainty` no
+`agent-deltas`. Os prompts moram dentro de `agent-stages.mjs`, `composer.mjs` e
+`extractor.mjs`. A coluna `prompt_version` existe em `agent_runs` e nunca é
+escrita.
+
+**O trace está pela metade (§30).** Faltam as linhas *Versions* (model, prompt,
+persona, schemas, rules) e *Performance* (tokens, custo) — as colunas existem e
+o loop não as preenche. Nenhuma linha de *Safety*.
+
+**Shadow, canary e rollback não existem (§33).** Temos replay/offline (os
+evals). O §46 lista "feature flag e caminho de rollback" como pré-requisito do
+primeiro piloto, e o `AGT-MKT-COPILOT` já está ACTIVE sem eles.
+
+**Estamos abaixo do piso de golden do §46**: ele pede 10–30 casos golden
+representativos, e temos 8. Adversariais estão bem, com 17.
+
+**Não há `AGENTS.md` nem `CLAUDE.md` (§36)**, nem `ops/runbooks/`.
+
+**O naming do apêndice A não é seguido**: nossas capabilities são `brand.read`,
+não `capability.brand.read`; as rules são `POL_*`, não `rule.<name>`.
+
+### Sobre a estrutura de pastas do §35
+
+Não seguimos o layout, e isso é deliberado no que importa: `capabilities/` e
+`rules/` viraram **tabelas com migração e revisão** em vez de arquivos YAML —
+uma forma mais forte que a recomendada, não mais fraca. O que falta de verdade
+são as pastas cuja substância também não existe.
+
+---
+
+*Última verificação: 27/08/2026. 507 testes, 28 evals, 10/10 no Gate G0,
+10/10 verificáveis no G1, typecheck limpo, build do web limpo, 12 migrations,
 árvore limpa, tudo empurrado para `claude/novo-modulo-marketing-5l992o`.*
 
-*O schema `mkt_v2` está com 9 das 11 migrations: faltam a 0010 e a 0011, e o
-bundle das duas está pronto em `packages/db/dist/mkt_v2_0010-0011.sql`.*
+*O schema `mkt_v2` está com 9 das 12 migrations: faltam a 0010, a 0011 e a 0012,
+e o bundle das três está pronto em
+`packages/db/dist/mkt_v2_0010-0011-0012.sql`.*
 
 *Na Fase 1 sobrou **uma** pendência, e ela não é código: a submissão do app na
 Meta (ADR-0008). Enquanto ela não sair, o produto roda inteiro com

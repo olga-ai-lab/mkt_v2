@@ -33,6 +33,25 @@
  * policy. Não são. Policy é dado tipado em mkt.rule_policies, avaliado
  * deterministicamente. Prohibition é conteúdo que o modelo deve respeitar ao
  * escrever, e se algo depende dela para BLOQUEAR, o lugar é a policy.
+ *
+ * ── Freshness vem do contrato da fonte, não de uma constante daqui ─────────
+ *
+ * "Freshness é parte da verdade" (Mestra §3): dado correto e desatualizado
+ * gera resposta falsa. Este arquivo carregava um `maxAgeDays = 90` único,
+ * aplicado igual ao Brand Brain, a uma página de site e ao registro da marca
+ * no nosso próprio banco.
+ *
+ * Fontes envelhecem de formas diferentes, e quem sabe disso é o dono da fonte.
+ * Agora cada fatia é medida contra o contrato da SUA fonte
+ * (`mkt.source_contracts`, Mestra §7.5), que declara também qual carimbo conta
+ * como autoridade temporal e que qualidade vale quando a linha não declara uma.
+ *
+ * Um contrato com `max_age_days` nulo diz que aquela fonte não vence — e isso é
+ * uma afirmação, não a ausência de uma.
+ *
+ * E o resultado deixou de ser um booleano: `stale` continua existindo para o
+ * Validator, mas ao lado dele vai a lista de QUAIS fontes venceram. Um "algo
+ * aqui está velho" sem dizer o quê manda quem lê procurar no escuro.
  */
 import { createHash } from "node:crypto";
 
@@ -64,30 +83,60 @@ const hashDe = (obj) =>
   createHash("sha256").update(JSON.stringify(obj)).digest("hex").slice(0, 32);
 
 /**
- * @param {{ knowledge: any, maxAgeDays?: number, clock?: any }} deps
- *   `maxAgeDays` é o teto de idade de uma fonte antes de ela ser considerada
- *   vencida. Fica configurável porque a resposta certa depende do contrato de
- *   fonte, que o MKT-17 coloca na Fase 2 — até lá, um teto explícito é melhor
- *   que nenhum, e melhor que um espalhado por vários lugares.
+ * @param {{ knowledge: any, clock?: any }} deps
+ *   `knowledge.sourceContracts()` traz os contratos ACTIVE por fonte. Sem eles
+ *   o retrieval não sabe quando uma fatia venceu — e um default aqui seria
+ *   exatamente a constante que a migration 0012 tirou daqui.
  */
-export function createRetrieval({ knowledge, maxAgeDays = 90, clock } = {}) {
+export function createRetrieval({ knowledge, clock } = {}) {
   if (!knowledge) throw new Error("retrieval exige a porta knowledge");
   const agora = () => clock?.now?.() ?? Date.now();
+
+  /**
+   * O veredito de idade de UMA fatia, contra o contrato da fonte dela.
+   *
+   * Fonte sem contrato não vira "nunca vence": vira vencida, com o motivo. É a
+   * escolha fail-closed que a Mestra §3 pede — e a alternativa deixaria uma
+   * fonte nova entrar em produção sem ninguém decidir quando ela envelhece.
+   */
+  function idadeDe(contrato, source_kind, carimbo) {
+    if (!contrato) {
+      return { stale: true, motivo: `${source_kind} não tem contrato de fonte ACTIVE` };
+    }
+    if (contrato.max_age_days == null || carimbo == null) return { stale: false };
+    const dias = (agora() - new Date(carimbo).getTime()) / DIAS;
+    return dias > contrato.max_age_days
+      ? { stale: true, motivo: `${source_kind} lida há ${Math.floor(dias)} dias, e o contrato aceita ${contrato.max_age_days}` }
+      : { stale: false };
+  }
 
   return {
     async fetch({ trace_id, tenant, intent }) {
       const querem = RELEVANCIA[intent?.intent] ?? [];
       if (querem.length === 0) {
-        return { slices: [], versions: [], stale: false, brand: null, motivo: "intencao nao pede contexto" };
+        return { slices: [], versions: [], stale: false, vencidas: [], brand: null,
+                 motivo: "intencao nao pede contexto" };
       }
 
       const brand_id = idDe(intent, "brand");
       const content_version_id = idDe(intent, "content_version");
 
+      // Os contratos ACTIVE, uma consulta por run. Cada fatia abaixo é medida
+      // contra o contrato da SUA fonte, e não contra um teto comum.
+      const contratos = await knowledge.sourceContracts();
+      const contratoDe = (k) => contratos?.[k] ?? null;
+
       const slices = [];
       const versions = [];
-      let maisAntigo = null;
+      const vencidas = [];
       let cadastro = null;
+
+      /** Empurra a fatia e registra o veredito de idade dela. */
+      const anotar = (source_kind, carimbo) => {
+        const v = idadeDe(contratoDe(source_kind), source_kind, carimbo);
+        if (v.stale) vencidas.push({ source_kind, motivo: v.motivo });
+        return contratoDe(source_kind)?.default_quality ?? undefined;
+      };
 
       // ── Cadastro da marca ────────────────────────────────────────────────
       //
@@ -112,7 +161,10 @@ export function createRetrieval({ knowledge, maxAgeDays = 90, clock } = {}) {
               locator: `brand://${b.id}`,
               hash: hashDe(cadastro),
               retrieved_at: new Date(agora()).toISOString(),
-              quality: "HIGH",
+              // A qualidade sai do contrato, não de um literal aqui. Estava
+              // "HIGH" fixo para toda fatia, o que fazia uma página de site
+              // valer tanto quanto um registro nosso.
+              quality: anotar("DOMAIN_RECORD", b.created_at ?? null),
             },
           });
         }
@@ -150,11 +202,10 @@ export function createRetrieval({ knowledge, maxAgeDays = 90, clock } = {}) {
               locator: `brand://${bb.brand_id}@v${bb.version}`,
               hash: hashDe(conteudo),
               retrieved_at: new Date(agora()).toISOString(),
-              quality: "HIGH",
+              quality: anotar("BRAND_BRAIN", carimbo),
             },
           });
           versions.push({ kind: "brand_brain", id: bb.brand_id, version: bb.version });
-          maisAntigo = menorData(maisAntigo, carimbo);
         }
       }
 
@@ -188,20 +239,25 @@ export function createRetrieval({ knowledge, maxAgeDays = 90, clock } = {}) {
             evidence: {
               evidence_id: e.id, source_kind: e.source_kind,
               locator: e.locator, hash: e.hash,
-              retrieved_at: e.retrieved_at, quality: e.quality ?? undefined,
+              retrieved_at: e.retrieved_at,
+              // A linha vence sobre o contrato: `default_quality` é o que vale
+              // quando a evidence não declarou a própria.
+              quality: e.quality ?? anotar(e.source_kind, e.retrieved_at),
             },
           });
-          maisAntigo = menorData(maisAntigo, e.retrieved_at);
+          if (e.quality) anotar(e.source_kind, e.retrieved_at);
         }
       }
 
       // Fonte vencida não some do contexto: ela vem marcada. O loop transforma
       // isso em SOURCE_STALE no Validator, e a decisão de bloquear é dele, não
       // daqui — quem recupera não decide se o dado serve.
-      const stale = maisAntigo != null &&
-        (agora() - new Date(maisAntigo).getTime()) > maxAgeDays * DIAS;
-
-      return { slices, versions, stale, brand: cadastro, trace_id };
+      //
+      // `stale` continua booleano porque é o que o Validator consome; `vencidas`
+      // vai junto porque "algo aqui está velho" sem dizer o quê manda quem lê
+      // procurar no escuro.
+      return { slices, versions, stale: vencidas.length > 0, vencidas,
+               brand: cadastro, trace_id };
     },
   };
 }
@@ -212,8 +268,3 @@ function idDe(intent, tipo) {
     ?.canonical_id ?? null;
 }
 
-function menorData(atual, candidata) {
-  if (!candidata) return atual;
-  if (!atual) return candidata;
-  return new Date(candidata) < new Date(atual) ? candidata : atual;
-}

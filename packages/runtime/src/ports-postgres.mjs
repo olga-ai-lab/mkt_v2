@@ -710,6 +710,27 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
    */
   const knowledge = {
     /**
+     * Os contratos de fonte ACTIVE, por source_kind (Mestra §7.5).
+     *
+     * Uma consulta por run, e nao uma por fatia: sao cinco linhas de catalogo
+     * que nao mudam durante um run, e cinco idas ao banco para a mesma resposta
+     * seriam custo sem informacao.
+     *
+     * Fonte sem contrato NAO vira default silencioso aqui. Quem decide o que
+     * fazer com a ausencia e o retrieval, e a decisao dele e fail-closed —
+     * porque a alternativa deixa uma fonte nova entrar em producao sem ninguem
+     * ter dito quando ela envelhece.
+     */
+    async sourceContracts() {
+      const { rows } = await pool.query(
+        `select source_kind, temporal_authority, max_age_days, default_quality,
+                carries_pii, permission_scope, grain, caveats, owner, version
+           from ${S}.source_contracts
+          where status = 'ACTIVE'`);
+      return Object.fromEntries(rows.map((r) => [r.source_kind, r]));
+    },
+
+    /**
      * O CADASTRO da marca — nome e site — sem passar por Brand Brain nenhum.
      *
      * Existe porque o onboarding acontece justamente quando nao ha Brand Brain:
@@ -719,7 +740,7 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
      */
     async brand(org_id, brand_id) {
       const { rows } = await pool.query(
-        `select id, org_id, workspace_id, name, website_url
+        `select id, org_id, workspace_id, name, website_url, created_at
            from ${S}.brands
           where org_id = $1 and id = $2`, [org_id, brand_id]);
       return rows[0] ?? null;

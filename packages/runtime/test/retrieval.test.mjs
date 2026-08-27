@@ -9,6 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRetrieval } from "../src/retrieval.mjs";
 import { assembleContext } from "../src/agent-stages.mjs";
+import { CONTRATOS_DE_FONTE } from "./fixtures/source-contracts.mjs";
 
 const ORG = "11111111-1111-1111-1111-111111111111";
 const WS = "22222222-2222-2222-2222-222222222222";
@@ -24,16 +25,22 @@ const BB = {
   activated_at: new Date().toISOString(), created_at: new Date().toISOString(),
 };
 
+const CONTRATOS = CONTRATOS_DE_FONTE;
+
 function knowledgeFalso(over = {}) {
   const chamadas = [];
   return {
     chamadas,
+    sourceContracts: async () => over.contratos ?? CONTRATOS,
+    brand: async (...a) => { chamadas.push(["brand", ...a]); return over.marca ?? null; },
     brandBrain: async (...a) => { chamadas.push(["brandBrain", ...a]); return over.bb ?? BB; },
     brandBrainForContent: async (...a) => { chamadas.push(["brandBrainForContent", ...a]); return over.bb ?? BB; },
     claimsFor: async (...a) => { chamadas.push(["claimsFor", ...a]); return over.claims ?? []; },
     evidenceFor: async (...a) => { chamadas.push(["evidenceFor", ...a]); return over.evidence ?? []; },
   };
 }
+
+const diasAtras = (n) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
 
 const intentDe = (intent, entities = []) => ({ intent, entities });
 
@@ -152,7 +159,7 @@ test("source_refs do Brand Brain nao entra no contexto", async () => {
 test("fonte vencida vem marcada, nao sumida", async () => {
   const velho = new Date(Date.now() - 200 * 24 * 3600 * 1000).toISOString();
   const k = knowledgeFalso({ bb: { ...BB, activated_at: velho, created_at: velho } });
-  const r = await createRetrieval({ knowledge: k, maxAgeDays: 90 }).fetch({
+  const r = await createRetrieval({ knowledge: k }).fetch({
     trace_id: "t", tenant: TENANT, intent: intentDe("EXPLAIN", [{ type: "brand", canonical_id: BRAND }]) });
 
   assert.equal(r.stale, true);
@@ -161,7 +168,7 @@ test("fonte vencida vem marcada, nao sumida", async () => {
 });
 
 test("fonte dentro do prazo nao e marcada", async () => {
-  const r = await createRetrieval({ knowledge: knowledgeFalso(), maxAgeDays: 90 }).fetch({
+  const r = await createRetrieval({ knowledge: knowledgeFalso() }).fetch({
     trace_id: "t", tenant: TENANT, intent: intentDe("EXPLAIN", [{ type: "brand", canonical_id: BRAND }]) });
   assert.equal(r.stale, false);
 });
@@ -192,4 +199,84 @@ test("o contexto recuperado nao chega com autoridade de sistema", async () => {
 
 test("sem a porta knowledge, falha ao montar", () => {
   assert.throws(() => createRetrieval({}), /exige a porta knowledge/);
+});
+
+// ── Freshness por contrato, e não por constante ─────────────────────────────
+
+test("cada fonte envelhece pelo prazo dela, e nao por um teto comum", async () => {
+  // 60 dias: vencido para uma página de site (30) e novo para um Brand Brain
+  // (180). Com o teto único de 90 que existia antes, os dois seriam "novos" —
+  // e o texto sairia apoiado numa página que mudou faz tempo.
+  const k = knowledgeFalso({
+    evidence: [{ id: "e1", source_kind: "SOURCE_ARTIFACT", locator: "https://x.test",
+                 hash: "h", fact: "diz no site", retrieved_at: diasAtras(60) }],
+  });
+  const r = await createRetrieval({ knowledge: k }).fetch({
+    trace_id: "t", tenant: TENANT,
+    intent: intentDe("REVIEW_CONTENT", [{ type: "content_version", canonical_id: CV }]),
+  });
+
+  assert.equal(r.stale, true);
+  assert.deepEqual(r.vencidas.map((v) => v.source_kind), ["SOURCE_ARTIFACT"],
+    "o Brand Brain com 60 dias esta dentro do prazo dele");
+  assert.match(r.vencidas[0].motivo, /60 dias.*aceita 30/);
+});
+
+test("contrato sem prazo diz que a fonte nao vence — e isso e afirmacao", async () => {
+  const k = knowledgeFalso({
+    marca: { id: BRAND, name: "Corretora A", website_url: "https://a.test",
+             created_at: diasAtras(2000) },
+  });
+  const r = await createRetrieval({ knowledge: k }).fetch({
+    trace_id: "t", tenant: TENANT,
+    intent: intentDe("ONBOARD_BRAND", [{ type: "brand", canonical_id: BRAND }]),
+  });
+
+  assert.equal(r.stale, false, "um registro nosso nao fica velho: fica errado");
+  assert.deepEqual(r.vencidas, []);
+});
+
+test("fonte sem contrato vence, e diz por que", async () => {
+  // Fail-closed. A alternativa deixaria uma fonte nova entrar em produção sem
+  // ninguém ter decidido quando ela envelhece.
+  const k = knowledgeFalso({
+    contratos: { BRAND_BRAIN: CONTRATOS.BRAND_BRAIN },
+    evidence: [{ id: "e1", source_kind: "UPLOADED_FILE", locator: "file://x",
+                 hash: "h", fact: "anexo", retrieved_at: new Date().toISOString() }],
+  });
+  const r = await createRetrieval({ knowledge: k }).fetch({
+    trace_id: "t", tenant: TENANT,
+    intent: intentDe("REVIEW_CONTENT", [{ type: "content_version", canonical_id: CV }]),
+  });
+
+  assert.equal(r.stale, true);
+  assert.match(r.vencidas[0].motivo, /contrato de fonte ACTIVE/);
+});
+
+test("a qualidade sai do contrato quando a linha nao declara a dela", async () => {
+  const k = knowledgeFalso({
+    evidence: [{ id: "e1", source_kind: "SOURCE_ARTIFACT", locator: "https://x.test",
+                 hash: "h", fact: "diz no site", retrieved_at: new Date().toISOString() }],
+  });
+  const r = await createRetrieval({ knowledge: k }).fetch({
+    trace_id: "t", tenant: TENANT,
+    intent: intentDe("REVIEW_CONTENT", [{ type: "content_version", canonical_id: CV }]),
+  });
+
+  const fatia = r.slices.find((x) => x.kind === "evidence");
+  assert.equal(fatia.evidence.quality, "MEDIUM",
+    "pagina de site nao vale tanto quanto registro nosso, e era isso que o HIGH fixo dizia");
+});
+
+test("a qualidade da propria linha vence a do contrato", async () => {
+  const k = knowledgeFalso({
+    evidence: [{ id: "e1", source_kind: "SOURCE_ARTIFACT", locator: "https://x.test",
+                 hash: "h", fact: "conferido a mao", quality: "HIGH",
+                 retrieved_at: new Date().toISOString() }],
+  });
+  const r = await createRetrieval({ knowledge: k }).fetch({
+    trace_id: "t", tenant: TENANT,
+    intent: intentDe("REVIEW_CONTENT", [{ type: "content_version", canonical_id: CV }]),
+  });
+  assert.equal(r.slices.find((x) => x.kind === "evidence").evidence.quality, "HIGH");
 });

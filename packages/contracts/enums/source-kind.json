@@ -1,0 +1,20 @@
+{
+  "$id": "olga://enums/source-kind",
+  "title": "SourceKind",
+  "description": "De onde uma evidencia veio. Enum fechado, e a mesma chave usada em mkt.evidence.source_kind e em mkt.source_contracts. A lista vivia em dois lugares — o check constraint do banco e o schema do EvidencePackage — e duas listas da mesma coisa sao duas chances de divergir.",
+  "type": "string",
+  "enum": [
+    "BRAND_BRAIN",
+    "SOURCE_ARTIFACT",
+    "UPLOADED_FILE",
+    "PROVIDER_RESPONSE",
+    "DOMAIN_RECORD"
+  ],
+  "x-semantics": {
+    "BRAND_BRAIN": "a versao ACTIVE da marca — conhecimento nosso, aprovado por uma pessoa",
+    "SOURCE_ARTIFACT": "conteudo publico lido de fora, como a pagina do cliente",
+    "UPLOADED_FILE": "arquivo que o cliente enviou",
+    "PROVIDER_RESPONSE": "o que um provider externo respondeu, com receipt",
+    "DOMAIN_RECORD": "uma linha do nosso proprio banco de dominio"
+  }
+}

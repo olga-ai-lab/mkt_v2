@@ -563,13 +563,18 @@ export interface EntityResolution {
 }
 
 /**
+ * De onde uma evidencia veio. Enum fechado, e a mesma chave usada em mkt.evidence.source_kind e em mkt.source_contracts. A lista vivia em dois lugares — o check constraint do banco e o schema do EvidencePackage — e duas listas da mesma coisa sao duas chances de divergir.
+ */
+export type SourceKind = "BRAND_BRAIN" | "SOURCE_ARTIFACT" | "UPLOADED_FILE" | "PROVIDER_RESPONSE" | "DOMAIN_RECORD";
+
+/**
  * Provenance. Evidence sem origem e proibida (MKT-09B §5).
  */
 export interface EvidencePackage {
   trace_id: string;
   items: {
     evidence_id: string;
-    source_kind: "BRAND_BRAIN" | "SOURCE_ARTIFACT" | "UPLOADED_FILE" | "PROVIDER_RESPONSE" | "DOMAIN_RECORD";
+    source_kind: SourceKind;
     locator: string;
     hash: string;
     retrieved_at?: string;
@@ -1196,6 +1201,49 @@ export interface RulePolicy {
   reason_code?: ReasonCode;
   message_key?: string;
   note?: string;
+}
+
+/**
+ * A mesma chave que mkt.evidence usa em source_kind. Nao e um vocabulario paralelo.
+ */
+export type SourceKind = "BRAND_BRAIN" | "SOURCE_ARTIFACT" | "UPLOADED_FILE" | "PROVIDER_RESPONSE" | "DOMAIN_RECORD";
+
+/**
+ * A verdade fisica e operacional de cada fonte que o agente le (Mestra §7.5). Existe porque 'freshness e parte da verdade' (Mestra §3): dado correto e desatualizado gera resposta falsa, e ate aqui o teto de idade era uma constante unica no codigo do retrieval, igual para o Brand Brain e para uma pagina de site. Fontes diferentes envelhecem de formas diferentes, e quem sabe disso e o dono da fonte, nao quem escreveu o retrieval.
+ */
+export interface SourceContract {
+  source_kind: SourceKind;
+  version: number;
+  status: "DRAFT" | "CANDIDATE" | "ACTIVE" | "DEPRECATED" | "BLOCKED";
+  /**
+   * Qual carimbo responde 'quando isto era verdade'. Nao e sempre o created_at: um Brand Brain vale a partir do activated_at, e uma pagina vale a partir do momento em que foi lida. Escolher o carimbo errado envelhece a fonte errada.
+   */
+  temporal_authority: string;
+  /**
+   * Acima disto a fonte esta vencida e o Validator emite SOURCE_STALE. `null` significa que esta fonte NAO vence — e isso e uma afirmacao, nao a ausencia de uma: o registro de uma marca no nosso proprio banco nao fica velho, ele fica errado, e errado nao se detecta por idade.
+   */
+  max_age_days: number | null;
+  /**
+   * A qualidade que vale quando a propria linha nao declara uma. Estava fixada em 'HIGH' dentro do retrieval, para toda fatia, o que fazia uma pagina de site valer tanto quanto um registro nosso.
+   */
+  default_quality: "HIGH" | "MEDIUM" | "LOW";
+  /**
+   * Se o conteudo desta fonte pode conter dado pessoal. O Mestra §23 pede classificacao antes de minimizacao e redacao; sem a classificacao as outras duas nao tem em que se apoiar.
+   */
+  carries_pii: boolean;
+  /**
+   * Papeis que podem ler esta fonte atraves de um agente. Vazio significa que so o service_role alcanca.
+   */
+  permission_scope: string[];
+  /**
+   * O que uma unidade desta fonte representa: uma versao de marca, uma pagina lida, uma linha de evidence.
+   */
+  grain?: string;
+  /**
+   * O que quem le precisa saber e o dado nao diz sozinho.
+   */
+  caveats?: string[];
+  owner: string;
 }
 
 /**

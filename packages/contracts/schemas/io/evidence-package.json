@@ -30,13 +30,7 @@
             "type": "string"
           },
           "source_kind": {
-            "enum": [
-              "BRAND_BRAIN",
-              "SOURCE_ARTIFACT",
-              "UPLOADED_FILE",
-              "PROVIDER_RESPONSE",
-              "DOMAIN_RECORD"
-            ]
+            "$ref": "olga://enums/source-kind"
           },
           "locator": {
             "type": "string"
