@@ -1,9 +1,17 @@
 # Olga Marketing OS
 
-Implementação da **Fase 0 (Fundação)** e da **Fase 1 (Walking skeleton)** do
-plano MKT-17. O esqueleto anda de ponta a ponta: pedir aprovação → aprovar →
-agendar → outbox → workflow → gateway → adapter → publicado, provado contra
-Postgres em `packages/db/test/pipeline.test.mjs`.
+Sistema de marketing operado por **quatro agentes governados**, para corretoras
+de seguros. Implementação do plano MKT-17 — Fase 0 (Fundação) e Fase 1 (Walking
+skeleton) fechadas, módulo de agente construído.
+
+### 👉 Comece por aqui
+
+| | |
+|---|---|
+| **[`AGENTS.md`](AGENTS.md)** | Os quatro agentes: o que cada um faz, o que cada um NÃO faz, e onde cada parte deles mora |
+| **[`CLAUDE.md`](CLAUDE.md)** | Como trabalhar neste repositório: invariantes, convenções, o que rodar antes de dizer que terminou |
+| **[`docs/HANDOFF.md`](docs/HANDOFF.md)** | Estado atual, acessos ao Supabase, e o que falta — separado por dono |
+| **[`docs/adr/`](docs/adr/)** | 12 decisões de arquitetura, com o que foi recusado e por quê |
 
 > O LLM interpreta; os contratos decidem; o código calcula; as ferramentas
 > executam; a evidência sustenta.
@@ -14,22 +22,43 @@ um PDF aprovado.
 
 ---
 
-## O que já está de pé
+## Onde o projeto está
+
+**411 testes, 24 evals de agente, Gate G0 10/10, Gate G1 10/10 verificáveis.**
+
+O esqueleto anda de ponta a ponta — pedir aprovação → aprovar → agendar → outbox
+→ workflow → gateway → adapter → publicado — provado contra Postgres em
+`packages/db/test/pipeline.test.mjs`.
+
+Sobre ele roda o loop de agente com as nove interfaces da Documentação Mestra
+§6, as 12 capabilities do registry com compilador determinístico, e evals golden
+e adversarial por agente rodando contra banco de verdade.
 
 | Peça | O que faz | Prova |
 |---|---|---|
-| `packages/contracts` | JSON Schema dos 10 objetos de I/O, dos 3 registries e dos enums fechados. Tipos TS gerados | 15 testes |
+| `packages/contracts` | JSON Schema dos objetos de I/O, dos registries e dos enums fechados. Tipos TS gerados | 15 testes |
 | `packages/policy` | Policy engine determinístico: invariantes de código + regras como dado, default deny | 19 testes |
-| `packages/gateway` | Capability Gateway com os 8 passos do MKT-09B §10 | 19 testes |
-| `packages/db` | 8 migrations, 28 tabelas, RLS forçada, state machine no banco | 35 testes |
-| `packages/runtime` | Model Gateway (rota por task class, orçamento antes do gasto, fallback explícito) e Agent Runtime (tenant fora do LLM, custo por run) | 29 testes |
-| `apps/worker` | Workflow durável de publicação, replay-safe | 5 testes |
-| `apps/web` | Tokens do MKT-06A e microcopy de todo reason code | 4 testes |
-| `docs/adr` | 11 ADRs fechando o que o MKT-09B deixava OPEN | — |
-| `docs/AGT-BASE.md` | O contrato comum que os 13 pacotes repetiam | — |
+| `packages/gateway` | Capability Gateway (8 passos do MKT-09B §10) + adapters: `internal`, `meta_graph`, `web_fetch` com defesa de SSRF | 92 testes |
+| `packages/runtime` | Model Gateway, loop de agente, compiladores, retrieval, redator, evals | 110 testes |
+| `packages/db` | 9 migrations, 29 tabelas, RLS forçada, state machine em trigger | 129 testes |
+| `apps/worker` | Workflow durável de publicação, replay-safe, relay do outbox | 25 testes |
+| `apps/web` | Next.js: home, conteúdo, aprovações, login | 21 testes |
+| `docs/adr` | 12 ADRs fechando o que o MKT-09B deixava OPEN | — |
 
-**126 testes.** `npm run gate:g0` verifica os dez critérios do Gate G0 executando
-cada um deles.
+### O que ainda não está pronto — sem rodeio
+
+- **Só o `AGT-MKT-COPILOT` está `ACTIVE`, e ele só lê.** Nenhum agente escreve em
+  produção hoje. Os outros três rodam em modo interno (`OWNER` apenas). Promover
+  um que escreve é ato de governança com migration própria.
+- **Faltam quatro telas:** Brand Brain (revisar e promover a versão candidata),
+  conectar canal, criar conteúdo, e ver o trace de uma execução.
+- **O Gate G1 não fecha por código.** Falta um post real numa conta real, e isso
+  depende do app review da Meta (ADR-0008).
+- **Fase 2 e 3 não começaram:** plano editorial, geração em lote, calendário,
+  LinkedIn, geração de imagem, RSS.
+
+`npm run gate:g0` e `npm run gate:g1` verificam os critérios executando cada um
+deles — nenhum dos dois aceita checklist em prosa.
 
 ## As três decisões que este código materializa
 
