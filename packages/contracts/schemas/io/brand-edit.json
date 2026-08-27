@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://io/brand-edit",
+  "title": "BrandEdit",
+  "description": "O que uma pessoa pode mudar ao derivar uma nova versao candidata de Brand Brain. Campo ausente e herdado da versao de origem; campo presente substitui. NAO ha `source_refs` aqui, e nao ha `status`: procedencia nao se reescreve digitando, e promover e outro ato, com outro papel.",
+  "type": "object",
+  "additionalProperties": false,
+  "minProperties": 1,
+  "properties": {
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "summary": { "type": "string", "minLength": 1, "maxLength": 600 },
+        "audience": { "type": "string", "maxLength": 300 },
+        "differentiators": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        }
+      }
+    },
+    "tone": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "voice": { "type": "string", "minLength": 1, "maxLength": 400 },
+        "avoid": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        }
+      }
+    },
+    "claims_allowed": { "$ref": "#/definitions/lista" },
+    "prohibitions": {
+      "description": "O campo que so existe por aqui. Uma pagina nunca diz o que a marca se recusa a dizer, entao toda versao vinda de extracao chega com esta lista vazia — e enquanto ela estiver vazia o compliance.review confere lista vazia. Preencher e trabalho humano por natureza, e nao por limitacao da extracao.",
+      "$ref": "#/definitions/lista"
+    },
+    "disclaimers": { "$ref": "#/definitions/lista" }
+  },
+  "definitions": {
+    "lista": {
+      "type": "array",
+      "maxItems": 40,
+      "items": { "type": "string", "minLength": 1, "maxLength": 300 }
+    }
+  }
+}

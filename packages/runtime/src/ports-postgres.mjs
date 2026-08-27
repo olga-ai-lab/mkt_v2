@@ -970,6 +970,80 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
       });
     },
 
+    /**
+     * Derivar uma nova versao candidata a partir de outra.
+     *
+     * ── Por que editar CRIA uma versao, em vez de mudar a que existe ──────
+     *
+     * Porque uma versao de Brand Brain e o que autoriza o redator a afirmar
+     * cada coisa. Mudar uma linha existente trocaria, em silencio, o que o
+     * agente pode dizer — sem deixar rastro de que era outra coisa antes, e
+     * sem que a aprovacao de quem ativou aquilo continuasse valendo sobre o
+     * texto que ele leu. E a mesma regra do conteudo, onde a decisao e
+     * vinculada a VERSAO e nao ao objeto.
+     *
+     * Entao aqui nada e mutado. Sai uma versao nova, CANDIDATE, com
+     * created_by_actor_type = 'user' — que e o que distingue "o agente leu o
+     * site" de "alguem escreveu a mao" sem precisar de coluna nova.
+     *
+     * ── source_refs sao herdadas, e nao regravadas ────────────────────────
+     *
+     * A pessoa editou o texto; ela nao leu a pagina de novo. Herdar mantem a
+     * resposta certa para "de onde veio esta versao": veio daquela pagina,
+     * com aquele hash, e depois passou por revisao humana. Deixar a edicao
+     * reescrever procedencia seria deixar procedencia virar digitacao.
+     *
+     * ── A de origem, se era candidata, passa a substituida ────────────────
+     *
+     * Duas candidatas igualmente validas na lista sao um convite a ativar a
+     * errada. Se a origem for ACTIVE ela continua ACTIVE: quem deriva de uma
+     * marca no ar esta rascunhando a substituta, e a que esta no ar tem de
+     * seguir funcionando ate alguem decidir trocar.
+     */
+    async deriveBrandVersion({ org_id, brand_id, from_version_id, patch, actor_id }) {
+      return emTransacao(async (c) => {
+        const origem = await c.query(
+          `select id, version, status::text as status, identity, tone,
+                  claims_allowed, prohibitions, disclaimers, source_refs
+             from ${S}.brand_brain_versions
+            where id = $1 and org_id = $2 and brand_id = $3
+            for update`, [from_version_id, org_id, brand_id]);
+        if (origem.rows.length === 0) return { ok: false, reason: "NOT_FOUND" };
+
+        const de = origem.rows[0];
+        if (de.status === "BLOCKED") return { ok: false, reason: "NOT_EDITABLE", version: de };
+
+        const campo = (nome, padrao) =>
+          Object.prototype.hasOwnProperty.call(patch ?? {}, nome) ? patch[nome] : (de[nome] ?? padrao);
+
+        const prox = await c.query(
+          `select coalesce(max(version), 0) + 1 as v from ${S}.brand_brain_versions
+            where org_id = $1 and brand_id = $2`, [org_id, brand_id]);
+
+        const { rows } = await c.query(
+          `insert into ${S}.brand_brain_versions
+             (org_id, brand_id, version, status, identity, tone, claims_allowed,
+              prohibitions, disclaimers, source_refs,
+              created_by_actor_type, created_by_actor_id)
+           values ($1,$2,$3,'CANDIDATE',$4::jsonb,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,
+                   'user',$10)
+           returning id, version, status::text as status, identity, tone,
+                     claims_allowed, prohibitions, disclaimers, source_refs`,
+          [org_id, brand_id, prox.rows[0].v,
+           json(campo("identity", {})), json(campo("tone", {})),
+           json(campo("claims_allowed", [])), json(campo("prohibitions", [])),
+           json(campo("disclaimers", [])), json(de.source_refs ?? []),
+           actor_id ?? null]);
+
+        if (de.status === "CANDIDATE") {
+          await c.query(
+            `update ${S}.brand_brain_versions set status = 'DEPRECATED' where id = $1`, [de.id]);
+        }
+
+        return { ok: true, version: rows[0], from: { id: de.id, version: de.version, status: de.status } };
+      });
+    },
+
     /** As versoes de Brand Brain de uma marca, para a tela de revisao. */
     async brandVersions(org_id, brand_id) {
       const { rows } = await pool.query(

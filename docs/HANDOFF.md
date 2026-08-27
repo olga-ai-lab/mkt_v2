@@ -498,12 +498,22 @@ são síntese. Cada item de `claims_allowed` e `disclaimers` exige a citação
 literal da página que o sustenta, conferida por código; item sem lastro vai para
 `discarded` com motivo, em vez de reprovar a extração inteira.
 
-**`prohibitions` sai sempre vazia**, com `maxItems: 0` no contrato garantindo.
-Uma página diz o que a marca fala, não o que ela se recusa a falar. **Isto
-deixa uma lacuna real:** hoje não existe tela para preencher proibição, então
-toda marca vinda de site é ativada sem nenhuma — e o `compliance.review` passa a
-conferir lista vazia. A ativação avisa; ninguém é impedido. É o próximo pedaço
-natural (ver §9).
+**`prohibitions` sai sempre vazia da extração**, com `maxItems: 0` no contrato
+de saída da capability garantindo. Uma página diz o que a marca fala, não o que
+ela se recusa a falar — não é limitação da extração, é a natureza da coisa. Quem
+preenche é uma pessoa, em `/brands/[id]/brain`, e esse é o único caminho.
+
+**Editar não muda a versão: cria a próxima.** Uma versão de Brand Brain é o que
+autoriza o redator a afirmar cada coisa; mudar uma linha existente trocaria em
+silêncio o que o agente pode dizer, sem rastro de que era outra coisa antes. É a
+mesma regra do conteúdo, onde a decisão é vinculada à versão. `source_refs` são
+herdadas, nunca regravadas: a pessoa editou o texto, não leu a página de novo.
+
+**Derivar e ativar são dois atos, com dois papéis.** Derivar é propor
+(`OWNER` ou `MARKETING`, e o resultado é sempre CANDIDATE); ativar é assumir
+(`OWNER`). Um ato só faria de quem escreve a proibição a mesma pessoa que decide
+que ela vale — e aí a segunda leitura, que existe para pegar o que a primeira
+deixou passar, nunca aconteceria.
 
 **Ativar não é capability, e a recomendação é que não vire.** Quem propõe não
 pode ser quem aceita. A ativação exige papel `OWNER` e acontece em
@@ -536,8 +546,7 @@ que se apoiar.
 
 **Código, em ordem de quanto dói:**
 
-6. **Editar uma candidata antes de ativar.** Hoje a tela mostra o que falta e
-   não deixa preencher. É o que fecha a lacuna das proibições.
+6. ~~**Editar uma candidata antes de ativar.**~~ Feito. Ver §8.
 7. **Versionar capability não funciona na prática.** O loop chama
    `registry.getCapability(id, 1)` com o `1` literal: uma v2 ACTIVE seria escrita
    no registry e ignorada em execução. Foi por isso que a 0010 atualizou a v1 em
@@ -554,7 +563,7 @@ que se apoiar.
 
 ---
 
-*Última verificação: 26/08/2026. 465 testes, 23 evals, 10/10 no Gate G0,
+*Última verificação: 27/08/2026. 477 testes, 23 evals, 10/10 no Gate G0,
 10/10 verificáveis no G1, typecheck limpo, build do web limpo, 10 migrations,
 árvore limpa, tudo empurrado para `claude/novo-modulo-marketing-5l992o`.*
 

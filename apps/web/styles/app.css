@@ -138,3 +138,18 @@ nav.topo button {
 }
 .brain dt { color: var(--text-muted); font-weight: 600; }
 .brain dd { margin: 0; }
+
+/*
+ * Edicao de Brand Brain. Listas sao textarea de uma linha por item, e nao um
+ * construtor de chips: quem esta preenchendo proibicao esta escrevendo, nao
+ * montando formulario, e colar de um documento tem de funcionar.
+ */
+.brain-edit { display: grid; gap: var(--space-1); margin: 0 0 var(--space-4); }
+.brain-edit label { font-size: 13px; font-weight: 600; color: var(--text-muted); margin-top: var(--space-2); }
+.brain-edit textarea {
+  width: 100%; padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font: inherit; font-size: 14px; line-height: 1.5; resize: vertical;
+  background: var(--surface); color: var(--ink-950);
+}
+.brain-edit textarea:focus { outline: 2px solid var(--teal-600); outline-offset: 1px; }

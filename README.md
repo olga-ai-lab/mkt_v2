@@ -25,17 +25,17 @@ um PDF aprovado.
 
 | Peça | O que faz | Prova |
 |---|---|---|
-| `packages/contracts` | JSON Schema dos 15 contratos de I/O, dos 3 registries e dos enums fechados. Tipos TS gerados | 15 testes |
+| `packages/contracts` | JSON Schema dos 16 contratos de I/O, dos 3 registries e dos enums fechados. Tipos TS gerados | 15 testes |
 | `packages/policy` | Policy engine determinístico: invariantes de código + regras como dado, default deny | 19 testes |
 | `packages/gateway` | Capability Gateway com os 8 passos do MKT-09B §10, e os adapters: meta_graph, web_fetch, brand_extract e internal | 107 testes |
-| `packages/db` | 10 migrations, 29 tabelas, RLS forçada, state machine no banco | 146 testes |
+| `packages/db` | 10 migrations, 29 tabelas, RLS forçada, state machine no banco | 158 testes |
 | `packages/runtime` | Model Gateway, Agent Runtime, loop de agente, retrieval, redator, extrator de marca e ativação de Brand Brain | 129 testes |
 | `apps/worker` | Workflow durável de publicação, replay-safe | 25 testes |
-| `apps/web` | Home, login, conteúdo, fila de aprovação e revisão de Brand Brain. Tokens do MKT-06A e microcopy de todo reason code | 24 testes |
+| `apps/web` | Home, login, conteúdo, fila de aprovação, revisão e edição de Brand Brain. Tokens do MKT-06A e microcopy de todo reason code | 24 testes |
 | `docs/adr` | 11 ADRs fechando o que o MKT-09B deixava OPEN | — |
 | `docs/AGT-BASE.md` | O contrato comum que os 13 pacotes repetiam | — |
 
-**465 testes e 23 evals de agente.** `npm run gate:g0` e `npm run gate:g1`
+**477 testes e 23 evals de agente.** `npm run gate:g0` e `npm run gate:g1`
 verificam os critérios de cada gate executando cada um deles — e o G1 nunca se
 declara fechado sozinho, porque o que falta nele não é código.
 
@@ -94,16 +94,24 @@ houve invenção, porque isso diz algo sobre a extração inteira.
 depois dos redirecionamentos, hash do texto lido, hora. É ela que responde, seis
 meses depois, de onde aquela versão da marca veio.
 
-**`prohibitions` sai sempre vazia**, e o contrato garante isso com
+**`prohibitions` sai sempre vazia da extração**, e o contrato garante isso com
 `maxItems: 0`. Uma página diz o que a marca fala, não o que ela se recusa a
 falar. Proibição extraída de site seria invenção com aparência de regra — e é
-ela que alimenta o `compliance.review`.
+ela que alimenta o `compliance.review`. Quem preenche é uma pessoa, editando a
+candidata antes de ativá-la.
+
+**Editar não muda a versão: cria a próxima.** Uma versão de Brand Brain é o que
+autoriza o redator a afirmar cada coisa; mudar uma linha existente trocaria em
+silêncio o que o agente pode dizer, sem rastro de que era outra coisa antes. As
+`source_refs` são herdadas e nunca regravadas — a pessoa editou o texto, não leu
+a página de novo.
 
 **Ativar não é capability, e não vai virar uma.** Quem propõe não pode ser quem
 aceita: se o agente que leu a página pudesse ativá-la, a única coisa entre "um
-modelo leu um site" e "a marca autoriza estes claims" seria ele mesmo. A
-ativação é ato de dono, acontece em `/brands/[id]/brain`, e diz na hora o que a
-versão não tem.
+modelo leu um site" e "a marca autoriza estes claims" seria ele mesmo. Em
+`/brands/[id]/brain` os dois atos são separados por papel — derivar é de
+`MARKETING` ou `OWNER`, ativar é de `OWNER` — e a tela diz o que a versão não
+tem antes de alguém assumi-la.
 
 ## Rodar
 

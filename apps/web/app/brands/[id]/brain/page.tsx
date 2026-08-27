@@ -86,6 +86,21 @@ export default async function BrandBrainPage({ params }: { params: Promise<{ id:
         </p>
       )}
 
+      {/*
+        Proibição é o único campo que a leitura do site nunca preenche — uma
+        página diz o que a marca fala, não o que ela se recusa a falar. Enquanto
+        a lista estiver vazia, o compliance confere lista vazia, e ninguém
+        descobre isso olhando um post publicado.
+      */}
+      {itens.some((v: { gaps: string[]; status: string }) =>
+        v.status !== "DEPRECATED" && v.gaps.includes("prohibitions")) && (
+        <p className="callout">
+          <strong>O que a marca não pode dizer</strong> é a única parte que ninguém
+          extrai de um site. Escreva as proibições antes de ativar: é a lista que o
+          compliance confere em cada texto, e vazia ela não confere nada.
+        </p>
+      )}
+
       {itens.length === 0 && (
         <p className="callout">
           Esta marca ainda não tem nenhuma versão de Brand Brain.
@@ -95,7 +110,12 @@ export default async function BrandBrainPage({ params }: { params: Promise<{ id:
         </p>
       )}
 
-      <BrandBrainVersions brandId={id} itens={itens} podeAtivar={ctx.role === "OWNER"} />
+      <BrandBrainVersions
+        brandId={id}
+        itens={itens}
+        podeAtivar={ctx.role === "OWNER"}
+        podeEditar={ctx.role === "OWNER" || ctx.role === "MARKETING"}
+      />
     </main>
   );
 }

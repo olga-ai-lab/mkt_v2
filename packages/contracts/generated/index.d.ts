@@ -33,6 +33,59 @@ export interface ActionReceipt {
 }
 
 /**
+ * @maxItems 40
+ */
+export type Lista = string[];
+/**
+ * O campo que so existe por aqui. Uma pagina nunca diz o que a marca se recusa a dizer, entao toda versao vinda de extracao chega com esta lista vazia — e enquanto ela estiver vazia o compliance.review confere lista vazia. Preencher e trabalho humano por natureza, e nao por limitacao da extracao.
+ *
+ * @maxItems 40
+ */
+export type Lista1 = string[];
+
+/**
+ * O que uma pessoa pode mudar ao derivar uma nova versao candidata de Brand Brain. Campo ausente e herdado da versao de origem; campo presente substitui. NAO ha `source_refs` aqui, e nao ha `status`: procedencia nao se reescreve digitando, e promover e outro ato, com outro papel.
+ */
+export interface BrandEdit {
+  identity?: {
+    summary?: string;
+    audience?: string;
+    /**
+     * @maxItems 8
+     */
+    differentiators?:
+      | []
+      | [string]
+      | [string, string]
+      | [string, string, string]
+      | [string, string, string, string]
+      | [string, string, string, string, string]
+      | [string, string, string, string, string, string]
+      | [string, string, string, string, string, string, string]
+      | [string, string, string, string, string, string, string, string];
+  };
+  tone?: {
+    voice?: string;
+    /**
+     * @maxItems 8
+     */
+    avoid?:
+      | []
+      | [string]
+      | [string, string]
+      | [string, string, string]
+      | [string, string, string, string]
+      | [string, string, string, string, string]
+      | [string, string, string, string, string, string]
+      | [string, string, string, string, string, string, string]
+      | [string, string, string, string, string, string, string, string];
+  };
+  claims_allowed?: Lista;
+  prohibitions?: Lista1;
+  disclaimers?: Lista;
+}
+
+/**
  * O que o MODELO devolve ao ler a pagina publica de uma marca. Nao e a proposta de Brand Brain — e a materia dela. A separacao entre este contrato e olga://io/brand-proposal existe para uma coisa so: procedencia e produzida por codigo, nunca declarada pelo modelo. Por isso nao ha `source_refs` aqui, e additionalProperties: false impede que ele invente uma.
  */
 export interface BrandExtraction {
