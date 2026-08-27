@@ -125,3 +125,61 @@ nav.topo button {
 .login-form input:focus { outline: 2px solid var(--teal-600); outline-offset: 2px; }
 .login-form .btn { margin-top: var(--space-2); }
 .login-help { margin-top: var(--space-4); font-size: 14px; text-align: center; }
+
+/* Brand Brain — o quadro de revisão e promoção.
+   Duas colunas lado a lado de propósito: promover é substituir, e decidir sem
+   ver o que sai é decidir no escuro. Em telas estreitas viram uma coluna só,
+   com a ativa primeiro — a ordem do DOM já é a ordem da leitura. */
+.bb-lista { display: grid; gap: var(--space-6); }
+
+.bb-marca-head {
+  display: flex; align-items: baseline; gap: var(--space-3);
+  flex-wrap: wrap; margin-bottom: var(--space-4);
+}
+.bb-marca-head h2 { margin: 0; font-size: 18px; }
+
+.bb-colunas { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); }
+@media (max-width: 760px) { .bb-colunas { grid-template-columns: 1fr; } }
+
+.bb-coluna h3 {
+  display: flex; align-items: center; gap: var(--space-3);
+  margin: 0 0 var(--space-3); font-size: 14px; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--text-muted);
+}
+
+/* Estes chips NÃO reusam as classes .state-* dos tokens de propósito.
+   Aquelas descrevem a state machine de CONTEÚDO (MKT-04-05 §6.1); esta é a
+   lifecycle_status de um registro governado. Duas máquinas diferentes com os
+   mesmos nomes de classe convidam alguém a tratá-las como a mesma coisa.
+   Os TOKENS de cor, esses sim, são os mesmos — nenhum valor novo. */
+.chip-ativa     { background: #E7F5EF; color: var(--emerald-500); }
+.chip-candidata { background: #FBF4E4; color: var(--warning); }
+
+.bb-versao {
+  background: var(--canvas);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-4);
+  display: grid; gap: var(--space-4);
+}
+
+.bb-campo h4 {
+  margin: 0 0 var(--space-1); font-size: 13px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted);
+}
+.bb-campo p { margin: 0; font-size: 14px; }
+.bb-campo ul { margin: 0; padding-left: var(--space-6); font-size: 14px; }
+.bb-campo li { margin-bottom: var(--space-1); }
+
+/* A citação é a prova de que o claim saiu da página, e não do modelo.
+   Fica visualmente subordinada ao claim porque é o que a sustenta. */
+.bb-citacao {
+  margin: var(--space-1) 0 var(--space-2);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--border);
+  color: var(--text-muted); font-size: 13px; font-style: italic;
+}
+
+.bb-hash { font-size: 12px; color: var(--text-muted); }
+
+.bb-candidata { display: grid; gap: var(--space-3); margin-bottom: var(--space-6); }

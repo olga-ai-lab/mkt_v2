@@ -64,7 +64,7 @@ a dos handlers.
 ## Antes de dizer que terminou
 
 ```bash
-npm test              # 411 testes: contracts, policy, gateway, runtime, worker, web, db + typecheck
+npm test              # 419 testes: contracts, policy, gateway, runtime, worker, web, db + typecheck
 npm run gate:g0       # 10 critérios do Gate G0, executados
 npm run gate:g1       # 10 critérios verificáveis do Gate G1
 ```
@@ -98,5 +98,6 @@ packages/db          migrations, RLS, state machine em trigger
 apps/worker          workflow durável de publicação, relay do outbox
 apps/web             Next.js: telas e rotas de API
 docs/adr             12 ADRs
+docs/ROADMAP.md      o que falta, com a procedencia de cada item
 docs/HANDOFF.md      estado, acessos e o que falta, por dono
 ```

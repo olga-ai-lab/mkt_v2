@@ -711,6 +711,32 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
     },
 
     /**
+     * Todas as marcas do workspace com as versoes de Brand Brain de cada uma.
+     *
+     * E a consulta da tela de revisao: mostra a ACTIVE ao lado das CANDIDATE
+     * para quem vai decidir ver as duas juntas. Uma tela que mostrasse so a
+     * candidata pediria uma promocao no escuro.
+     */
+    async brandBrainBoard(org_id, workspace_id) {
+      const { rows } = await pool.query(
+        `select b.id as brand_id, b.name as brand_name, b.website_url,
+                bb.id as version_id, bb.version, bb.status::text as status,
+                bb.identity, bb.tone, bb.claims_allowed, bb.prohibitions,
+                bb.disclaimers, bb.source_refs,
+                bb.created_at, bb.activated_at, bb.superseded_at,
+                bb.created_by_actor_type::text as criado_por_tipo,
+                bb.activated_by_actor_id as ativado_por
+           from ${S}.brands b
+           left join ${S}.brand_brain_versions bb
+             on bb.brand_id = b.id and bb.org_id = b.org_id
+            and bb.status in ('ACTIVE','CANDIDATE')
+          where b.org_id = $1 and b.workspace_id = $2
+          order by b.name, bb.status, bb.version desc`,
+        [org_id, workspace_id]);
+      return rows;
+    },
+
+    /**
      * Outra versao do mesmo workspace com o MESMO texto.
      *
      * Igualdade normalizada, nao semelhanca: minusculas e espaco colapsado, e
@@ -891,6 +917,77 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
     },
   };
 
+  /**
+   * Governanca: os atos que só uma pessoa pode praticar.
+   *
+   * Separado de `authoring` porque a diferenca importa. `authoring` e o que o
+   * AGENTE escreve — e tudo o que ele escreve nasce CANDIDATE ou DRAFT. Aqui
+   * ficam as transicoes que exigem um humano assumindo responsabilidade.
+   *
+   * Se as duas famílias morassem no mesmo objeto, um dia alguem chamaria
+   * `promoteBrandVersion` de dentro de uma capability sem perceber que estava
+   * deixando o agente promover o proprio trabalho.
+   */
+  const governance = {
+    /**
+     * Promove uma versao CANDIDATE do Brand Brain para ACTIVE.
+     *
+     * Tres coisas numa transacao so, e a ordem importa:
+     *
+     *   1. a ACTIVE atual vira DEPRECATED e ganha superseded_at
+     *   2. a candidata vira ACTIVE, com activated_at e QUEM promoveu
+     *
+     * O indice `brand_brain_one_active` garante uma ACTIVE por marca. Fazer o
+     * passo 2 antes do 1 estouraria nele — e e bom que estoure: e o banco
+     * dizendo que duas versoes ativas nunca podem coexistir, nem por um
+     * instante dentro da transacao.
+     *
+     * Recusa promover o que nao e CANDIDATE. Promover um DRAFT seria pular a
+     * proposta; promover uma DEPRECATED de volta seria reverter sem dizer que
+     * estava revertendo — quem quer voltar propoe de novo, e o rastro mostra.
+     */
+    async promoteBrandVersion({ org_id, brand_id, version_id, actor_id, actor_type = "user" }) {
+      return emTransacao(async (c) => {
+        const alvo = await c.query(
+          `select id, version, status::text as status from ${S}.brand_brain_versions
+            where id = $1 and org_id = $2 and brand_id = $3 for update`,
+          [version_id, org_id, brand_id]);
+
+        if (!alvo.rows[0]) {
+          const e = new Error("versao de Brand Brain inexistente nesta marca");
+          e.reason_code = "NORMALIZATION_FAILED";
+          throw e;
+        }
+        if (alvo.rows[0].status !== "CANDIDATE") {
+          const e = new Error(
+            `so promovo versao CANDIDATE; esta esta ${alvo.rows[0].status}`);
+          e.reason_code = "UNSUPPORTED_VALUE";
+          throw e;
+        }
+
+        const anterior = await c.query(
+          `update ${S}.brand_brain_versions
+              set status = 'DEPRECATED', superseded_at = now()
+            where brand_id = $1 and org_id = $2 and status = 'ACTIVE'
+            returning id, version`, [brand_id, org_id]);
+
+        const nova = await c.query(
+          `update ${S}.brand_brain_versions
+              set status = 'ACTIVE', activated_at = now(),
+                  activated_by_actor_type = $4::${S}.actor_type,
+                  activated_by_actor_id = $5
+            where id = $1 and org_id = $2 and brand_id = $3
+            returning id, version, status::text as status, activated_at`,
+          [version_id, org_id, brand_id, actor_type, actor_id]);
+
+        return {
+          promovida: nova.rows[0],
+          substituida: anterior.rows[0] ?? null,
+        };
+      });
+    },
+  };
+
   return { routing, budget, registry, runs, policies, receipts, outbox, approvals,
-           connections, variants, publishing, content, knowledge, authoring };
+           connections, variants, publishing, content, knowledge, authoring, governance };
 }

@@ -10,6 +10,7 @@ skeleton) fechadas, módulo de agente construído.
 |---|---|
 | **[`AGENTS.md`](AGENTS.md)** | Os quatro agentes: o que cada um faz, o que cada um NÃO faz, e onde cada parte deles mora |
 | **[`CLAUDE.md`](CLAUDE.md)** | Como trabalhar neste repositório: invariantes, convenções, o que rodar antes de dizer que terminou |
+| **[`docs/ROADMAP.md`](docs/ROADMAP.md)** | O que falta construir, com a procedência de cada item: o que veio do MKT-17, o que é derivado do código, e o que é proposta minha esperando confirmação |
 | **[`docs/HANDOFF.md`](docs/HANDOFF.md)** | Estado atual, acessos ao Supabase, e o que falta — separado por dono |
 | **[`docs/adr/`](docs/adr/)** | 12 decisões de arquitetura, com o que foi recusado e por quê |
 
@@ -24,7 +25,7 @@ um PDF aprovado.
 
 ## Onde o projeto está
 
-**411 testes, 24 evals de agente, Gate G0 10/10, Gate G1 10/10 verificáveis.**
+**419 testes, 24 evals de agente, Gate G0 10/10, Gate G1 10/10 verificáveis.**
 
 O esqueleto anda de ponta a ponta — pedir aprovação → aprovar → agendar → outbox
 → workflow → gateway → adapter → publicado — provado contra Postgres em
@@ -40,9 +41,9 @@ e adversarial por agente rodando contra banco de verdade.
 | `packages/policy` | Policy engine determinístico: invariantes de código + regras como dado, default deny | 19 testes |
 | `packages/gateway` | Capability Gateway (8 passos do MKT-09B §10) + adapters: `internal`, `meta_graph`, `web_fetch` com defesa de SSRF | 92 testes |
 | `packages/runtime` | Model Gateway, loop de agente, compiladores, retrieval, redator, evals | 110 testes |
-| `packages/db` | 9 migrations, 29 tabelas, RLS forçada, state machine em trigger | 129 testes |
+| `packages/db` | 10 migrations, 29 tabelas, RLS forçada, state machine em trigger | 137 testes |
 | `apps/worker` | Workflow durável de publicação, replay-safe, relay do outbox | 25 testes |
-| `apps/web` | Next.js: home, conteúdo, aprovações, login | 21 testes |
+| `apps/web` | Next.js: home, conteúdo, aprovações, Brand Brain, login | 21 testes |
 | `docs/adr` | 12 ADRs fechando o que o MKT-09B deixava OPEN | — |
 
 ### O que ainda não está pronto — sem rodeio
@@ -50,8 +51,8 @@ e adversarial por agente rodando contra banco de verdade.
 - **Só o `AGT-MKT-COPILOT` está `ACTIVE`, e ele só lê.** Nenhum agente escreve em
   produção hoje. Os outros três rodam em modo interno (`OWNER` apenas). Promover
   um que escreve é ato de governança com migration própria.
-- **Faltam quatro telas:** Brand Brain (revisar e promover a versão candidata),
-  conectar canal, criar conteúdo, e ver o trace de uma execução.
+- **Faltam três telas:** criar conteúdo, conectar canal, e ver o trace de uma
+  execução. A do Brand Brain já existe. Ver [`docs/ROADMAP.md`](docs/ROADMAP.md).
 - **O Gate G1 não fecha por código.** Falta um post real numa conta real, e isso
   depende do app review da Meta (ADR-0008).
 - **Fase 2 e 3 não começaram:** plano editorial, geração em lote, calendário,

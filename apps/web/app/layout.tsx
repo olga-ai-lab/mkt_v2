@@ -19,6 +19,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           <Link href="/">Início</Link>
           <Link href="/approvals">Aprovações</Link>
           <Link href="/content">Conteúdo</Link>
+          <Link href="/brand">Brand Brain</Link>
           <span className="nav-spacer" />
           {hasSessionCookie ? (
             <form action="/api/auth/logout" method="post">

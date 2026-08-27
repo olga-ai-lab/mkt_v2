@@ -30,6 +30,9 @@ Agente `CANDIDATE` não é agente quebrado: ele roda com `internal: true`, que
 `apps/web/app/api/agent/route.ts` só permite para `OWNER`. Dá para exercitar;
 não dá para servir usuário.
 
+A promoção de cada um está no [`docs/ROADMAP.md`](docs/ROADMAP.md), bloco B,
+marcada como **[proposto]** — é decisão de governança, não minha.
+
 ---
 
 ## O que cada um é
