@@ -14,6 +14,19 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const hasSessionCookie = Boolean((await cookies()).get("sb-access-token")?.value);
   return (
     <html lang="pt-BR">
+      <head>
+        {/*
+          As duas fontes do modelo visual. `preconnect` antes do stylesheet
+          porque sem ele o navegador so descobre o host das fontes depois de
+          baixar o CSS, e o texto pisca trocando de fonte no meio da leitura.
+        */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700&display=swap"
+        />
+      </head>
       <body>
         <nav className="topo">
           <Link href="/">Início</Link>

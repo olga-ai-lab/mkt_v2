@@ -1,20 +1,84 @@
 /*
- * Tokens do MKT-06A §3, um-para-um. Nenhum valor foi inventado aqui.
- * Se o brand source-of-truth mudar, muda neste arquivo e em nenhum outro.
+ * Tokens visuais. Os VALORES saem do protótipo (`apps/web/mktos/`), que passou
+ * a ser o modelo visual do produto — ver ADR-0012.
+ *
+ * ── Por que os valores mudaram ─────────────────────────────────────────────
+ *
+ * Este arquivo dizia "Tokens do MKT-06A §3, um-para-um. Nenhum valor foi
+ * inventado aqui." A frase continua valendo; o que mudou foi a fonte. O
+ * protótipo desenhado no Lovable é agora o modelo, e ele já tinha derivado uma
+ * paleta um pouco diferente da do MKT-06A — mais escura no ink, mais viva no
+ * teal, com um índigo e um ciano que a especificação não previa.
+ *
+ * Duas paletas parecidas convivendo é o pior dos mundos: ninguém percebe a
+ * diferença de longe, e de perto nenhuma tela combina com a outra. Então o
+ * protótipo venceu, inteiro, e o MKT-06A §3 está superado por ADR.
+ *
+ * Os NOMES dos tokens não mudaram. Foi de propósito: nenhum componente precisou
+ * ser tocado, e o diff mostra exatamente o que mudou — cor, e só.
+ *
+ * ── Onde estes valores foram medidos ───────────────────────────────────────
+ *
+ * Por frequência de uso no protótipo, não por escolha:
+ *
+ *   #0E353D  196 ocorrências   ink / títulos
+ *   #8AA6AD  144               texto terciário
+ *   #5A7A82   77               texto secundário
+ *   #0FC2C0   77               ciano de destaque
+ *   #E3EDEF   60               borda
+ *
+ * Se o modelo visual mudar, muda AQUI e em nenhum outro lugar — e a mudança
+ * chega pelo `npm run sync:prototipo`, não por alguém redigitar hex.
  */
 :root {
-  --ink-950:   #0B2630;  /* texto primario, sidebar, headings */
-  --teal-700:  #0A5D5A;  /* navegacao, active states, confianca */
-  --teal-600:  #0A6F6B;  /* acoes primarias e destaques */
-  --emerald-500: #159A79; /* sucesso, execucao de IA, sinal positivo */
-  --mint-50:   #EAF7F3;  /* background de callout, IA, evidence leve */
-  --surface:   #FFFFFF;
-  --canvas:    #F5F8F7;
-  --border:    #D8E5E2;
-  --text-muted:#5B6B72;
-  --warning:   #9A6B00;  /* needs attention, pending approval */
-  --danger:    #A94442;  /* blocked, error, destructive */
-  --info:      #285E8E;  /* info neutra, sync, provider state */
+  /* ── Tinta e texto ──────────────────────────────────────────────────── */
+  --ink-950:    #0E353D;  /* títulos, sidebar, texto primário */
+  --ink-900:    #1A2C31;  /* o mais escuro do protótipo, para contraste alto */
+  --text-body:  #41565D;  /* corpo longo — não é o ink, e não é o muted */
+  --text-muted: #5A7A82;  /* apoio, legenda */
+  --text-faint: #8AA6AD;  /* terciário: unidade, timestamp, placeholder */
+
+  /* ── Marca ──────────────────────────────────────────────────────────── */
+  --teal-700:   #16505C;  /* navegação, active states */
+  --teal-600:   #0A8583;  /* ações primárias e destaques */
+  --cyan-500:   #0FC2C0;  /* acento — gradientes, sinal de IA */
+  --indigo-600: #6D5CE7;  /* segundo acento: Instagram, aprovação externa */
+  --blue-600:   #3A7BDC;  /* Facebook, rascunho, info */
+  --navy-800:   #1B3A5C;  /* gradiente escuro */
+
+  /* ── Semânticos ─────────────────────────────────────────────────────── */
+  --emerald-500: #0E8A46; /* sucesso, publicado */
+  --green-400:   #17C964; /* sinal positivo vivo — WhatsApp, execução ok */
+  --warning:     #9A6B00; /* precisa de atenção, aprovação pendente */
+  --amber-400:   #F0B429; /* destaque de atenção, não bloqueio */
+  --danger:      #C0392B; /* bloqueado, erro, falha */
+  --info:        #2D62B0; /* info neutra, sync, estado de provider */
+
+  /* ── Superfícies ────────────────────────────────────────────────────── */
+  --surface:     #FFFFFF;
+  --surface-alt: #F8FBFB;  /* cartão sobre canvas, linha alternada */
+  --canvas:      #F0F5F6;
+  --border:      #E3EDEF;
+  --border-strong: #D4DFE2;
+
+  /* Fundos de estado. Pareados com a cor de texto logo abaixo, e não
+     escolhidos por tela: chip da mesma cor em telas diferentes é o que faz
+     alguém reconhecer o estado sem ler o rótulo. */
+  --bg-neutral: #EEF3F4;
+  --bg-info:    #EAF2FD;
+  --bg-warning: #FFF8E1;
+  --bg-violet:  #F4F0FE;
+  --bg-teal:    #E6F9F9;
+  --bg-success: #EDFCF2;
+  --bg-danger:  #FFF0F0;
+  /* A borda do callout de aviso. Estava escrita solta no app.css, e duas cores
+     soltas sao o comeco de uma segunda paleta. */
+  --border-warning: #E4DFD2;
+
+  /* ── Tipografia ─────────────────────────────────────────────────────── */
+  --font-titulo: "Sora", ui-sans-serif, system-ui, sans-serif;
+  --font-texto:  "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+                 Roboto, sans-serif;
 
   --space-1: 4px; --space-2: 8px; --space-3: 12px;
   --space-4: 16px; --space-6: 24px; --space-8: 32px;
@@ -22,34 +86,60 @@
 }
 
 /*
- * Estados semanticos obrigatorios — MKT-06A §6.
- * REJECTED e deliberadamente neutro, nao vermelho: rejeicao editorial nao e
- * erro tecnico (MKT-04-05 §6.2).
+ * ── Estados de conteúdo ────────────────────────────────────────────────────
+ *
+ * UM PARA UM com `mkt.content_state`. Não é convenção: `classeDeEstado()`
+ * monta a classe a partir do valor do enum, então um estado sem classe aqui
+ * renderiza um chip sem estilo — texto solto, sem cor e sem fundo. Foi o que
+ * acontecia com CANCELLED, que existe no enum desde a 0002 e nunca teve regra.
+ *
+ * `apps/web/test/tokens.test.mjs` falha se as duas listas divergirem. Sem esse
+ * teste, o próximo estado novo repete o defeito e ninguém vê até a tela.
+ *
+ * REJECTED é deliberadamente NEUTRO, e não vermelho: recusa editorial não é
+ * erro técnico (MKT-04-05 §6.2). Quem recusa um texto tomou uma decisão de
+ * qualidade; pintar isso de vermelho a transforma em falha do sistema.
  */
-.state-draft, .state-candidate { color: var(--text-muted); background: var(--canvas); }
-.state-ai-review        { color: var(--teal-700);    background: var(--mint-50); }
-.state-human-review     { color: var(--warning);     background: #FBF4E4; }
-.state-compliance-review{ color: var(--warning);     background: #FBF4E4; font-weight: 600; }
-.state-approved         { color: var(--emerald-500); background: #E7F5EF; }
-.state-scheduled        { color: var(--info);        background: #EDF3F8; }
-.state-publishing       { color: var(--teal-600);    background: var(--mint-50); }
-.state-published        { color: var(--emerald-500); background: #E7F5EF; }
-.state-rejected         { color: var(--text-muted);  background: var(--canvas); }
-.state-failed           { color: var(--danger);      background: #FAEEED; }
-.state-blocked          { color: var(--danger);      background: #FAEEED; }
-.state-temporarily-unavailable { color: var(--info); background: #EDF3F8; }
+.state-draft, .state-candidate { color: var(--text-muted);   background: var(--bg-neutral); }
+.state-ai-review               { color: var(--info);         background: var(--bg-info); }
+.state-human-review            { color: var(--warning);      background: var(--bg-warning); }
+.state-compliance-review       { color: var(--warning);      background: var(--bg-warning); font-weight: 600; }
+.state-approved                { color: var(--emerald-500);  background: var(--bg-success); }
+.state-scheduled               { color: var(--teal-600);     background: var(--bg-teal); }
+.state-publishing              { color: var(--teal-600);     background: var(--bg-teal); }
+.state-published               { color: var(--emerald-500);  background: var(--bg-success); }
+.state-rejected                { color: var(--text-muted);   background: var(--bg-neutral); }
+.state-failed                  { color: var(--danger);       background: var(--bg-danger); }
+/* Cancelado é decisão de quem opera, e não falha: neutro, como REJECTED. */
+.state-cancelled               { color: var(--text-muted);   background: var(--bg-neutral); }
+
 
 /*
  * Ciclo de vida de registry (Brand Brain, capability, agente). Reaproveita o
- * mesmo vocabulario de chip do estado de conteudo de proposito: quem opera le
- * "Ativa" do mesmo jeito nas duas telas. DEPRECATED e neutro, e nao vermelho —
- * uma versao substituida nao e uma falha, e voltar para ela e operacao normal.
+ * mesmo vocabulário de chip do estado de conteúdo de propósito: quem opera lê
+ * "Ativa" do mesmo jeito nas duas telas. DEPRECATED é neutro, e não vermelho —
+ * uma versão substituída não é uma falha, e voltar para ela é operação normal.
  */
-.state-active           { color: var(--emerald-500); background: #E7F5EF; }
-.state-deprecated       { color: var(--text-muted);  background: var(--canvas); }
+.state-active           { color: var(--emerald-500); background: var(--bg-success); }
+.state-deprecated       { color: var(--text-muted);  background: var(--bg-neutral); }
+.state-blocked          { color: var(--danger);      background: var(--bg-danger); }
+
+/* Respondability, quando aparece como chip na resposta do agente. */
+.state-temporarily-unavailable { color: var(--info); background: var(--bg-info); }
+
+/*
+ * Canais. A cor do canal vem do protótipo e é a MESMA em toda tela — é ela que
+ * faz alguém reconhecer "Instagram" na periferia da visão, antes de ler.
+ */
+.canal-instagram { --canal: var(--indigo-600); }
+.canal-facebook  { --canal: var(--blue-600); }
+.canal-linkedin  { --canal: var(--ink-950); }
+.canal-whatsapp  { --canal: var(--green-400); }
+.canal-email     { --canal: var(--text-muted); }
+.canal-blog      { --canal: var(--teal-600); }
 
 /* Modo de autonomia sempre visivel na acao — MKT-06A §7. */
 .autonomy-suggest  { border-left: 3px solid var(--text-muted); }
 .autonomy-draft    { border-left: 3px solid var(--teal-600); }
 .autonomy-governed { border-left: 3px solid var(--emerald-500); }
-.autonomy-autopilot{ border-left: 3px solid var(--emerald-500); background: var(--mint-50); }
+.autonomy-autopilot{ border-left: 3px solid var(--emerald-500); background: var(--bg-teal); }

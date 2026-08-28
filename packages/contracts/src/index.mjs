@@ -1,23 +1,23 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-
-function loadDir(rel) {
-  const dir = join(ROOT, rel);
-  return readdirSync(dir)
-    .filter((f) => f.endsWith(".json"))
-    .map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")));
-}
-
-export const enums = loadDir("enums");
-export const ioSchemas = loadDir("schemas/io");
-export const registrySchemas = loadDir("schemas/registry");
-export const domainSchemas = loadDir("schemas/domain");
-export const allSchemas = [...enums, ...ioSchemas, ...registrySchemas, ...domainSchemas];
+/*
+ * Os schemas entram pelo barril GERADO, e nao por leitura de diretorio.
+ *
+ * Isto era `readdirSync` + `readFileSync`. Funciona em `node --test` e falha
+ * empacotado: o rastreador de arquivos do Next segue `import`, nao caminho
+ * montado em tempo de execucao. Os 34 .json ficavam de fora do bundle — o
+ * build passava (roda com o repositorio inteiro em disco) e a PRIMEIRA
+ * requisicao em producao quebraria, em qualquer rota, porque `assertValid`
+ * esta em todas. Deploy verde, 500 imediato.
+ *
+ * `generated/schemas.mjs` sai de `npm run contracts:generate`, e o CI recusa
+ * um diff nao commitado em `generated/` — entao um schema novo que ninguem
+ * regenerou quebra no pull request, e nao no deploy.
+ */
+export { enums, ioSchemas, registrySchemas, domainSchemas, allSchemas }
+  from "../generated/schemas.mjs";
+import { enums, allSchemas } from "../generated/schemas.mjs";
 
 /** Enum values by $id, e.g. enumValues("olga://enums/autonomy") */
 export function enumValues(id) {

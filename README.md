@@ -38,7 +38,7 @@ um PDF aprovado.
 | `docs/adr` | 11 ADRs fechando o que o MKT-09B deixava OPEN | — |
 | `docs/AGT-BASE.md` | O contrato comum que os 13 pacotes repetiam | — |
 
-**611 testes e 37 evals de agente** (16 golden, 21 adversariais). `npm run gate:g0` e `npm run gate:g1`
+**618 testes e 37 evals de agente** (16 golden, 21 adversariais). `npm run gate:g0` e `npm run gate:g1`
 verificam os critérios de cada gate executando cada um deles — e o G1 nunca se
 declara fechado sozinho, porque o que falta nele não é código.
 

@@ -1092,9 +1092,84 @@ estaticamente analisável; e **`npm run build:web` passou a fazer parte do
 
 ---
 
-*Última verificação: 27/08/2026. 611 testes, 37 evals (16 golden, 21
+---
+
+## 17. Vercel, o protótipo como modelo visual, e um 500 que não aconteceu
+
+### Onde o produto roda (ADR-0012)
+
+O Lovable hospeda em **Cloudflare Workers** — o `vite.config.ts` dele diz
+`nitro (build-only using cloudflare as a default target)` e o `src/server.ts`
+exporta `fetch(request, env, ctx)`. Três coisas do `mkt_v2` não rodam lá:
+`pg.Pool` (socket TCP), o carregamento de schemas (`node:fs`) e a defesa de
+SSRF do `web-fetch` (`node:dns` + `node:net`).
+
+O terceiro é o que decide: a "solução" preguiçosa é remover a checagem, e aí o
+`brand.extract_from_url` vira proxy para a rede interna. **O produto vai para a
+Vercel; o Lovable continua hospedando o protótipo.**
+
+Nota de plano: a conta está em **Hobby**, que tem limite de tempo de função. Um
+run de agente chama o modelo três vezes. É I/O, não CPU, mas o limite é de
+parede — `/api/agent` é a rota a observar.
+
+### O protótipo virou o modelo visual
+
+`tokens.css` foi reescrito com a paleta do protótipo, medida **por frequência
+de uso**, não escolhida: `#0E353D` (196 ocorrências), `#8AA6AD` (144),
+`#5A7A82` (77), `#0FC2C0` (77), `#E3EDEF` (60). Os **nomes** dos tokens não
+mudaram — nenhum componente foi tocado, e o diff mostra só cor. Entraram Inter
+e Sora, as duas fontes do protótipo.
+
+`apps/web/test/tokens.test.mjs` faz a paleta valer:
+
+- todo `mkt.content_state` tem regra de chip — **achou `CANCELLED`**, que existe
+  no enum desde a 0002 e nunca teve regra: renderizava chip sem cor, texto solto
+  na lista. Ninguém viu porque cancelar conteúdo é raro, e raro é o que só
+  aparece quebrado na frente de um cliente;
+- todo `lifecycle_status` e todo `channel` também;
+- nenhuma regra órfã apontando para estado que não existe;
+- **nenhum hex fora do `:root`** — achou dois soltos no `app.css`, que eram a
+  primeira linha de uma segunda paleta.
+
+### O 500 que não aconteceu
+
+Antes de deployar, abri o `.nft.json` do `/api/agent` para conferir o que entra
+no bundle:
+
+```
+schemas rastreados: 0
+```
+
+`packages/contracts/src/index.mjs` lia os 34 JSON Schemas com `readdirSync` +
+`readFileSync`. O rastreador do Next segue `import`, não caminho montado em
+tempo de execução — então **o build passa** (roda com o repositório em disco) e
+a primeira requisição em produção quebra. Em *qualquer* rota, porque
+`assertValid` está em todas. Deploy verde, 500 imediato.
+
+A correção: `npm run contracts:generate` passou a emitir também
+`generated/schemas.mjs`, um barril com 34 imports estáticos. O CI já recusava
+diff não commitado em `generated/`, então um schema novo que ninguém regenerou
+quebra no pull request. Depois: **34 schemas no bundle**.
+
+### A regra, escrita para não haver terceira vez
+
+Foi a segunda vez: `prompts.mjs` lia o lock (§16), `contracts` lia os schemas.
+`apps/web/test/bundle.test.mjs` varre `packages/*/src`, `apps/worker/src` e
+`apps/web/lib` e recusa qualquer leitura de disco — importe de `node:fs`,
+`readFileSync`, `readdirSync`, `createReadStream`.
+
+Ele tira comentários antes de procurar. Sem isso, acusaria os próprios arquivos
+que **explicam** o defeito corrigido — e um teste que proíbe descrever o
+problema apaga a razão de a correção existir.
+
+`node:dns` e `node:net` continuam permitidos: não leem arquivo, existem no
+runtime Node da Vercel, e são a defesa de SSRF.
+
+---
+
+*Última verificação: 28/08/2026. 618 testes, 37 evals (16 golden, 21
 adversariais), 10/10 no Gate G0, 10/10 verificáveis no G1, typecheck limpo,
-build do web verificado de verdade (agora dentro do `npm test`), 16 migrations, árvore limpa, tudo empurrado para
+build do web verificado de verdade (dentro do `npm test`), 16 migrations, árvore limpa, tudo empurrado para
 `claude/novo-modulo-marketing-5l992o`.*
 
 *O schema `mkt_v2` está com 9 das 16 migrations. Faltam duas aplicações, nesta

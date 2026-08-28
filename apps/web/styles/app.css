@@ -9,9 +9,16 @@
 body {
   margin: 0;
   background: var(--canvas);
-  color: var(--ink-950);
-  font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--text-body);
+  font: 16px/1.55 var(--font-texto);
 }
+
+/*
+ * Sora nos titulos, Inter no corpo — as duas do prototipo. A distincao nao e
+ * enfeite: e o que separa, na periferia da visao, "onde estou" de "o que estou
+ * lendo". As duas entram por <link> no layout, com preconnect.
+ */
+h1, h2, h3 { font-family: var(--font-titulo); color: var(--ink-950); letter-spacing: -0.01em; }
 
 .page { max-width: 760px; margin: 0 auto; padding: var(--space-8) var(--space-4); }
 .page-head h1 { margin: 0 0 var(--space-1); font-size: 28px; letter-spacing: -0.01em; }
@@ -95,7 +102,7 @@ body {
 .numero span { color: var(--text-muted); font-size: 14px; }
 .numero a { color: var(--teal-600); font-size: 14px; font-weight: 600; }
 
-.callout.aviso { background: #FBF4E4; border-color: #E8D9B0; }
+.callout.aviso { background: var(--bg-warning); border-color: var(--border-warning); }
 
 .linha { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; padding: var(--space-4) var(--space-6); }
 
