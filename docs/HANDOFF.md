@@ -1151,6 +1151,28 @@ A correção: `npm run contracts:generate` passou a emitir também
 diff não commitado em `generated/`, então um schema novo que ninguém regenerou
 quebra no pull request. Depois: **34 schemas no bundle**.
 
+### O deploy em si, e o que faltava para ele funcionar
+
+Criar o projeto por API deu `403 forbidden — You don't have permission to
+create the project` na conta `feolgas-projects`. O passo a passo pelo painel
+está em `docs/runbooks/deploy-vercel.md`, com **Root Directory `apps/web`** (é
+monorepo; a raiz não é o app) e a lista de variáveis tirada do código.
+
+Duas armadilhas no `.env.example`, que é a única lista que alguém consulta ao
+configurar um ambiente novo — e lista incompleta é pior que nenhuma, porque
+quem a segue acredita ter terminado:
+
+- **faltavam `MKT_SCHEMA` e `SUPABASE_JWT_SECRET`.** Sem a primeira o produto
+  escreve no schema `mkt`, que neste projeto não é nosso; sem a segunda o login
+  falha com `PROVIDER_UNAVAILABLE`;
+- **apontava para `ogmypcbaqcamguqbhxjo`**, o projeto Supabase órfão que o §3.3
+  manda apagar. Apontar para ele grava dado num banco que ninguém olha — o pior
+  tipo de erro de configuração, porque tudo parece funcionar.
+
+`apps/web/test/env.test.mjs` confere que toda variável lida pelo servidor está
+declarada, que nenhum **valor** aponta para o órfão (o arquivo cita o id num
+aviso, de propósito) e que `MKT_SCHEMA` vem preenchido em vez de vazio.
+
 ### A regra, escrita para não haver terceira vez
 
 Foi a segunda vez: `prompts.mjs` lia o lock (§16), `contracts` lia os schemas.
@@ -1167,7 +1189,7 @@ runtime Node da Vercel, e são a defesa de SSRF.
 
 ---
 
-*Última verificação: 28/08/2026. 618 testes, 37 evals (16 golden, 21
+*Última verificação: 28/08/2026. 621 testes, 37 evals (16 golden, 21
 adversariais), 10/10 no Gate G0, 10/10 verificáveis no G1, typecheck limpo,
 build do web verificado de verdade (dentro do `npm test`), 16 migrations, árvore limpa, tudo empurrado para
 `claude/novo-modulo-marketing-5l992o`.*
