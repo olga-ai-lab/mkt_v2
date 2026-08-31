@@ -55,17 +55,56 @@ Tiradas do código, não de memória — é a lista completa do que o servidor l
 
 ---
 
-## 3. Antes de promover para produção
+## 3. Antes de promover: abra `/api/health`
 
-- [ ] **As migrations 0010 a 0016 aplicadas em `mkt_v2`.** Duas pastes, nesta
-      ordem: `packages/db/dist/mkt_v2_0010-0011-0012-0013-0014.sql`, depois
-      `packages/db/dist/mkt_v2_0015-0016.sql`. Sem elas o agente não resolve
-      marca, não move `DRAFT → AI_REVIEW` e marca toda fatia como vencida.
-- [ ] `/prototipo` abre e mostra a faixa laranja. É a checagem mais barata de
-      que o build saiu inteiro.
-- [ ] `/login` responde. Se der `PROVIDER_UNAVAILABLE`, falta `SUPABASE_JWT_SECRET`.
-- [ ] `/` autenticado mostra as contagens. Se der 500, olhe `DATABASE_URL` e
-      `MKT_SCHEMA` antes de qualquer outra coisa.
+Uma URL responde tudo o que costuma dar errado num primeiro deploy. Devolve
+**503 enquanto faltar algo essencial**, e 200 quando está pronta — então serve
+também para monitor externo.
+
+```json
+{
+  "ok": true,
+  "versao":  { "branch": "claude/novo-modulo-marketing-5l992o",
+               "commit": "d938e78d", "ambiente": "production" },
+  "checks":  { "variaveis": true, "banco": true, "migrations": true,
+               "agente": true, "publicacao_falsa": true },
+  "banco":   { "schema": "mkt_v2", "migrations_aplicadas": 16,
+               "ultima_migration": "0016_safety_trace.sql" },
+  "faltando": []
+}
+```
+
+**`versao.branch` é o campo mais importante.** Ele responde "eu deployei o que
+eu acho que deployei?" — pergunta que ninguém pensa em fazer, e que neste
+projeto já produziu duas cópias da branch errada. Se ali aparecer
+`claude/projeto-superpower-plugin-iyj47t`, o deploy está servindo o produto
+antigo, e nenhuma tela vai dizer isso.
+
+| Sintoma | Causa |
+|---|---|
+| `banco.erro: "42P01"` | o schema existe mas está vazio — **faltam as migrations** |
+| `banco.erro: "ECONNREFUSED"` / `"28P01"` | `DATABASE_URL` errada ou sem senha |
+| `banco.schema: "mkt"` | `MKT_SCHEMA` não definida, caiu no default. **Não é o nosso** |
+| `migrations_aplicadas: 10` | branch antiga, ou migrations pela metade |
+| `faltando: [...]` | diz o nome de cada variável e o que ela custa |
+| `publicacao_falsa: false` | `META_ADAPTER=real` sem o app review (ADR-0008) |
+
+> A rota nunca devolve o **valor** de uma variável — só se está definida. E
+> nunca a mensagem do Postgres, só o código: a mensagem carrega host e porta.
+> `apps/web/test/health.test.mjs` falha se alguém "melhorar" isso num dia ruim
+> de depuração.
+
+### As migrations, se ainda não foram
+
+Duas pastes, nesta ordem: `packages/db/dist/mkt_v2_0010-0011-0012-0013-0014.sql`,
+depois `packages/db/dist/mkt_v2_0015-0016.sql`. Sem elas o agente não resolve
+marca, não move `DRAFT → AI_REVIEW` e marca toda fatia como vencida.
+
+### E duas checagens de olho
+
+- [ ] `/prototipo` abre com a faixa laranja — a prova mais barata de que o build
+      saiu inteiro.
+- [ ] `/` autenticado mostra as contagens.
 
 ---
 

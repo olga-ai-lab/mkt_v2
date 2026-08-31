@@ -1151,6 +1151,25 @@ A correção: `npm run contracts:generate` passou a emitir também
 diff não commitado em `generated/`, então um schema novo que ninguém regenerou
 quebra no pull request. Depois: **34 schemas no bundle**.
 
+### `/api/health` — porque "está no ar" e "está certo" são perguntas diferentes
+
+Um deploy verde pode estar servindo a branch errada, o schema errado, ou o
+banco sem migrations. Nenhuma dessas aparece na primeira olhada; todas aparecem
+em `/api/health`, que devolve **503** enquanto faltar o essencial.
+
+O campo que mais importa é `versao.branch`, vindo de `VERCEL_GIT_COMMIT_REF`:
+ele responde "eu deployei o que eu acho que deployei?". Este projeto já
+produziu **duas** cópias da branch errada porque ninguém tinha onde fazer essa
+pergunta.
+
+A rota nunca devolve o **valor** de uma variável — só se ela está definida — e
+nunca a mensagem do Postgres, só o `code`, porque a mensagem carrega host e
+porta. `apps/web/test/health.test.mjs` protege isso lendo o TEXTO da rota, e
+não o comportamento: a versão perigosa desta rota não é a que erra, é a que
+alguém "melhora" num dia ruim de depuração com um
+`process.env.DATABASE_URL?.slice(0, 30)` para conferir o host. Verificado por
+sabotagem — as duas variantes derrubam o teste.
+
 ### O deploy em si, e o que faltava para ele funcionar
 
 Criar o projeto por API deu `403 forbidden — You don't have permission to
@@ -1189,7 +1208,7 @@ runtime Node da Vercel, e são a defesa de SSRF.
 
 ---
 
-*Última verificação: 28/08/2026. 621 testes, 37 evals (16 golden, 21
+*Última verificação: 28/08/2026. 627 testes, 37 evals (16 golden, 21
 adversariais), 10/10 no Gate G0, 10/10 verificáveis no G1, typecheck limpo,
 build do web verificado de verdade (dentro do `npm test`), 16 migrations, árvore limpa, tudo empurrado para
 `claude/novo-modulo-marketing-5l992o`.*

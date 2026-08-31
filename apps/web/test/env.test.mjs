@@ -33,7 +33,13 @@ const SERVIDOR = [
  * Variaveis que o ambiente fornece sozinho. Declara-las no exemplo sugeriria
  * que alguem precisa preenche-las, e a lista existe para dizer o contrario.
  */
-const DO_AMBIENTE = new Set(["NODE_ENV", "TMPDIR", "PORT", "VERCEL", "VERCEL_ENV"]);
+const DO_AMBIENTE = new Set([
+  "NODE_ENV", "TMPDIR", "PORT",
+  // A Vercel injeta estas sozinha. A rota de saude as usa para responder
+  // "eu deployei o que eu acho que deployei?" — a pergunta que ninguem pensa
+  // em fazer, e que ja custou duas copias da branch errada neste projeto.
+  "VERCEL", "VERCEL_ENV", "VERCEL_GIT_COMMIT_REF", "VERCEL_GIT_COMMIT_SHA",
+]);
 
 function fontes(dir) {
   const saida = [];
