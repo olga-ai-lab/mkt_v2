@@ -1170,6 +1170,57 @@ alguém "melhora" num dia ruim de depuração com um
 `process.env.DATABASE_URL?.slice(0, 30)` para conferir o host. Verificado por
 sabotagem — as duas variantes derrubam o teste.
 
+### As duas branches divergiram, e as duas têm trabalho único
+
+Achado ao investigar por que o espelho para o Lovable veio errado **duas vezes**:
+o `mkt_v2` tem duas linhas, e a **default não é a nossa**.
+
+| | `claude/novo-modulo-marketing-5l992o` (nossa) | `claude/projeto-superpower-plugin-iyj47t` (default) |
+|---|---|---|
+| migrations | 16 | 10 |
+| `0010` | `brand_extraction` | `brand_brain_promocao` |
+| tem que a outra não tem | extração do site, cadeia editorial, contratos de fonte, personas, contenção, resolução de entidade, trace *Safety*, protótipo | `activated_by` no Brand Brain, `AGENTS.md`/`CLAUDE.md`, trava de `MKT_SCHEMA` no bundle |
+
+Elas **não** são ancestral uma da outra: 4 commits só lá, e a nossa é bem maior
+(3.663 inserções contra 16.257 deleções, indo daqui para lá).
+
+Duas coisas importam:
+
+1. **Há um `0010` em cada linha, com features diferentes.** O ledger de
+   migrations chaveia por nome de arquivo, então os dois entrariam — mas são
+   mudanças de schema distintas, e ninguém decidiu como convivem.
+2. **A outra linha tem uma correção que nos falta.** `0010_brand_brain_promocao`
+   acrescenta `activated_by_actor_type` e `activated_by_actor_id` em
+   `brand_brain_versions`. A nossa `authoring.activateBrandVersion` grava
+   `activated_at` — *quando* — e não *quem*. Todo conteúdo herda o Brand Brain
+   ativo; quando um texto publicado estiver errado, "quem decidiu que a marca
+   podia afirmar isso" hoje responde com um timestamp. E a §36 (`AGENTS.md`,
+   `CLAUDE.md`) que este documento lista como pendente **existe lá**.
+
+**Não troquei a branch default.** Fazer isso enterraria esses quatro commits, e
+integrar as duas linhas é trabalho com risco real — não é passo de deploy.
+
+Para deployar não é preciso resolver isso: basta a Production Branch da Vercel
+apontar para a nossa. Mas fica marcado, porque enquanto as duas existirem, todo
+clone, espelho e deploy que não escolher explicitamente vai pegar a default.
+
+### O build de produção, exercitado de verdade
+
+Antes de entregar, subi `next start` com o build de produção e bati em cada rota:
+
+```
+/            200   "Entre na sua conta" (caminho sem sessão)
+/login       200
+/prototipo   200   34 KB, com a faixa de aviso, os títulos em Sora e as telas
+/approvals   200
+/content     200
+/api/health  200   ok:true, 16 migrations, todos os checks verdes
+```
+
+E o caminho vermelho apareceu sozinho: o Postgres do container caiu no meio, e
+`/api/health` respondeu **503** com `banco.erro: "ECONNREFUSED"` — sem vazar a
+mensagem do driver. É a prova de que a rota serve para o que foi feita.
+
 ### O deploy em si, e o que faltava para ele funcionar
 
 Criar o projeto por API deu `403 forbidden — You don't have permission to
