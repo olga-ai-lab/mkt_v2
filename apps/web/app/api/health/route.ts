@@ -41,6 +41,63 @@ const OBRIGATORIAS: Array<[string, string]> = [
   ["ANTHROPIC_API_KEY", "tudo funciona menos o agente"],
 ];
 
+/**
+ * Um objeto por onda de migration, e o que a falta dele custa.
+ *
+ * ── Por que NAO se conta `schema_migrations` ───────────────────────────────
+ *
+ * Era o que esta rota fazia, e estava errado. Aquela tabela e escrita pelo
+ * `migrate.mjs`; quem aplica colando o bundle no SQL Editor do Supabase — que
+ * e como este projeto aplicou tudo ate hoje — nao a cria. Contra o banco de
+ * verdade a consulta devolvia 42P01, e a rota diria "banco inalcancavel" com o
+ * banco inteiro no ar.
+ *
+ * Um health check que so funciona no caminho de instalacao que ninguem usa e
+ * pior que nenhum: ele reprova producao e aprova a maquina de quem escreveu.
+ *
+ * Entao a pergunta mudou de "quantas migrations o ledger registra" para "os
+ * objetos que ESTE codigo precisa existem?". Essa vale nos dois caminhos, e e
+ * a pergunta que de fato importa.
+ */
+const MARCOS: Array<{ migration: string; teste: (s: string) => string; custo: string }> = [
+  { migration: "0007",
+    teste: (s) => `to_regclass('${s}.model_routing') is not null`,
+    custo: "o Model Gateway recusa todo run com BUDGET_NOT_CONFIGURED" },
+
+  // 0010 e 0011 nao criam objeto nenhum: sao DADO — uma capability apontada
+  // para o adapter certo, uma capability nova, uma policy. Procurar tabela
+  // aqui daria "aplicada" para um banco onde nada foi aplicado.
+  { migration: "0010",
+    teste: (s) => `exists (select 1 from ${s}.capability_registry
+                            where capability_id = 'brand.extract_from_url'
+                              and provider_adapter = 'brand_extract')`,
+    custo: "brand.extract_from_url aponta para o adapter errado; o onboarding de marca nao funciona" },
+  { migration: "0011",
+    teste: (s) => `exists (select 1 from ${s}.capability_registry
+                            where capability_id = 'quality.ai_review' and status = 'ACTIVE')`,
+    custo: "nada move DRAFT para AI_REVIEW; o conteudo trava antes da revisao" },
+
+  { migration: "0012",
+    teste: (s) => `to_regclass('${s}.source_contracts') is not null`,
+    custo: "o retrieval marca TODA fatia como vencida (fail-closed)" },
+  { migration: "0013",
+    teste: (s) => `to_regclass('${s}.agent_personas') is not null`,
+    custo: "persona nao versionada; o trace nao reproduz um incidente" },
+  { migration: "0014",
+    teste: (s) => `exists (select 1 from information_schema.columns
+                            where table_schema = '${s}' and table_name = 'rule_policies'
+                              and column_name = 'created_by')`,
+    custo: "sem kill switch: conter um incidente exigiria uma migration na hora" },
+  { migration: "0015",
+    teste: (s) => `to_regclass('${s}.entity_aliases') is not null`,
+    custo: "nenhum nome de marca resolve para id" },
+  { migration: "0016",
+    teste: (s) => `exists (select 1 from information_schema.columns
+                            where table_schema = '${s}' and table_name = 'agent_runs'
+                              and column_name = 'injection_signals')`,
+    custo: "a linha Safety do trace nao e gravada" },
+];
+
 export async function GET() {
   const schema = process.env.MKT_SCHEMA || "mkt";
   const faltando = OBRIGATORIAS.filter(([n]) => !tem(n));
@@ -54,19 +111,25 @@ export async function GET() {
   };
 
   let banco: Record<string, unknown> = { alcancavel: false };
+  let faltamMigrations: typeof MARCOS = [];
   if (tem("DATABASE_URL")) {
     try {
       // O nome do schema nao pode vir de fora, entao ele e validado antes de
       // entrar na consulta — e nao existe placeholder para identificador.
       if (!/^[a-z][a-z0-9_]*$/.test(schema)) throw new Error("schema invalido");
+
+      // O schema entra por interpolacao porque nao existe placeholder para
+      // identificador em SQL. A validacao acima e a unica coisa entre ele e
+      // uma injecao — e nenhum outro valor daqui vem de fora.
       const { rows } = await pool.query(
-        `select count(*)::int as n, coalesce(max(name), '') as ultima
-           from ${schema}.schema_migrations`);
+        `select ${MARCOS.map((m, i) => `(${m.teste(schema)}) as m${i}`).join(", ")}`);
+
+      faltamMigrations = MARCOS.filter((_, i) => rows[0][`m${i}`] !== true);
       banco = {
         alcancavel: true,
         schema,
-        migrations_aplicadas: rows[0].n,
-        ultima_migration: rows[0].ultima || null,
+        migrations_ok: faltamMigrations.length === 0,
+        faltam_migrations: faltamMigrations.map((m) => ({ migration: m.migration, custo: m.custo })),
       };
     } catch (e) {
       // A mensagem do Postgres pode conter o host. Sai o codigo, nao o texto.
@@ -77,7 +140,7 @@ export async function GET() {
   const checks = {
     variaveis: faltando.length === 0,
     banco: banco.alcancavel === true,
-    migrations: typeof banco.migrations_aplicadas === "number" && banco.migrations_aplicadas > 0,
+    migrations: banco.migrations_ok === true,
     agente: tem("ANTHROPIC_API_KEY"),
     publicacao_falsa: (process.env.META_ADAPTER ?? "fake") === "fake",
   };

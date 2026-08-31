@@ -75,14 +75,36 @@ encostar no que já está de pé.
 
 **Nunca aplique nada em `mkt` neste projeto.** Nosso alvo é `mkt_v2`, sempre.
 
-Estado: **9 das 10 migrations estão aplicadas.** A Olga aplicou 0007 e 0008
-pelo SQL Editor em 25/08/2026, e a conferência bateu nos quatro pontos abaixo.
+> ### ⚠️ CORREÇÃO (28/08) — este documento estava errado sobre o que está aplicado
+>
+> A afirmação anterior era *"9 das 10 migrations estão aplicadas; a Olga aplicou
+> 0007 e 0008 pelo SQL Editor em 25/08, e a conferência bateu"*. **Não bateu.**
+> Consultado o banco de verdade pelo conector do Supabase:
+>
+> | | Estado real em `mkt_v2` |
+> |---|---|
+> | 0001–0006 | aplicadas — 25 tabelas, seeds em `capability_registry` (12), `agent_registry` (4), `rule_policies` (11) |
+> | **0007** | **não** — `mkt_v2.model_routing` não existe |
+> | **0008** | **não** — `mkt_v2.processed_events` está com RLS **desabilitada** |
+> | 0010 a 0016 | nenhuma |
+>
+> Os oito marcadores que `/api/health` confere deram `false` em produção.
+>
+> **`mkt_v2.schema_migrations` não existe**: o bundle colado no SQL Editor não
+> escreve o ledger (só o `migrate.mjs` escreve). Foi assim que "aplicou e
+> conferiu" virou uma frase sem nada que a sustentasse — e é por isso que o
+> health check parou de contar o ledger e passou a procurar os OBJETOS.
+>
+> **Achado de segurança, do próprio advisor do Supabase:** com a RLS desabilitada,
+> `processed_events` fica exposta a quem tiver a anon key — leitura e escrita em
+> toda linha. É o ledger de deduplicação do outbox: apagar linha ali é permitir
+> republicação; inserir é suprimir evento legítimo. A tabela está vazia e nada
+> está em produção ainda, então é buraco a fechar, não incidente. **A migration
+> 0008 fecha.**
 
-> **As migrations 0010 a 0016 ainda não foram aplicadas.** São duas pastes, nesta
-> ordem: `packages/db/dist/mkt_v2_0010-0011-0012-0013-0014.sql` e depois
-> `packages/db/dist/mkt_v2_0015-0016.sql`. É seguro mesmo se a 0010 já tiver entrado
-> (o corpo dela é um `update` idempotente e o ledger usa `on conflict do
-> nothing`).
+**Aplicar, na ordem:** `mkt_v2_0007-0008.sql`, `mkt_v2_0009.sql`,
+`mkt_v2_0010-0011-0012-0013-0014.sql`, `mkt_v2_0015-0016.sql`. Todas as quatro
+são seguras de reaplicar (`update` idempotente, `on conflict do nothing`).
 >
 > Sem a **0015**, nenhum nome de marca resolve para um id: quem preenche
 > `canonical_id` volta a ser o modelo, e um uuid inventado passa igual a um
