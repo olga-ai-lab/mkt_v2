@@ -1281,6 +1281,80 @@ runtime Node da Vercel, e são a defesa de SSRF.
 
 ---
 
+---
+
+## 18. O que falta para o produto estar terminado (28/08)
+
+Levantamento medido, não de memória. Documento navegável em
+`claude.ai/code/artifact/17e8d66f-8ee6-4245-a138-8d88a3dea99c`; o essencial fica
+aqui, porque é este arquivo que a próxima sessão lê.
+
+### O achado principal: o backend está construído e inalcançável
+
+`/api/agent` monta o loop inteiro — resolver, planner, compiler, gateway,
+evidência — e **nenhum arquivo `.tsx` a chama**. Hoje só se aciona por `curl`.
+
+É o mecanismo mais caro do sistema, com 627 testes e 37 evals atrás dele, e
+nenhuma pessoa alcança. É o mesmo defeito que perseguimos o repositório inteiro
+— a coluna vazia, o eval que aprova o caminho errado, o kill switch que grava
+sem bloquear — só que desta vez do lado de fora.
+
+### Os quatro bloqueadores, em ordem de custo
+
+| | O quê | De quem |
+|---|---|---|
+| 1 | Nenhuma tela conversa com o agente | código |
+| 2 | 3 de 4 agentes seguem `CANDIDATE` — só o COPILOT atende | código + decisão |
+| 3 | Banco de produção em 0001–0006, e RLS aberta em `processed_events` | você, 4 colagens |
+| 4 | App da Meta não submetido (ADR-0008) | fora, 2 a 6 semanas |
+
+Sobre o **2**: promover é migration e decisão próprias. BRAND e COMPLIANCE têm
+3 casos golden cada — pouco para sustentar. Há teste que derruba a suíte se um
+agente com capability de escrita aparecer `ACTIVE`, e isso é proposital.
+
+### Inventário
+
+**Backend de pé:** Capability Gateway (8 passos), policy default-deny, loop das
+9 interfaces, onboarding de marca pela URL, cadeia editorial, Entity Resolution,
+trace completo (Versions/Performance/Safety), contenção e rollback, workflow
+durável. **13 capabilities, 13 compiladores** — cobertura total.
+
+**Backend falta:** promover 3 agentes; `activated_by` no Brand Brain (grava
+*quando*, não *quem* — está na outra branch); shadow e canary (§33); ontologia e
+guias de raciocínio (§7.1, §7.3); `AGENTS.md`/`CLAUDE.md` (§36, na outra
+branch); naming do apêndice A.
+
+**Frontend de pé:** `/approvals`, `/content`, `/brands/[id]/brain`, `/`,
+`/login`, `/api/health`, e o modelo visual do protótipo aplicado.
+
+**Frontend falta:** a conversa com o agente; tela de agentes e trace (hoje se
+opera por SQL); tela de canais; calendário e agenda; tela de contenção (a API
+existe, o botão não); tela de onboarding de marca.
+
+**Protótipo:** 3 telas completas, 5 parciais, e **4 sem chão nenhum** —
+Desempenho, Jornadas, Audiências e Newsletter desenham coisas que não existem em
+lugar algum do sistema. Cada uma começa por migration e capability, não por
+copiar JSX.
+
+### A ordem recomendada
+
+1. Aplicar as migrations e fechar a RLS — há buraco de segurança aberto agora.
+2. **Construir a conversa com o agente** — é o que transforma o backend em produto.
+3. Subir os golden de BRAND e COMPLIANCE e promover os dois (menor risco: BRAND
+   propõe e não ativa; COMPLIANCE só emite laudo).
+4. Tela de canais, para quando a Meta liberar.
+5. Promover CONTENT — o único com escrita — depois de rodar interno com marcas reais.
+6. Decidir sobre as quatro telas sem chão. Cada uma é uma fase.
+
+### O que este levantamento sugere e não fez
+
+Um **Gate G2 — "o produto é operável por uma pessoa"**, no mesmo formato do G0 e
+do G1: critérios executáveis, ✓/✗ a cada run. Sem ele, esta seção é uma
+fotografia que envelhece em silêncio, e é justamente contra isso que os outros
+dois gates existem.
+
+---
+
 *Última verificação: 28/08/2026. 627 testes, 37 evals (16 golden, 21
 adversariais), 10/10 no Gate G0, 10/10 verificáveis no G1, typecheck limpo,
 build do web verificado de verdade (dentro do `npm test`), 16 migrations, árvore limpa, tudo empurrado para
