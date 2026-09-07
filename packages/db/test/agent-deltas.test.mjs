@@ -96,16 +96,28 @@ test("agente com autonomia maior nao ganha politica de incerteza mais solta", ()
   }
 });
 
-test("so o COPILOT esta ACTIVE, e a promocao esta registrada em migration", () => {
-  // Este teste antes afirmava que os quatro eram CANDIDATE, e falhou de
-  // proposito no dia da promocao — que era exatamente o ponto dele: promover
-  // nao passa despercebido num diff.
+test("so os dois agentes somente-leitura estao ACTIVE, cada um por migration propria", () => {
+  // Este teste ja afirmou que os quatro eram CANDIDATE, e depois que so o
+  // COPILOT era ACTIVE. Ele falhou nas duas promocoes — que e exatamente o
+  // ponto dele: promover agente nao passa despercebido num diff.
   //
-  // Agora ele afirma o estado deliberado. Promover o proximo vai quebra-lo de
-  // novo, e de novo por design.
-  const ativos = agentes.filter((a) => a.status === "ACTIVE").map((a) => a.agent_id);
-  assert.deepEqual(ativos, ["AGT-MKT-COPILOT"],
-    "promover agente entra por migration, com motivo junto (ver 0009)");
+  // Hoje afirma o estado deliberado: COPILOT (0009) e COMPLIANCE (0012), os
+  // dois {read,simulate}. Promover BRAND ou CONTENT vai quebra-lo de novo, e
+  // de novo por design — os dois escrevem.
+  const ativos = agentes.filter((a) => a.status === "ACTIVE").map((a) => a.agent_id).sort();
+  assert.deepEqual(ativos, ["AGT-MKT-COMPLIANCE", "AGT-MKT-COPILOT"],
+    "promover agente entra por migration, com motivo junto (ver 0009 e 0012)");
+});
+
+test("nenhum agente ACTIVE tem modo write", () => {
+  // O criterio que sustentou as duas promocoes ate aqui, dito na propria
+  // coluna: os dois ACTIVE sao {read,simulate}. Um agente com modo write
+  // ACTIVE nao e proibido para sempre — e proibido de entrar sem que este
+  // teste seja reescrito junto com a migration que o promove.
+  for (const a of agentes.filter((x) => x.status === "ACTIVE")) {
+    assert.ok(!(a.modes ?? []).includes("write"),
+      `${a.agent_id} esta ACTIVE com modo write`);
+  }
 });
 
 test("agente ACTIVE nao pode ter capability de escrita", () => {
