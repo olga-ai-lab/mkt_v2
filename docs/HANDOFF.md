@@ -493,12 +493,64 @@ O plano completo está no MKT-17, entregue como PDF e como página navegável.
 
 ---
 
-*Última verificação: 25/08/2026. 221 testes, 10/10 no Gate G0, typecheck
-limpo, 8 migrations, árvore limpa, tudo empurrado para
-`claude/projeto-superpower-plugin-iyj47t`.*
+---
 
-*O schema `mkt_v2` está completo e conferido: 8 migrations, 29 tabelas,
-nenhuma sem RLS.*
+## 8. Sessão de 07/09/2026 — o bloco A fechado, e três defeitos de produção
+
+Esta sessão começou por rodar o projeto de verdade: `npm ci`, Postgres local,
+migrations aplicadas, suíte inteira. Nada estava quebrado. O que existia era o
+padrão que o `CLAUDE.md` nomeia — **coisa desenhada e nunca montada** — e ele
+apareceu quatro vezes:
+
+1. **`apps/web/lib/auth.ts` consultava `mkt.memberships` com o schema literal.**
+   Todo o resto resolve por `MKT_SCHEMA`. Em produção, com `mkt_v2`, o login
+   leria o schema que tem dados que não são nossos. Virou `ports.iam` e ganhou
+   um varredor estrutural que reprova schema escrito à mão em código de runtime.
+2. **`mkt.audit_events` não tinha produtor.** Existia desde a `0004`, com RLS e
+   teste de RLS, e nunca recebeu uma linha em produção. Hoje tem três, e os dois
+   de decisão humana escrevem na mesma transação do efeito.
+3. **Nada movia `DRAFT` → `AI_REVIEW`.** Consequência medida contra banco: todo
+   conteúdo criado por agente ficava preso em `DRAFT` para sempre. O
+   `pipeline.test.mjs` só andava porque posicionava o estado com um `UPDATE`.
+   Resolvido pela migration `0011` e pela ADR-0013.
+4. **`META_REDIRECT_URI` no `.env.example` apontava para uma rota inexistente.**
+
+Mais o `agent-runtime.mjs`, código morto com 29 testes verdes, apagado.
+
+### O que foi construído
+
+| | |
+|---|---|
+| A2 | `/content/novo` — dispara o agente pela entrada única `POST /api/agent` |
+| A4 | `/traces` e `/traces/[trace_id]` — a auditoria deixou de ser SQL |
+| A3 | rotas de OAuth, `/channels` e o vault com escrita (ADR-0014) — **desligado** |
+| B1 | migration `0012` promove o `AGT-MKT-COMPLIANCE` |
+| Deploy | `npm run check:env` e `docs/DEPLOY.md` |
+
+### O que a próxima sessão precisa saber
+
+- **O vault do Supabase não é exercido por teste.** `vault.create_secret` vem da
+  extensão `supabase_vault`, que não existe no Postgres da CI. O que está
+  provado é a forma das chamadas. Está registrado como teste de nome próprio em
+  `packages/runtime/test/secrets.test.mjs`, e não como nota de rodapé.
+- **`quality.precheck` deixou de ter `side_effect: none`.** Ela está no charter
+  do COPILOT, que é `ACTIVE` — então "os agentes ACTIVE só leem" deixou de ser
+  literalmente verdade. O invariante com teste é: nenhum agente `ACTIVE` alcança
+  efeito externo, e a única capability de efeito interno permitida está nomeada
+  no teste.
+- **B2 e B3 continuam esperando decisão de governança.** O argumento que os
+  segurava era não haver onde ver o que um agente que escreve fez. A tela de
+  trace fechou esse argumento; o resto é decisão.
+- **A ADR-0012 (Railway) continua não decidida.** O deploy documentado é o da
+  ADR-0002, que está `ACEITA`.
+
+---
+
+*Última verificação: 07/09/2026. 474 testes, 10/10 no Gate G0, 10/10 nos
+critérios verificáveis do G1, typecheck limpo, `next build` limpo,
+12 migrations, árvore limpa.*
+
+*O schema `mkt_v2` está completo e conferido: 29 tabelas, nenhuma sem RLS.*
 
 *Sobrou **uma** pendência na Fase 1, e ela não é código: a submissão do app
 na Meta (ADR-0008). Enquanto ela não sair, o produto roda inteiro com

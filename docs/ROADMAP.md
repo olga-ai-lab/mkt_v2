@@ -40,35 +40,63 @@ funcionar e a interface não acompanhou.
 | # | Item | Procedência | Estado |
 |---|---|---|---|
 | A1 | Tela do Brand Brain: revisar e promover a versão CANDIDATE | **[derivado]** | ✅ feito |
-| A2 | Tela de criar conteúdo (disparar o agente e ver o rascunho) | **[derivado]** | pendente |
-| A3 | Tela de conectar canal (OAuth da Meta) | **[MKT-17]** | pendente — depende da Meta |
-| A4 | Ver o trace de uma execução: plano, passos, evidência, receipts | **[Mestra]** | pendente |
+| A2 | Tela de criar conteúdo (disparar o agente e ver o rascunho) | **[derivado]** | ✅ feito |
+| A3 | Tela de conectar canal (OAuth da Meta) | **[MKT-17]** | ✅ código feito, **desligado** — depende da Meta |
+| A4 | Ver o trace de uma execução: plano, passos, evidência, receipts | **[Mestra]** | ✅ feito |
 
-**A1 está feito** e fecha a cadeia do AGT-MKT-BRAND: ele lê o site, propõe
-CANDIDATE, e agora existe onde uma pessoa aceitar. Sem ela, o trabalho daquele
-agente terminava numa linha de banco que ninguém conseguia aceitar.
+**O bloco A está fechado em código.** O que sobra dele não é código.
 
-**A4 merece nota.** A Mestra pede rastreabilidade do pedido ao efeito, e os
-dados existem: `agent_runs`, `mkt.outbox`, `action_receipts` e `workflow_runs`
-compartilham `trace_id`. Há teste provando que a cadeia liga. O que não existe é
-uma tela — hoje a auditoria é uma consulta SQL.
+**A2** manda para `POST /api/agent`, a entrada única do runtime, e mostra o
+status do agente lido do registry: enquanto o CONTENT for `CANDIDATE`, a tela
+diz isso e por quê, em vez de oferecer um botão que só devolve
+`AGENT_NOT_ACTIVE`.
+
+**A4** era a mais atrasada em consequência: a Mestra pede rastreabilidade do
+pedido ao efeito, os dados sempre existiram — cinco tabelas compartilham
+`trace_id` — e auditar exigia escrever SQL sabendo quais eram as cinco. Ao
+construir a tela apareceu que `mkt.audit_events` **não tinha produtor nenhum**:
+existia desde a migration 0004, com RLS e teste de RLS, e nunca recebeu uma
+linha em produção. Hoje tem três produtores, e a decisão humana — que não deixa
+receipt nem evento — passou a estar no trace.
+
+**A3 entra pronto e desligado.** As rotas de OAuth, a tela de canais e o vault
+com escrita (ADR-0014) existem; `META_ADAPTER=fake` continua o padrão, e a tela
+diz as três condições que faltam em vez de levar a um erro da Meta. O
+obstáculo que ele revelou merece registro: havia **um** resolvedor de segredo,
+por variável de ambiente, e ele não grava — um callback de OAuth recebe o token
+em tempo de execução, e sem porta de escrita a saída mais fácil seria guardá-lo
+no banco de domínio.
 
 ---
 
 ## Bloco B — promover os agentes que escrevem
 
-**Só o `AGT-MKT-COPILOT` está `ACTIVE`, e ele só lê.** Nenhum agente escreve em
-produção hoje. Isso não é o sistema quebrado: é a governança funcionando.
+**Dois agentes estão `ACTIVE`, os dois `{read,simulate}`:** COPILOT (migration
+0009) e COMPLIANCE (0012). Nenhum deles cria conteúdo, agenda, aprova ou
+publica. Isso não é o sistema quebrado: é a governança funcionando.
+
+Com a migration 0011, `quality.precheck` passou a ter efeito interno — ela
+registra que a revisão de IA aconteceu — e está no charter do COPILOT. O
+invariante que vale hoje, com teste próprio, é: nenhum agente ACTIVE alcança
+efeito externo, e a única capability de efeito interno permitida a um deles está
+nomeada no teste.
 
 | # | Item | Procedência | Bloqueio |
 |---|---|---|---|
-| B1 | Promover `AGT-MKT-COMPLIANCE` | **[proposto]** | é o próximo natural: read+simulate, como o COPILOT |
+| B1 | Promover `AGT-MKT-COMPLIANCE` | **[proposto]** | ✅ feito na migration 0012 |
 | B2 | Promover `AGT-MKT-BRAND` | **[proposto]** | escreve — exige migration própria e motivo próprio |
 | B3 | Promover `AGT-MKT-CONTENT` | **[proposto]** | escreve, e é o de maior superfície |
 
-**Nenhum destes é decisão minha.** A migration 0009 diz por quê: ela derruba a
+**B2 e B3 não são decisão minha.** A migration 0009 diz por quê: ela derruba a
 transação se um agente com capability de escrita estiver ACTIVE, com a mensagem
-*"promover um deles exige migration própria e motivo próprio"*.
+*"promover um deles exige migration própria e motivo próprio"*. A 0012 reexecuta
+essa mesma guarda, e não a extraiu para função compartilhada de propósito — uma
+função comum poderia ser afrouxada uma vez e enfraquecer todas as promoções
+passadas de uma só vez.
+
+O que mudou desde então: **A4 existe.** O argumento para segurar B2 e B3 era não
+ter onde ver o que um agente que escreve fez. Esse argumento acabou; o que
+resta é a decisão de governança.
 
 Os evals dos quatro já existem e passam — há teste exigindo que todo agente
 ACTIVE tenha eval próprio. Promover sem medir é promover no escuro; medir sem
@@ -120,6 +148,7 @@ plataforma (ADR-0012, Railway) deixa de ser hipotética.
 
 | O quê | Por que ainda está aí |
 |---|---|
+| O Supabase Vault não é exercido por teste | `vault.create_secret` vem da extensão `supabase_vault`, que não existe no Postgres da CI. O que está provado é a forma das chamadas, contra um dublê. Fechar isso exige um Postgres de teste com a extensão, ou um teste de fumaça contra o projeto Supabase. |
 | Check de disclaimers exige *todos* quando há claim material | A lista é de strings soltas e não diz qual disclaimer cobre qual tipo de claim. Erra para o lado de mandar para revisão humana, que é o erro barato. Mapear por `claim_type` depende de o Brand Brain ganhar essa estrutura. |
 | `activated_by` só existe em `brand_brain_versions` | É a única tabela em que a ativação é o momento em que um humano assume responsabilidade por um artefato que o agente escreveu. Se outra passar a ter esse momento, ganha a coluna. |
 
@@ -127,13 +156,16 @@ plataforma (ADR-0012, Railway) deixa de ser hipotética.
 
 ## A ordem que eu seguiria, e por quê
 
-1. **A2 e A4** — sem elas o produto tem backend e não tem uso. A2 dá o botão
-   que dispara o agente; A4 dá a auditoria que a Mestra pede e que hoje é SQL.
-2. **B1** — o COMPLIANCE é read+simulate, como o COPILOT. Promovê-lo não amplia
-   superfície de efeito e ensina o que precisa ser aprendido em operação.
-3. **A3 + o app review da Meta** — é o caminho crítico e o relógio mais lento.
-4. **B2 e B3** — depois de A4 existir. Promover um agente que escreve sem ter
-   onde ver o que ele fez é promover sem instrumento.
+Os quatro primeiros itens desta lista foram feitos: A2, A4, B1 e o código de
+A3. O que sobrou dela é o que depende de decisão ou de terceiro.
+
+1. ~~**A2 e A4**~~ — feitos. A4 primeiro, de propósito: promover um agente que
+   escreve sem ter onde ver o que ele fez é promover sem instrumento.
+2. ~~**B1**~~ — feito na migration 0012.
+3. **O app review da Meta** — o código de A3 está pronto e desligado. Este é o
+   caminho crítico e o relógio mais lento, e continua não sendo código.
+4. **B2 e B3** — agora há onde ver o que eles fazem. É decisão de governança:
+   os dois escrevem, e cada um exige migration própria com motivo próprio.
 5. **C1** — quando houver corretora piloto de verdade para julgar texto.
 
 Os blocos C e D estão em ordem de documento, não de prioridade. Reordenar é

@@ -25,7 +25,7 @@ um PDF aprovado.
 
 ## Onde o projeto está
 
-**422 testes, 24 evals de agente, Gate G0 10/10, Gate G1 10/10 verificáveis.**
+**474 testes, 24 evals de agente, Gate G0 10/10, Gate G1 10/10 verificáveis.**
 
 O esqueleto anda de ponta a ponta — pedir aprovação → aprovar → agendar → outbox
 → workflow → gateway → adapter → publicado — provado contra Postgres em
@@ -39,20 +39,25 @@ e adversarial por agente rodando contra banco de verdade.
 |---|---|---|
 | `packages/contracts` | JSON Schema dos objetos de I/O, dos registries e dos enums fechados. Tipos TS gerados | 15 testes |
 | `packages/policy` | Policy engine determinístico: invariantes de código + regras como dado, default deny | 19 testes |
-| `packages/gateway` | Capability Gateway (8 passos do MKT-09B §10) + adapters: `internal`, `meta_graph`, `web_fetch` com defesa de SSRF | 92 testes |
-| `packages/runtime` | Model Gateway, loop de agente, compiladores, retrieval, redator, evals | 110 testes |
-| `packages/db` | 10 migrations, 29 tabelas, RLS forçada, state machine em trigger | 137 testes |
+| `packages/gateway` | Capability Gateway (8 passos do MKT-09B §10) + adapters: `internal`, `meta_graph`, `web_fetch` com defesa de SSRF | 95 testes |
+| `packages/runtime` | Model Gateway, loop de agente, compiladores, retrieval, redator, OAuth da Meta, vault, evals | 123 testes |
+| `packages/db` | 12 migrations, 29 tabelas, RLS forçada, state machine em trigger | 163 testes |
 | `apps/worker` | Workflow durável de publicação, replay-safe, relay do outbox | 25 testes |
-| `apps/web` | Next.js: home, conteúdo, aprovações, Brand Brain, login | 21 testes |
-| `docs/adr` | 12 ADRs fechando o que o MKT-09B deixava OPEN | — |
+| `apps/web` | Next.js: home, conteúdo, criar, aprovações, Brand Brain, canais, auditoria, login | 23 testes |
+| `scripts` | Parsers dos gates e conferidor de ambiente | 11 testes |
+| `docs/adr` | 14 ADRs fechando o que o MKT-09B deixava OPEN | — |
 
 ### O que ainda não está pronto — sem rodeio
 
-- **Só o `AGT-MKT-COPILOT` está `ACTIVE`, e ele só lê.** Nenhum agente escreve em
-  produção hoje. Os outros três rodam em modo interno (`OWNER` apenas). Promover
-  um que escreve é ato de governança com migration própria.
-- **Faltam três telas:** criar conteúdo, conectar canal, e ver o trace de uma
-  execução. A do Brand Brain já existe. Ver [`docs/ROADMAP.md`](docs/ROADMAP.md).
+- **Dois agentes estão `ACTIVE`, os dois `{read,simulate}`:** COPILOT (`0009`) e
+  COMPLIANCE (`0012`). Nenhum deles cria conteúdo, agenda, aprova ou publica.
+  BRAND e CONTENT seguem `CANDIDATE` e rodam em modo interno (`OWNER` apenas);
+  promover um que escreve é ato de governança com migration própria.
+- **As telas do bloco A existem:** criar conteúdo, canais e auditoria entraram
+  junto com a do Brand Brain. Ver [`docs/ROADMAP.md`](docs/ROADMAP.md).
+- **A conexão de canal entra desligada.** As rotas de OAuth e o vault com
+  escrita (ADR-0014) existem; `META_ADAPTER=fake` continua o padrão, e a tela de
+  canais diz as três condições que faltam.
 - **O Gate G1 não fecha por código.** Falta um post real numa conta real, e isso
   depende do app review da Meta (ADR-0008).
 - **Fase 2 e 3 não começaram:** plano editorial, geração em lote, calendário,
@@ -114,7 +119,9 @@ packages/db          migrations e testes de isolamento
 apps/web             Next.js — tokens e microcopy
 apps/worker          Inngest — workflow durável de publicação
 docs/adr             decisões técnicas com ponto de revisão
+docs/DEPLOY.md       a ordem do deploy, e o que quebra se ela for trocada
 scripts/gate-g0.mjs  verificação executável do gate
+scripts/check-env.mjs  confere o ambiente antes de subir
 ```
 
 ## Banco
@@ -178,9 +185,10 @@ duas a seis semanas (ADR-0008). Até lá o produto roda inteiro com
 `META_ADAPTER=fake` — o adapter falso implementa o mesmo contrato e o gateway
 não distingue um do outro. Foi para isso que essa fronteira existe.
 
-Já fechado: schema aplicado (8 migrations, 29 tabelas, nenhuma sem RLS),
-adapter real do Meta Graph, tela de aprovação, outbox ligado ao Inngest, e os
-produtores que alimentam as duas filas.
+Já fechado: schema aplicado (12 migrations, 29 tabelas, nenhuma sem RLS),
+adapter real do Meta Graph, as telas do bloco A, outbox ligado ao Inngest, os
+produtores que alimentam as duas filas, e a trilha de auditoria — que existia
+como tabela desde a `0004` e não tinha quem escrevesse nela.
 
 O Gate G1 existe e é executável: `npm run gate:g1`, 10/10 nos critérios
 verificáveis. Ele **não se declara fechado** — o post real numa conta real
@@ -188,14 +196,20 @@ depende da Meta, e o gate diz isso toda vez que roda. Ver `docs/GATE-G1.md`.
 
 ### Agentes
 
-Os quatro nascem `CANDIDATE`. O **COPILOT foi promovido para `ACTIVE`** pela
-migration `0009`, com o motivo registrado nela: é o único cujo charter é só
-leitura, então a promoção não amplia superfície de efeito.
+Os quatro nascem `CANDIDATE`. **COPILOT** (`0009`) e **COMPLIANCE** (`0012`)
+foram promovidos, com o motivo registrado em cada migration: os dois são
+`{read,simulate}`, então a promoção não amplia superfície de efeito.
 
-Os outros três seguem `CANDIDATE` — dois deles têm capability de escrita, e
+BRAND e CONTENT seguem `CANDIDATE` — os dois têm capability de escrita, e
 promover cada um é decisão separada, com migration e motivo próprios. Há teste
-que derruba a suíte se um agente com escrita aparecer `ACTIVE`, e a `0009`
-checa o mesmo no banco.
+que derruba a suíte se um agente com escrita aparecer `ACTIVE`, e as duas
+migrations checam o mesmo no banco.
+
+Uma ressalva desde a `0011`: `quality.precheck` tem efeito interno — ela
+registra que a revisão de IA aconteceu — e está no charter do COPILOT. O
+invariante com teste é mais preciso que "os ACTIVE só leem": **nenhum agente
+`ACTIVE` alcança efeito externo**, e a única capability de efeito interno
+permitida a um deles está nomeada no teste.
 
 **Retrieval:** o agente lê o Brand Brain ACTIVE da marca, e só o que a
 intenção pede. `CONNECT_CHANNEL` não recebe contexto nenhum, de propósito. O

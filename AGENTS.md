@@ -19,19 +19,36 @@ policy, e o agente agiria por uma regra sendo julgado por outra.
 | **AGT-MKT-COPILOT** | `ACTIVE` | read, simulate | A1 → A2 | `brand.read`, `evidence.read`, `quality.precheck` |
 | **AGT-MKT-BRAND** | `CANDIDATE` | read, write | A2 → A2 | `brand.extract_from_url`, `brand.propose_version`, `brand.read` |
 | **AGT-MKT-CONTENT** | `CANDIDATE` | read, write | A2 → A3 | `brand.read`, `evidence.read`, `content.create_draft`, `content.create_variant`, `quality.precheck`, `publishing.schedule` |
-| **AGT-MKT-COMPLIANCE** | `CANDIDATE` | read, simulate | A1 → A2 | `brand.read`, `evidence.read`, `compliance.review` |
+| **AGT-MKT-COMPLIANCE** | `ACTIVE` | read, simulate | A1 → A2 | `brand.read`, `evidence.read`, `compliance.review` |
 
-**Só o COPILOT está ACTIVE, e ele só lê.** Nenhum agente escreve em produção
-hoje. Promover um que escreve é ato de governança com migration própria — a
-migration 0009 derruba a transação se um agente com capability de escrita
-estiver ACTIVE, e diz por quê.
+**Os dois ACTIVE são `{read,simulate}`:** COPILOT (migration 0009) e COMPLIANCE
+(0012). Nenhum deles cria conteúdo, agenda, aprova ou publica.
+
+Uma ressalva que passou a valer com a migration 0011, e que é melhor dizer que
+omitir: `quality.precheck` deixou de ter `side_effect: none`. Ela registra que a
+revisão de IA aconteceu, movendo `DRAFT` → `AI_REVIEW`, e está no charter do
+COPILOT. Então "os ACTIVE só leem" deixou de ser literalmente verdade. O
+invariante que continua valendo é mais preciso, e tem teste próprio: **nenhum
+agente ACTIVE alcança efeito externo**, e a única capability de efeito interno
+permitida a um agente ACTIVE está nomeada nesse teste — acrescentar outra tem de
+ser decisão consciente, não efeito colateral de mudar uma linha do registry.
+
+Promover um agente que escreve é ato de governança com migration própria — a 0009 derruba a transação
+se um agente com capability de escrita estiver ACTIVE, e diz por quê; a 0012
+reexecuta a mesma guarda em vez de compartilhá-la, para que afrouxá-la exija
+mexer em cada promoção separadamente.
+
+Há teste afirmando exatamente quais agentes estão ACTIVE. Ele já falhou nas duas
+promoções, e é para isso que serve: promover não passa despercebido num diff.
 
 Agente `CANDIDATE` não é agente quebrado: ele roda com `internal: true`, que
 `apps/web/app/api/agent/route.ts` só permite para `OWNER`. Dá para exercitar;
 não dá para servir usuário.
 
-A promoção de cada um está no [`docs/ROADMAP.md`](docs/ROADMAP.md), bloco B,
-marcada como **[proposto]** — é decisão de governança, não minha.
+A promoção dos dois que faltam está no [`docs/ROADMAP.md`](docs/ROADMAP.md),
+bloco B, marcada como **[proposto]** — é decisão de governança, não minha. O
+argumento que segurava os dois era não haver onde ver o que um agente que
+escreve tinha feito; a tela de trace (`/traces`) fechou esse argumento.
 
 ---
 
@@ -86,7 +103,7 @@ Verifica e **relata** — quem bloqueia é a policy, com fatos tipados.
 | O quê | Onde | Por que ali |
 |---|---|---|
 | Missão, capabilities, reason codes, autonomia, status | `packages/db/migrations/0006_seed_registries.sql` | É dado governado. Mudar exige migration, com revisão e rastro. |
-| Promoção para `ACTIVE` | `packages/db/migrations/0009_promote_copilot.sql` | Ato de governança. Uma migration por promoção, com o motivo escrito. |
+| Promoção para `ACTIVE` | `0009_promote_copilot.sql`, `0012_promote_compliance.sql` | Ato de governança. Uma migration por promoção, com o motivo escrito. |
 | Política de incerteza (o delta) | `packages/runtime/src/agent-deltas.mjs` | É a única coisa que não cabe numa coluna: o que o agente faz quando não tem certeza. |
 | Casos golden e adversarial | `packages/runtime/evals/AGT-*.json` | Casos como dado. Adicionar um caso é editar JSON, não escrever teste. |
 | O loop que todos percorrem | `packages/runtime/src/agent-loop.mjs` | As nove interfaces da Mestra §6. Um loop só, não um por agente. |
@@ -132,7 +149,7 @@ chamada externa é um LLM que possui autorização.
 |---|---|---|---|---|
 | `brand.read` | read | none | interno | COPILOT, BRAND, CONTENT, COMPLIANCE |
 | `evidence.read` | read | none | interno | COPILOT, CONTENT, COMPLIANCE |
-| `quality.precheck` | simulate | none | interno | COPILOT, CONTENT |
+| `quality.precheck` | simulate | **internal** | interno | COPILOT, CONTENT |
 | `compliance.review` | simulate | none | interno | COMPLIANCE |
 | `brand.extract_from_url` | read | internal | `web_fetch` | BRAND |
 | `brand.propose_version` | write | internal | interno | BRAND |
@@ -142,6 +159,15 @@ chamada externa é um LLM que possui autorização.
 | `approval.request` | write | internal | interno | *ninguém* |
 | `channel.connect` | write | **external** | `meta_graph` | *ninguém* |
 | `publishing.publish` | write | **external** | `meta_graph` | *ninguém* |
+
+**`quality.precheck` é a única `simulate` com efeito**, e a exceção é
+deliberada: ela registra que a revisão de IA aconteceu, movendo `DRAFT` para
+`AI_REVIEW`. Antes disso, nada no sistema fazia essa passagem, e conteúdo criado
+por agente ficava preso em `DRAFT` para sempre — `approval.request` exige
+`AI_REVIEW` e a state machine não deixa pular. O `mode` continua `simulate`
+porque o gate que para o loop diante de um laudo reprovado é ligado ao modo; a
+ADR-0013 explica por que promovê-la a `write` desligaria justamente a checagem
+que importa.
 
 As três sem dono são de propósito. `channel.connect` é consentimento e acontece
 no painel, no navegador de uma pessoa. `publishing.publish` é executado pelo

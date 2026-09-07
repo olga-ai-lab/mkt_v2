@@ -19,6 +19,7 @@ const url = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const db = new pg.Client({ connectionString: url });
 let agentes = [];
 let capabilities = new Set();
+let registroDeCapabilities = [];
 
 before(async () => {
   await db.connect();
@@ -28,8 +29,11 @@ before(async () => {
             modes::text[] as modes
        from mkt.agent_registry order by agent_id`);
   agentes = a.rows;
-  const c = await db.query(`select capability_id from mkt.capability_registry`);
+  const c = await db.query(
+    `select capability_id, side_effect::text as side_effect, mode::text as mode
+       from mkt.capability_registry`);
   capabilities = new Set(c.rows.map((r) => r.capability_id));
+  registroDeCapabilities = c.rows;
 });
 
 after(async () => { await db.end(); });
@@ -137,6 +141,36 @@ test("agente ACTIVE nao pode ter capability de escrita", () => {
     const escritas = (a.capabilities ?? []).filter((c) => ESCRITA.includes(c));
     assert.deepEqual(escritas, [],
       `${a.agent_id} esta ACTIVE com capability de escrita: ${escritas.join(", ")}`);
+  }
+});
+
+test("nenhum agente ACTIVE alcanca efeito externo, e o efeito interno e nomeado", () => {
+  // A migration 0011 deu a `quality.precheck` side_effect 'internal': ela
+  // registra que a revisao de IA aconteceu, movendo DRAFT -> AI_REVIEW. O
+  // COPILOT esta ACTIVE e a tem no charter.
+  //
+  // Ou seja: a frase "os agentes ACTIVE so leem" deixou de ser literalmente
+  // verdadeira, e este teste existe para que ela nao volte a ser dita por
+  // engano. O invariante que continua valendo, e que e o que importa, e mais
+  // preciso: nenhum agente ACTIVE alcanca EFEITO EXTERNO, e a unica capability
+  // de efeito interno permitida a um agente ACTIVE esta nomeada aqui.
+  //
+  // Acrescentar outra a esta lista deve ser uma decisao consciente, com o
+  // motivo escrito na migration que a habilita — nao um efeito colateral de
+  // mudar uma linha do registry.
+  const INTERNO_PERMITIDO = new Set(["quality.precheck"]);
+
+  for (const a of agentes.filter((x) => x.status === "ACTIVE")) {
+    for (const cap of a.capabilities ?? []) {
+      const c = registroDeCapabilities.find((x) => x.capability_id === cap);
+      assert.ok(c, `${a.agent_id} declara ${cap}, que nao esta no capability_registry`);
+      assert.notEqual(c.side_effect, "external",
+        `${a.agent_id} esta ACTIVE com ${cap}, que tem efeito EXTERNO`);
+      if (c.side_effect === "internal") {
+        assert.ok(INTERNO_PERMITIDO.has(cap),
+          `${a.agent_id} esta ACTIVE com ${cap}, de efeito interno, e ela nao esta na lista permitida`);
+      }
+    }
   }
 });
 
