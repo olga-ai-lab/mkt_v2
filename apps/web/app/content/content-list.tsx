@@ -5,6 +5,7 @@
  * pedido e mostra o que o servidor respondeu, incluindo o reason code.
  */
 import { useState } from "react";
+import Link from "next/link";
 
 type Destino = { channel: string; channel_variant_id: string; connection_id: string };
 
@@ -17,6 +18,7 @@ type Item = {
   master_body: string;
   publicados: string[];
   destinos: Destino[];
+  trace_id: string | null;
 };
 
 const ROTULO: Record<string, string> = {
@@ -82,6 +84,15 @@ export function ContentList({ itens, podePublicar }: { itens: Item[]; podePublic
             <span className="muted">versão {item.version}</span>
             {item.publicados.length > 0 && (
               <span className="muted">publicado em {item.publicados.join(", ")}</span>
+            )}
+            {/*
+              O caminho da listagem para a auditoria. Quem ve um rascunho
+              estranho precisa chegar ao pedido que o gerou sem passar por
+              uma consulta SQL — que era a unica forma ate a tela de trace
+              existir.
+            */}
+            {item.trace_id && (
+              <Link href={`/traces/${encodeURIComponent(item.trace_id)}`}>Ver o trace</Link>
             )}
           </div>
 

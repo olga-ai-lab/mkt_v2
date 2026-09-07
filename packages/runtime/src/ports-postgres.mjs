@@ -145,6 +145,127 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
     },
   };
 
+  /**
+   * Leitura do trace: do pedido ao efeito, numa linha do tempo.
+   *
+   * A Documentacao Mestra pede rastreabilidade do pedido ao efeito, e os dados
+   * sempre existiram — `agent_runs`, `audit_events`, `action_receipts`,
+   * `outbox` e `workflow_runs` compartilham `trace_id`, e ha teste provando
+   * que a cadeia liga. O que nao existia era como olhar: a auditoria era uma
+   * consulta SQL escrita a mao por quem soubesse as cinco tabelas.
+   *
+   * Cinco selects e um merge em memoria, e nao um UNION: as cinco tabelas tem
+   * colunas diferentes e forcar todas na mesma forma dentro do SQL produziria
+   * uma consulta que ninguem consegue ler nem manter. O volume por trace e de
+   * dezenas de linhas — o custo esta na rede, nao no ordenamento.
+   *
+   * `org_id` entra em toda clausula. A RLS ja isola por organizacao e continua
+   * valendo por baixo; o filtro aqui e para que a porta funcione igual sob
+   * service_role, que tem BYPASSRLS.
+   */
+  const trace = {
+    /** Os traces mais recentes do workspace, com o essencial de cada um. */
+    async list(org_id, workspace_id, { limit = 50 } = {}) {
+      const { rows } = await pool.query(
+        `select r.trace_id,
+                min(r.started_at) as started_at,
+                max(r.agent_id) as agent_id,
+                max(r.status::text) as status,
+                max(r.respondability) as respondability,
+                sum(coalesce(r.cost_cents, 0)) as cost_cents,
+                (select count(*) from ${S}.action_receipts ar
+                  where ar.trace_id = r.trace_id and ar.org_id = $1) as receipts
+           from ${S}.agent_runs r
+          where r.org_id = $1 and r.workspace_id = $2
+          group by r.trace_id
+          order by min(r.started_at) desc
+          limit $3`, [org_id, workspace_id, limit]);
+      return rows.map((r) => ({
+        ...r,
+        cost_cents: r.cost_cents == null ? null : Number(r.cost_cents),
+        receipts: Number(r.receipts),
+      }));
+    },
+
+    /**
+     * A linha do tempo de um trace.
+     *
+     * Devolve os eventos ja ordenados por instante. Cada um traz `fonte` — a
+     * tabela de onde veio — porque quem audita precisa saber se olha para uma
+     * intencao registrada, um efeito com receipt ou um aviso no barramento.
+     * Achatar isso num tipo so pouparia uma coluna e custaria a pergunta que
+     * mais importa: isto aconteceu la fora, ou so aqui dentro?
+     */
+    async byTraceId(org_id, trace_id) {
+      const [runs_, audit_, receipts_, outbox_, workflows_] = await Promise.all([
+        pool.query(
+          `select id, agent_id, agent_version, task_class, status::text as status,
+                  respondability, reason_codes, autonomy_used, model,
+                  input_tokens, output_tokens, cost_cents, latency_ms,
+                  started_at, finished_at
+             from ${S}.agent_runs where org_id = $1 and trace_id = $2
+            order by started_at asc`, [org_id, trace_id]),
+        pool.query(
+          `select id, actor_type::text as actor_type, actor_id, action, object_type,
+                  object_id, object_version, decision, reason_codes, payload, occurred_at
+             from ${S}.audit_events where org_id = $1 and trace_id = $2
+            order by occurred_at asc`, [org_id, trace_id]),
+        pool.query(
+          `select id, capability_id, capability_version, provider, external_id,
+                  status::text as status, autonomy_used, approval_id, recorded_at
+             from ${S}.action_receipts where org_id = $1 and trace_id = $2
+            order by recorded_at asc`, [org_id, trace_id]),
+        pool.query(
+          `select id, event_type, payload, occurred_at, published_at, attempts
+             from ${S}.outbox where org_id = $1 and trace_id = $2
+            order by occurred_at asc`, [org_id, trace_id]),
+        pool.query(
+          `select id, workflow_id, external_run_id, current_state, attempts,
+                  dead_lettered, last_reason_code, started_at, updated_at
+             from ${S}.workflow_runs where org_id = $1 and trace_id = $2
+            order by started_at asc`, [org_id, trace_id]),
+      ]);
+
+      const eventos = [
+        ...runs_.rows.map((r) => ({
+          fonte: "agent_run", instante: r.started_at,
+          titulo: `${r.agent_id} executou`, status: r.status,
+          reason_codes: r.reason_codes ?? [], detalhe: r,
+        })),
+        ...audit_.rows.map((r) => ({
+          fonte: "audit_event", instante: r.occurred_at,
+          titulo: r.action, status: r.decision,
+          reason_codes: r.reason_codes ?? [], detalhe: r,
+        })),
+        ...receipts_.rows.map((r) => ({
+          fonte: "receipt", instante: r.recorded_at,
+          titulo: r.capability_id, status: r.status,
+          reason_codes: [], detalhe: r,
+        })),
+        ...outbox_.rows.map((r) => ({
+          fonte: "evento", instante: r.occurred_at,
+          titulo: r.event_type, status: r.published_at ? "PUBLISHED" : "PENDING",
+          reason_codes: [], detalhe: r,
+        })),
+        ...workflows_.rows.map((r) => ({
+          fonte: "workflow", instante: r.started_at,
+          titulo: r.workflow_id, status: r.current_state,
+          reason_codes: r.last_reason_code ? [r.last_reason_code] : [],
+          detalhe: r,
+        })),
+      ].sort((a, b) => new Date(a.instante) - new Date(b.instante));
+
+      return {
+        trace_id,
+        // Vazio nao e erro: um trace_id que ninguem reconhece e resposta
+        // legitima, e distingui-la de "existe e nao tem nada" e trabalho da
+        // tela, nao da porta.
+        encontrado: eventos.length > 0,
+        eventos,
+      };
+    },
+  };
+
   const runs = {
     async start(r) {
       await pool.query(
@@ -659,6 +780,10 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
            cv.master_body,
            cv.approved_at,
            cv.created_at,
+           -- O trace da execucao que criou esta versao. E o unico caminho da
+           -- listagem para a auditoria: sem ele, quem ve um rascunho estranho
+           -- nao tem como chegar ao pedido que o gerou.
+           cv.trace_id,
            coalesce((
              select json_agg(json_build_object(
                       'id', v.id, 'channel', v.channel::text, 'body', v.body))
@@ -1124,6 +1249,6 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
     },
   };
 
-  return { routing, budget, registry, iam, audit, runs, policies, receipts, outbox, approvals,
+  return { routing, budget, registry, iam, audit, trace, runs, policies, receipts, outbox, approvals,
            connections, variants, publishing, content, knowledge, authoring, governance };
 }

@@ -39,6 +39,7 @@ export default async function ContentPage() {
     state: c.state,
     risk_tier: c.risk_tier,
     master_body: c.master_body,
+    trace_id: c.trace_id ?? null,
     publicados: (c.publications ?? []).map((p: any) => p.channel),
     // Um destino é um par variante+conexão que existe de verdade.
     destinos: (c.variants ?? [])

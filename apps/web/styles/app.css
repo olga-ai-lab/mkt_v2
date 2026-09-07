@@ -168,7 +168,13 @@ nav.topo button {
   text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted);
 }
 .bb-campo p { margin: 0; font-size: 14px; }
-.bb-campo ul { margin: 0; padding-left: var(--space-6); font-size: 14px; }
+.bb-campo ul,
+.bb-campo ol { margin: 0; padding-left: var(--space-6); font-size: 14px; }
+
+/* O plano de um trace e uma lista ORDENADA: a ordem dos passos e parte do que
+   se audita. Reusar o estilo de .bb-campo ul em vez de criar outro mantem as
+   duas telas parecidas sem duplicar regra. */
+.bb-campo code { font-size: 13px; }
 .bb-campo li { margin-bottom: var(--space-1); }
 
 /* A citação é a prova de que o claim saiu da página, e não do modelo.

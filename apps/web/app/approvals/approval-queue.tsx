@@ -8,11 +8,13 @@
  * estado legitimo e nao erro.
  */
 import { useState } from "react";
+import Link from "next/link";
 
 type Item = {
   approval_id: string;
   subject_version: number;
   created_at: string;
+  trace_id: string | null;
   motivos: { code: string; texto: string }[];
   content: {
     id: string; version: number; state: string;
@@ -92,6 +94,15 @@ export function ApprovalQueue({ itens }: { itens: Item[] }) {
               {item.content?.risk_tier ? (
                 <span className="muted">risco {item.content.risk_tier.toLowerCase()}</span>
               ) : null}
+              {/*
+                Quem decide precisa poder ver como o texto chegou ali antes de
+                aprovar. O trace mostra o plano, os passos e a evidencia — e e
+                a diferenca entre decidir sobre um texto e decidir sobre um
+                texto cuja procedencia se conhece.
+              */}
+              {item.trace_id && (
+                <Link href={`/traces/${encodeURIComponent(item.trace_id)}`}>Ver o trace</Link>
+              )}
             </div>
 
             {item.motivos.length > 0 && (

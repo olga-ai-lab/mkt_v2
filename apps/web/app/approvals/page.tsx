@@ -37,6 +37,7 @@ export default async function ApprovalsPage() {
   const itens = fila.map((p: any) => ({
     approval_id: p.approval.id,
     subject_version: p.approval.subject_version,
+    trace_id: p.approval.trace_id ?? null,
     created_at: String(p.approval.created_at),
     motivos: (p.approval.requested_reason_codes ?? []).map((c: string) => ({
       code: c,
