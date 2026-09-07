@@ -120,8 +120,6 @@ plataforma (ADR-0012, Railway) deixa de ser hipotética.
 
 | O quê | Por que ainda está aí |
 |---|---|
-| `packages/runtime/src/agent-runtime.mjs` (152 linhas, 29 testes) não é montado em lugar nenhum | O `agent-loop.mjs` o substituiu. Apagar é decisão de limpeza que ninguém tomou; mantê-lo custa manutenção de código morto em verde. |
-| Nada move `DRAFT` → `AI_REVIEW` | `quality.precheck` é a revisão de IA em intenção, mas o `side_effect` dela é `none` no registry, e capability que não escreve não muda estado. Resolver é mudar o registry — migration, e decisão de governança. |
 | Check de disclaimers exige *todos* quando há claim material | A lista é de strings soltas e não diz qual disclaimer cobre qual tipo de claim. Erra para o lado de mandar para revisão humana, que é o erro barato. Mapear por `claim_type` depende de o Brand Brain ganhar essa estrutura. |
 | `activated_by` só existe em `brand_brain_versions` | É a única tabela em que a ativação é o momento em que um humano assume responsabilidade por um artefato que o agente escreveu. Se outra passar a ter esse momento, ganha a coluna. |
 

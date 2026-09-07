@@ -427,7 +427,7 @@ teto de risco. Há teste para isso.
 **Efeito externo só pelo Capability Gateway.** Se você precisou chamar um
 provider fora dele, a fronteira está errada, não o gateway.
 
-**Tenant nunca vem do input do usuário.** `agent-runtime.mjs` lança
+**Tenant nunca vem do input do usuário.** `agent-loop.mjs` lança
 `TENANT_SCOPE_VIOLATION` se `org_id` ou `workspace_id` aparecerem no input.
 Isso é proposital.
 
