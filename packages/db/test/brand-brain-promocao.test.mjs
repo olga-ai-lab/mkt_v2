@@ -215,14 +215,19 @@ test("promocao recusada nao deixa evento de auditoria", async () => {
   // O par que importa: auditoria que registra o que nao aconteceu e tao ruim
   // quanto auditoria que perde o que aconteceu. As duas mentem sobre o mesmo
   // banco, e so a transacao compartilhada garante as duas coisas de uma vez.
-  const antes = await db.query(`select count(*)::int as n from mkt.audit_events`);
+  //
+  // A assercao e sobre ESTE version_id, e nao sobre o total da tabela: os
+  // arquivos de teste rodam em paralelo contra o mesmo banco, e um contador
+  // global mediria o trabalho dos outros. Foi assim que este teste falhou na
+  // suite inteira depois de passar sozinho.
+  const inexistente = "00000000-0000-4000-8000-00000000dead";
 
   await assert.rejects(
     () => ports.governance.promoteBrandVersion({
-      org_id: ids.org, brand_id: ids.brand,
-      version_id: "00000000-0000-4000-8000-00000000dead", actor_id: "olga",
+      org_id: ids.org, brand_id: ids.brand, version_id: inexistente, actor_id: "olga",
     }));
 
-  const depois = await db.query(`select count(*)::int as n from mkt.audit_events`);
-  assert.equal(depois.rows[0].n, antes.rows[0].n);
+  const { rows } = await db.query(
+    `select 1 from mkt.audit_events where object_id = $1`, [inexistente]);
+  assert.equal(rows.length, 0, "recusa nao pode deixar rastro de promocao");
 });

@@ -77,6 +77,12 @@ before(async () => {
 
 after(async () => { await limpar(); await db.end(); });
 
+/** Adapter com o mesmo banco e um corpo proprio, para nao esbarrar no duplicate_risk. */
+const outroAdapter = (master_body) => createInternalAdapter({
+  authoring: ports.authoring, knowledge: ports.knowledge, publishing: ports.publishing,
+  compose: redatorFixo({ title: "Titulo", master_body, claims: [] }),
+});
+
 // ── Registry e codigo dizendo a mesma coisa ─────────────────────────────────
 
 test("toda capability que o registry manda para 'internal' tem executor", async () => {
@@ -365,4 +371,116 @@ test("propose_version sem pagina lida nao grava versao nenhuma", async () => {
   const depois = await db.query(
     `select count(*) as n from mkt.brand_brain_versions where brand_id = $1`, [ids.brand]);
   assert.equal(depois.rows[0].n, antes.rows[0].n);
+});
+
+// ── DRAFT -> AI_REVIEW: o passo que faltava para o produto andar ────────────
+//
+// Antes da migration 0011, conteudo criado por agente ficava preso em DRAFT
+// para sempre: `approval.request` exige AI_REVIEW e a state machine da J11 nao
+// deixa pular. O caminho de ponta a ponta so andava nos testes, porque eles
+// posicionavam o estado com um UPDATE.
+
+test("o registry declara que quality.precheck tem efeito interno", async () => {
+  // O handler so pode escrever porque o registry declara que ele escreve. Se
+  // esta linha voltar para 'none', o codigo passa a fazer o que o contrato
+  // proibe — e a divergencia tem de aparecer aqui, nao em producao.
+  const { rows } = await db.query(
+    `select mode::text as mode, side_effect::text as side_effect
+       from mkt.capability_registry
+      where capability_id = 'quality.precheck' and version = 1`);
+  assert.equal(rows[0].side_effect, "internal");
+  assert.equal(rows[0].mode, "simulate",
+    "o gate de QUALITY_BLOCKED no loop e ligado ao modo; mudar para write o desliga");
+});
+
+test("precheck que passa leva o rascunho de DRAFT para AI_REVIEW", async () => {
+  const criado = await adapter.call({
+    capability: cap("content.create_draft"),
+    request: pedido({ brand_id: ids.brand, title: "T", objective: null, channel: "INSTAGRAM" }),
+  });
+  const cvid = criado.output.content_version_id;
+
+  const antes = await db.query(
+    `select state::text as state from mkt.content_versions where id = $1`, [cvid]);
+  assert.equal(antes.rows[0].state, "DRAFT", "conteudo novo nasce DRAFT");
+
+  const laudo = await adapter.call({
+    capability: cap("quality.precheck"), request: pedido({ content_version_id: cvid }),
+  });
+  assert.equal(laudo.output.valid, true);
+
+  const depois = await db.query(
+    `select state::text as state from mkt.content_versions where id = $1`, [cvid]);
+  assert.equal(depois.rows[0].state, "AI_REVIEW");
+});
+
+test("agora o rascunho revisado alcanca a fila humana", async () => {
+  // Este e o aceite de verdade: antes da 0011 esta sequencia terminava em
+  // CONTENT_NOT_APPROVED, e nenhum teste a exercia sem preparar o estado.
+  //
+  // Corpo proprio de proposito. Com o texto do rascunho anterior, o check
+  // duplicate_risk reprova — corretamente — e o laudo nao promoveria nada.
+  // Foi assim que este teste falhou da primeira vez, e a checagem estava
+  // certa: quem tinha de mudar era o caso.
+  const criado = await outroAdapter("Segundo corpo, diferente do primeiro.").call({
+    capability: cap("content.create_draft"),
+    request: pedido({ brand_id: ids.brand, title: "T2", objective: null, channel: "INSTAGRAM" }),
+  });
+  const cvid = criado.output.content_version_id;
+
+  await adapter.call({ capability: cap("quality.precheck"), request: pedido({ content_version_id: cvid }) });
+  const ap = await adapter.call({
+    capability: cap("approval.request"),
+    request: pedido({ content_version_id: cvid, reason_codes: ["WORKSPACE_FIRST_PUBLISH"] }),
+  });
+
+  assert.equal(ap.output.state, "HUMAN_REVIEW");
+  const { rows } = await db.query(
+    `select state::text as state from mkt.content_versions where id = $1`, [cvid]);
+  assert.equal(rows[0].state, "HUMAN_REVIEW");
+});
+
+test("precheck reexecutado sobre conteudo aprovado nao rebaixa a decisao humana", async () => {
+  const criado = await outroAdapter("Terceiro corpo, tambem distinto.").call({
+    capability: cap("content.create_draft"),
+    request: pedido({ brand_id: ids.brand, title: "T3", objective: null, channel: "INSTAGRAM" }),
+  });
+  const cvid = criado.output.content_version_id;
+  await db.query(
+    `update mkt.content_versions set state = 'AI_REVIEW' where id = $1`, [cvid]);
+  await db.query(
+    `update mkt.content_versions set state = 'APPROVED' where id = $1`, [cvid]);
+
+  await adapter.call({ capability: cap("quality.precheck"), request: pedido({ content_version_id: cvid }) });
+
+  const { rows } = await db.query(
+    `select state::text as state from mkt.content_versions where id = $1`, [cvid]);
+  assert.equal(rows[0].state, "APPROVED",
+    "revisao de IA reexecutada nao desfaz o que um humano ja decidiu");
+});
+
+test("precheck que reprova deixa o rascunho onde estava", async () => {
+  const cvid = (await db.query(`
+    with c as (insert into mkt.contents (org_id, workspace_id, brand_id, title,
+                                         created_by_actor_type, created_by_actor_id)
+               values ($1,$2,$3,'Com claim','agent','a') returning id)
+    insert into mkt.content_versions (org_id, content_id, version, master_body, state)
+    select $1, id, 1, 'Cobrimos tudo.', 'DRAFT' from c returning id`,
+    [ids.org, ids.ws, ids.brand])).rows[0].id;
+
+  // Claim material cuja evidence some depois: e disso que CLAIM_UNSUPPORTED
+  // fala — "o que sustentava sumiu".
+  await db.query(
+    `insert into mkt.claims (org_id, content_version_id, text, material, claim_type, evidence_ids)
+     values ($1,$2,'Cobrimos tudo.',true,'COVERAGE',array[$3]::uuid[])`,
+    [ids.org, cvid, "00000000-0000-4000-8000-0000000000ff"]);
+
+  const laudo = await adapter.call({
+    capability: cap("quality.precheck"), request: pedido({ content_version_id: cvid }),
+  });
+
+  assert.equal(laudo.output.valid, false);
+  const { rows } = await db.query(
+    `select state::text as state from mkt.content_versions where id = $1`, [cvid]);
+  assert.equal(rows[0].state, "DRAFT", "reprovado nao anda");
 });

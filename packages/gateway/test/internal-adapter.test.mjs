@@ -35,6 +35,7 @@ function portas(over = {}) {
       async createDraft() { return { content_id: "c1", content_version_id: "cv1", version: 1 }; },
       async createVariant() { return { id: "v1", channel: "INSTAGRAM" }; },
       async proposeBrandVersion() { return { id: "bb2", version: 4, status: "CANDIDATE" }; },
+      async markAiReviewed() { return { transicionou: true, state: "AI_REVIEW" }; },
       ...(over.authoring ?? {}),
     },
     publishing: {
@@ -365,4 +366,70 @@ test("schedule grava a autonomia CONCEDIDA, nao a pedida", async () => {
     granted_autonomy: "A2",
   });
   assert.equal(recebido.autonomy_used, "A2");
+});
+
+// ── A revisao de IA que passa move o conteudo ───────────────────────────────
+//
+// Ate a migration 0011 ninguem fazia DRAFT -> AI_REVIEW, e conteudo criado por
+// agente ficava preso em DRAFT: `approval.request` exige AI_REVIEW e a state
+// machine nao deixa pular.
+
+test("precheck que passa registra a revisao de IA", async () => {
+  let recebido = null;
+  const a = montar({
+    knowledge: { async claimsFor() { return []; },
+                 async evidenceFor() { return []; },
+                 async duplicateOf() { return null; } },
+    authoring: { async markAiReviewed(x) { recebido = x; return { transicionou: true, state: "AI_REVIEW" }; } },
+  });
+
+  const r = await a.call({
+    capability: cap("quality.precheck"),
+    request: pedido({ content_version_id: "cv1" }),
+  });
+
+  assert.equal(r.output.valid, true);
+  assert.deepEqual(recebido, { org_id: TENANT.org_id, content_version_id: "cv1" });
+});
+
+test("precheck que reprova NAO move o conteudo", async () => {
+  // O caso que importa mais que o de cima. Um precheck que promovesse mesmo
+  // reprovando transformaria "conferi e achei problema" em "conferi" — o
+  // unico resultado pior que nao conferir.
+  let chamou = false;
+  const a = montar({
+    knowledge: {
+      async claimsFor() { return [{ material: true, evidencias: 0, claim_type: "COVERAGE" }]; },
+      async evidenceFor() { return []; },
+      async duplicateOf() { return null; },
+    },
+    authoring: { async markAiReviewed() { chamou = true; return { transicionou: true }; } },
+  });
+
+  const r = await a.call({
+    capability: cap("quality.precheck"),
+    request: pedido({ content_version_id: "cv1" }),
+  });
+
+  assert.equal(r.output.valid, false);
+  assert.ok(r.output.reason_codes.includes("CLAIM_UNSUPPORTED"));
+  assert.equal(chamou, false, "laudo que reprova nao pode promover nada");
+});
+
+test("o laudo nao carrega o estado resultante", async () => {
+  // `olga://io/validated-result` fecha o objeto, e esta certo: um laudo diz o
+  // que foi conferido. Em que estado o conteudo ficou e outra pergunta, e ela
+  // se responde no trace. Este teste existe para que a proxima pessoa que
+  // quiser acrescentar um campo ali encontre a recusa aqui, e nao no contrato.
+  const a = montar({
+    knowledge: { async claimsFor() { return []; },
+                 async evidenceFor() { return []; },
+                 async duplicateOf() { return null; } },
+    authoring: { async markAiReviewed() { return { transicionou: true, state: "AI_REVIEW" }; } },
+  });
+  const r = await a.call({
+    capability: cap("quality.precheck"),
+    request: pedido({ content_version_id: "cv1" }),
+  });
+  assert.deepEqual(Object.keys(r.output).sort(), ["checks", "reason_codes", "trace_id", "valid"]);
 });

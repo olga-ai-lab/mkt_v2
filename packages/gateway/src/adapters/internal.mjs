@@ -88,7 +88,7 @@ function comoLista(v) {
  * precheck de um cliente.
  */
 export const SUPERFICIE_INTERNA = {
-  authoring: ["createDraft", "createVariant", "proposeBrandVersion"],
+  authoring: ["createDraft", "createVariant", "proposeBrandVersion", "markAiReviewed"],
   knowledge: ["brandBrain", "brandBrainForContent", "contentVersion", "claimsFor",
               "evidenceFor", "duplicateOf"],
   publishing: ["requestApproval", "schedule"],
@@ -226,9 +226,32 @@ export function createInternalAdapter({ authoring, knowledge, publishing, compos
     if (materiais.length > 0 && evidencias.length === 0) reason_codes.push("EVIDENCE_INSUFFICIENT");
     if (duplicado) reason_codes.push("CONTENT_DUPLICATE_RISK");
 
+    const valid = reason_codes.length === 0;
+
+    // A revisao de IA que passa move o conteudo de DRAFT para AI_REVIEW.
+    //
+    // Ate a migration 0011 esta capability declarava side_effect 'none', e
+    // ninguem no sistema fazia essa passagem — conteudo criado por agente
+    // ficava preso em DRAFT, porque `approval.request` exige AI_REVIEW e a
+    // state machine nao deixa pular. O registry agora declara o efeito, e por
+    // isso o handler pode produzi-lo. A ordem importa: declarar depois de
+    // escrever seria o codigo contando ao registry o que ele faz.
+    //
+    // Laudo que reprova nao promove nada. Um precheck que movesse o conteudo
+    // adiante mesmo reprovando transformaria "conferi e achei problema" em
+    // "conferi", que e o unico resultado pior que nao conferir.
+    if (valid) {
+      const a = exigirPorta(authoring, "authoring", "quality.precheck");
+      await a.markAiReviewed({ org_id: tenant.org_id, content_version_id: cvid });
+    }
+
+    // O estado resultante NAO entra no laudo: `olga://io/validated-result`
+    // fecha o objeto com additionalProperties false, e ele esta certo. Um
+    // laudo diz o que foi conferido; em que estado o conteudo ficou depois e
+    // outra pergunta, e ela se responde no trace.
     return {
       external_id: String(cvid),
-      output: { trace_id, valid: reason_codes.length === 0, checks: limpar(checks), reason_codes },
+      output: { trace_id, valid, checks: limpar(checks), reason_codes },
     };
   }
 

@@ -926,6 +926,45 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
     },
 
     /**
+     * Registra que a revisao de IA aconteceu: DRAFT -> AI_REVIEW.
+     *
+     * Este metodo existe porque essa passagem nao existia em lugar nenhum, e
+     * sem ela conteudo criado por agente ficava preso em DRAFT para sempre —
+     * `approval.request` exige AI_REVIEW, e a state machine nao deixa pular.
+     *
+     * Tres recusas deliberadas, e nenhuma delas e erro:
+     *
+     * 1. So promove a partir de DRAFT. Conteudo que ja passou por olho humano
+     *    nao volta para a fila da IA porque um precheck rodou de novo.
+     * 2. Nao valida a transicao com um `if` proprio: quem decide e o trigger
+     *    `assert_content_transition`. Um segundo julgamento aqui seria a
+     *    mesma regra em dois lugares, e um dia eles discordariam.
+     * 3. Devolve o que aconteceu em vez de levantar quando nada acontece.
+     *    "Ja estava em AI_REVIEW" e resultado legitimo de uma reexecucao, nao
+     *    falha — e o loop pode reexecutar um passo.
+     */
+    async markAiReviewed({ org_id, content_version_id }) {
+      const { rows } = await pool.query(
+        `update ${S}.content_versions
+            set state = 'AI_REVIEW'
+          where id = $1 and org_id = $2 and state = 'DRAFT'
+          returning id, state::text as state`,
+        [content_version_id, org_id]);
+
+      if (rows[0]) return { transicionou: true, state: rows[0].state };
+
+      const atual = await pool.query(
+        `select state::text as state from ${S}.content_versions
+          where id = $1 and org_id = $2`, [content_version_id, org_id]);
+      if (!atual.rows[0]) {
+        const e = new Error("versao de conteudo inexistente");
+        e.reason_code = "SCHEMA_VALIDATION_FAILED";
+        throw e;
+      }
+      return { transicionou: false, state: atual.rows[0].state };
+    },
+
+    /**
      * Variante de canal. Uma por (versao, canal) — a constraint garante.
      * Reexecutar devolve a que ja existe em vez de estourar: a capability e
      * interna, mas o loop pode reexecutar, e um erro aqui viraria falha de
