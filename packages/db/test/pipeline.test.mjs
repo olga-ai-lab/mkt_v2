@@ -438,13 +438,16 @@ test("G1 — receipt carrega o external ID do provider, e o trace liga pedido a 
   assert.equal(receipt.rows[0].approval_id, approval_id,
     "o receipt aponta para a aprovacao que autorizou");
 
-  // 2. O MESMO trace liga as quatro pontas: pedido, execucao, efeito e aviso.
-  const [pedido, run, aviso] = await Promise.all([
+  // 2. O MESMO trace liga as cinco pontas: pedido, decisao, execucao, efeito
+  //    e aviso.
+  const [pedido, run, aviso, decisao] = await Promise.all([
     db.query(`select 1 from mkt.outbox
                where trace_id = $1 and event_type = 'olga/content.publish.requested'`, [trace]),
     db.query(`select current_state from mkt.workflow_runs where trace_id = $1`, [trace]),
     db.query(`select 1 from mkt.outbox
                where trace_id = $1 and event_type = 'olga/content.published'`, [trace]),
+    db.query(`select action, decision, actor_id, object_id
+                from mkt.audit_events where trace_id = $1 and action = 'approval.decided'`, [trace]),
   ]);
 
   assert.equal(pedido.rows.length, 1, "o pedido tem de estar no trace");
@@ -452,6 +455,16 @@ test("G1 — receipt carrega o external ID do provider, e o trace liga pedido a 
   assert.equal(run.rows[0].current_state, "PUBLISHED");
   assert.equal(aviso.rows.length, 1, "o aviso de publicado tem de estar no trace");
 
+  // A decisao humana e a unica ponta que nao deixa evento no outbox nem
+  // receipt: ela nao e efeito externo, e por isso escapava do trace. Sem ela,
+  // uma auditoria mostra o post e nao mostra quem autorizou.
+  assert.equal(decisao.rows.length, 1, "a decisao de aprovacao tem de estar no trace");
+  assert.equal(decisao.rows[0].decision, "APPROVED");
+  assert.equal(decisao.rows[0].actor_id, ids.user, "o trace precisa dizer QUEM decidiu");
+  assert.equal(decisao.rows[0].object_id, content_version_id,
+    "a decisao aponta para a versao que ela aprovou, nao para o conteudo em geral");
+
   // Sem isto, "trace completo" seria uma coluna preenchida em lugares soltos.
-  // Com isto, uma auditoria parte do pedido e chega ao id do post.
+  // Com isto, uma auditoria parte do pedido, passa por quem autorizou, e
+  // chega ao id do post.
 });

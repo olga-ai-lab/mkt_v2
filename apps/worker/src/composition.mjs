@@ -112,6 +112,7 @@ export function createWorkerApp({ pool, inngest, providers, env = process.env, t
       },
       policies: ports.policies,
       runs: ports.runs,
+      audit: ports.audit,
       tracer,
       ids: { newId: () => crypto.randomUUID(), newTraceId: () => `tr_${crypto.randomUUID()}` },
     });

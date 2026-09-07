@@ -12,7 +12,7 @@
  * component, sem ninguem precisar fabricar um request falso para chamar.
  */
 import { extractToken, verifyJwtHS256, resolveWorkspace, SessionError } from "./session.mjs";
-import { pool } from "./db";
+import { ports } from "./db";
 
 export type TrustedContext = {
   user_id: string;
@@ -45,14 +45,12 @@ export async function getTrustedContext(request: RequestLike): Promise<TrustedCo
 
   // O papel vem da membership, nao da claim: um token com role forjada nao
   // pode virar permissao. A claim so diz QUEM e; o banco diz o que pode.
-  const { rows } = await pool.query(
-    `select m.org_id, m.role::text as role, w.id as workspace_id
-       from mkt.memberships m
-       join mkt.workspaces w on w.org_id = m.org_id
-      where m.user_id = $1
-      order by w.created_at asc`,
-    [claims.sub],
-  );
+  //
+  // A consulta mora na porta, e nao aqui, porque so a porta sabe em qual
+  // schema procurar. Este arquivo ja escreveu `mkt.` na mao uma vez, e em
+  // producao — onde o alvo e `mkt_v2` — isso mandava o login para um schema
+  // que nao e nosso.
+  const rows = await ports.iam.membershipsOf(claims.sub);
   if (rows.length === 0) return null;
 
   const pedido =

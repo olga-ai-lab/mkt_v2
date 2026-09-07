@@ -174,7 +174,7 @@ export function buildEvidence({ trace_id, items = [] }) {
 export function createAgentLoop({
   resolver, planner, responder, retrieval,
   compiler, gateway, registry, policies,
-  runs, tracer, ids, clock,
+  runs, audit, tracer, ids, clock,
 }) {
   const now = () => clock?.now?.() ?? Date.now();
   const nowIso = () => new Date(now()).toISOString();
@@ -224,6 +224,56 @@ export function createAgentLoop({
 
     const evidencias = [];
     const receipt_ids = [];
+    // Guardado fora do `try` porque toda saida do run — sucesso, parada ou
+    // excecao — precisa registrar o plano, e `encerrar` e definido antes de
+    // o planner rodar.
+    let plano = null;
+
+    /**
+     * O registro de auditoria do run.
+     *
+     * O plano existe no retorno do loop desde sempre e morria ali: quem
+     * auditava depois via o receipt do efeito e nao via a INTENCAO que levou
+     * a ele. `agent_runs` guarda o resultado; o passo a passo do que o modelo
+     * propos nao tinha coluna, e criar uma seria um segundo lugar para a
+     * mesma verdade — o payload do evento de auditoria ja e esse lugar.
+     *
+     * Falha aqui nao derruba o run. E deliberado e e o unico ponto do sistema
+     * onde escolhi assim: o efeito ja aconteceu quando isto roda, e perder a
+     * resposta de um usuario para salvar uma linha de auditoria troca um
+     * problema visivel por outro pior. O tracer registra a falha.
+     */
+    async function auditarRun(status, resp) {
+      if (!audit?.record) return;
+      try {
+        await audit.record({
+          org_id: tenant.org_id,
+          workspace_id: tenant.workspace_id,
+          actor_type: "agent",
+          actor_id: agent.agent_id,
+          action: "agent_run.finished",
+          object_type: "agent_run",
+          object_id: run_id,
+          object_version: agent.version,
+          decision: status,
+          reason_codes: resp?.reason_codes ?? [],
+          trace_id,
+          payload: {
+            respondability: resp?.respondability ?? null,
+            autonomy_mode: resp?.autonomy_mode ?? null,
+            receipt_ids,
+            // `args_summary` e prosa humana por contrato; os args reais nascem
+            // no compiler. E exatamente o resumo que serve para auditar.
+            steps: (plano?.steps ?? []).map((p) => ({
+              capability_id: p.capability_id,
+              args_summary: p.args_summary ?? null,
+            })),
+          },
+        });
+      } catch (e) {
+        emitir("audit.failed", { erro: String(e?.message ?? e) });
+      }
+    }
 
     try {
       // ── encerramento comum a toda parada antes do fim ───────────────────
@@ -244,6 +294,7 @@ export function createAgentLoop({
           respondability: state, reason_codes: resp.reason_codes,
           autonomy_used: autonomy_ceiling, latency_ms: now() - started_at, finished_at: nowIso(),
         });
+        await auditarRun(state, resp);
         emitir("loop.stopped", { state, reason_codes: resp.reason_codes });
         return { run_id, trace_id, response: resp, evidence: parcial };
       }
@@ -296,6 +347,7 @@ export function createAgentLoop({
       // ── 3. PLANNER ───────────────────────────────────────────────────────
       const plan = await planner.plan({ trace_id, tenant, intent, agent, context: recuperado });
       assertValid("olga://io/task-plan", plan);
+      plano = plan;
       emitir("loop.planned", { steps: plan.steps.length });
 
       // O plano não pode inventar capability fora do charter do agente.
@@ -482,6 +534,7 @@ export function createAgentLoop({
         reason_codes: final.reason_codes, autonomy_used: autonomy_ceiling,
         latency_ms: now() - started_at, finished_at: nowIso(),
       });
+      await auditarRun("SUCCEEDED", final);
       emitir("loop.completed", { state: final.respondability, steps: plan.steps.length });
       return { run_id, trace_id, response: final, plan, intent, evidence: pkg };
 
@@ -491,6 +544,7 @@ export function createAgentLoop({
         status: "FAILED", respondability: e.respondability ?? "TEMPORARILY_UNAVAILABLE",
         reason_codes: [reason], latency_ms: now() - started_at, finished_at: nowIso(),
       });
+      await auditarRun("FAILED", { reason_codes: [reason], respondability: e.respondability ?? null });
       emitir("loop.failed", { reason_code: reason });
       throw e;
     }

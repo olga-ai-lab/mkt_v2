@@ -85,6 +85,66 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
     newId: () => crypto.randomUUID(),
   };
 
+  /**
+   * IAM: de quem e o token, e o que ele alcanca.
+   *
+   * Esta consulta morava escrita a mao em `apps/web/lib/auth.ts`, com o schema
+   * `mkt` literal — enquanto todo o resto do sistema resolve o schema por
+   * `MKT_SCHEMA`. Em producao, onde o alvo e `mkt_v2`, o login lia um schema
+   * que nao e nosso: ninguem entrava, e a leitura batia em dados de terceiros.
+   *
+   * O consertavel nao foi trocar o prefixo: foi tirar SQL de um arquivo que
+   * nao devia conhecer SQL. Quem resolve schema e este modulo, e so ele.
+   */
+  const iam = {
+    async membershipsOf(user_id) {
+      const { rows } = await pool.query(
+        `select m.org_id, m.role::text as role, w.id as workspace_id
+           from ${S}.memberships m
+           join ${S}.workspaces w on w.org_id = m.org_id
+          where m.user_id = $1
+          order by w.created_at asc`, [user_id]);
+      return rows;
+    },
+  };
+
+  /**
+   * Trilha de auditoria.
+   *
+   * `mkt.audit_events` existe desde a migration 0004, com RLS e teste de RLS —
+   * e ate aqui nenhuma linha de codigo de producao escrevia nela. A tabela
+   * estava correta e vazia, que e a forma mais silenciosa de uma auditoria
+   * falhar: quem consulta ve zero eventos e conclui que nada aconteceu.
+   *
+   * `record` aceita um cliente por parametro justamente para poder entrar na
+   * MESMA transacao do efeito que ela registra. Auditoria que pode divergir do
+   * fato — porque uma commitou e a outra nao — nao e auditoria, e a diferenca
+   * so aparece no dia em que alguem precisa dela.
+   *
+   * A RLS daquela tabela e append-only para o papel da aplicacao (ha teste):
+   * nao existe update nem delete aqui de proposito, e nao e esquecimento.
+   */
+  const audit = {
+    /**
+     * @param {{ org_id: string, workspace_id?: string|null, actor_type: string,
+     *           actor_id?: string|null, action: string, object_type: string,
+     *           object_id?: string|null, object_version?: number|null,
+     *           decision?: string|null, reason_codes?: string[],
+     *           trace_id?: string|null, payload?: object }} e
+     * @param {any} [client] cliente da transacao em curso; sem ele, o pool.
+     */
+    async record(e, client = pool) {
+      await client.query(
+        `insert into ${S}.audit_events
+           (org_id, workspace_id, actor_type, actor_id, action, object_type,
+            object_id, object_version, decision, reason_codes, trace_id, payload)
+         values ($1,$2,$3::${S}.actor_type,$4,$5,$6,$7,$8,$9,$10,$11,coalesce($12::jsonb,'{}'::jsonb))`,
+        [e.org_id, e.workspace_id ?? null, e.actor_type, e.actor_id ?? null,
+         e.action, e.object_type, e.object_id ?? null, e.object_version ?? null,
+         e.decision ?? null, e.reason_codes ?? [], e.trace_id ?? null, json(e.payload ?? {})]);
+    },
+  };
+
   const runs = {
     async start(r) {
       await pool.query(
@@ -354,7 +414,26 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
 
         const { rows: par } = await c.query(
           `${SELECT_PAR} where a.id = $1 and a.org_id = $2`, [approval_id, org_id]);
-        return parear(par[0]);
+        const resultado = parear(par[0]);
+
+        // Na mesma transacao do efeito: uma decisao que commitou sem deixar
+        // rastro, ou um rastro de decisao que nao aconteceu, seriam os dois
+        // piores estados possiveis desta tabela.
+        await audit.record({
+          org_id,
+          workspace_id: resultado?.approval?.workspace_id ?? null,
+          actor_type: "user",
+          actor_id: decided_by,
+          action: "approval.decided",
+          object_type: "content_version",
+          object_id: rows[0].subject_id,
+          object_version: resultado?.content?.version ?? null,
+          decision,
+          trace_id,
+          payload: { approval_id, comment },
+        }, c);
+
+        return resultado;
       });
     },
   };
@@ -980,6 +1059,24 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
             returning id, version, status::text as status, activated_at`,
           [version_id, org_id, brand_id, actor_type, actor_id]);
 
+        // O momento em que um humano assume responsabilidade por um artefato
+        // que o agente escreveu. `activated_by` na propria versao diz QUEM;
+        // aqui fica o QUANDO em relacao a tudo o mais, no mesmo trace.
+        await audit.record({
+          org_id,
+          actor_type,
+          actor_id,
+          action: "brand_brain.promoted",
+          object_type: "brand_brain_version",
+          object_id: version_id,
+          object_version: nova.rows[0]?.version ?? null,
+          decision: "ACTIVE",
+          payload: {
+            brand_id,
+            substituida: anterior.rows[0]?.id ?? null,
+          },
+        }, c);
+
         return {
           promovida: nova.rows[0],
           substituida: anterior.rows[0] ?? null,
@@ -988,6 +1085,6 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
     },
   };
 
-  return { routing, budget, registry, runs, policies, receipts, outbox, approvals,
+  return { routing, budget, registry, iam, audit, runs, policies, receipts, outbox, approvals,
            connections, variants, publishing, content, knowledge, authoring, governance };
 }

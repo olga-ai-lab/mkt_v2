@@ -184,3 +184,45 @@ test("o quadro nao atravessa workspace", async () => {
   const linhas = await ports.knowledge.brandBrainBoard(ids.org, w2.rows[0].id);
   assert.deepEqual(linhas, [], "marca de outro workspace nao aparece neste quadro");
 });
+
+// ── A trilha de auditoria ───────────────────────────────────────────────────
+//
+// `mkt.audit_events` existia desde a 0004, com RLS e teste de RLS, e nenhuma
+// linha de codigo de producao escrevia nela. Uma auditoria vazia nao parece
+// quebrada: parece que nada aconteceu.
+
+test("promover deixa o evento de auditoria na mesma transacao", async () => {
+  const v = await candidata();
+  await ports.governance.promoteBrandVersion({
+    org_id: ids.org, brand_id: ids.brand, version_id: v, actor_id: "olga",
+  });
+
+  const { rows } = await db.query(
+    `select actor_type::text as actor_type, actor_id, action, object_type,
+            object_id, decision, payload
+       from mkt.audit_events
+      where object_id = $1 and action = 'brand_brain.promoted'`, [v]);
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].actor_type, "user");
+  assert.equal(rows[0].actor_id, "olga", "quem assinou tem de estar no rastro");
+  assert.equal(rows[0].object_type, "brand_brain_version");
+  assert.equal(rows[0].decision, "ACTIVE");
+  assert.equal(rows[0].payload.brand_id, ids.brand);
+});
+
+test("promocao recusada nao deixa evento de auditoria", async () => {
+  // O par que importa: auditoria que registra o que nao aconteceu e tao ruim
+  // quanto auditoria que perde o que aconteceu. As duas mentem sobre o mesmo
+  // banco, e so a transacao compartilhada garante as duas coisas de uma vez.
+  const antes = await db.query(`select count(*)::int as n from mkt.audit_events`);
+
+  await assert.rejects(
+    () => ports.governance.promoteBrandVersion({
+      org_id: ids.org, brand_id: ids.brand,
+      version_id: "00000000-0000-4000-8000-00000000dead", actor_id: "olga",
+    }));
+
+  const depois = await db.query(`select count(*)::int as n from mkt.audit_events`);
+  assert.equal(depois.rows[0].n, antes.rows[0].n);
+});

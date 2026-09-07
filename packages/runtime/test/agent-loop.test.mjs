@@ -52,7 +52,7 @@ const planBase = () => ({
 
 /** Monta o loop com portas falsas e ganchos para inspecao. */
 function montar(over = {}) {
-  const visto = { compiladoCom: [], executadoCom: [], respondeuCom: [] };
+  const visto = { compiladoCom: [], executadoCom: [], respondeuCom: [], auditado: [] };
 
   const compiler = over.compiler ?? createCompiler({
     "content.create_draft": ({ entities, tenant }) => {
@@ -94,6 +94,7 @@ function montar(over = {}) {
     },
     policies: { listActive: async () => over.policies ?? [POL_ALLOW] },
     runs: { start: async () => {}, finish: async () => {} },
+    audit: over.audit ?? { record: async (e) => { visto.auditado.push(e); } },
     ids: { newId: () => "00000000-0000-4000-8000-000000000001", newTraceId: () => "tr_loop" },
   });
 
@@ -399,4 +400,47 @@ test("validateResult cobre as cinco checagens do contrato", () => {
   assert.equal(v.valid, true);
   assert.deepEqual(v.checks.map((c) => c.check).sort(),
     ["cardinality", "failure_normalized", "freshness", "schema", "tenant_scope"]);
+});
+
+// ── Auditoria do run ────────────────────────────────────────────────────────
+//
+// O plano existia no retorno do loop e morria ali. Quem auditasse depois via o
+// receipt do efeito e nao via a intencao que levou a ele.
+
+test("o run registra na auditoria o plano que o modelo propos", async () => {
+  const { loop, visto } = montar();
+  await loop.run(pedido());
+
+  assert.equal(visto.auditado.length, 1, "um run, um evento de auditoria");
+  const e = visto.auditado[0];
+  assert.equal(e.action, "agent_run.finished");
+  assert.equal(e.actor_type, "agent");
+  assert.equal(e.trace_id, "tr_loop");
+  assert.equal(e.decision, "SUCCEEDED");
+  assert.deepEqual(e.payload.steps, [
+    { capability_id: "content.create_draft", args_summary: "criar rascunho para Instagram" },
+  ]);
+});
+
+test("um run parado pela policy tambem deixa rastro, com o motivo", async () => {
+  // Sem policy ACTIVE o engine nega por padrao — e a parada mais simples de
+  // produzir e a que mais importa registrar.
+  const { loop, visto } = montar({ policies: [] });
+  await loop.run(pedido());
+
+  const e = visto.auditado.at(-1);
+  assert.equal(e.action, "agent_run.finished");
+  assert.notEqual(e.decision, "SUCCEEDED");
+  assert.ok(e.reason_codes.length > 0, "a parada tem de dizer por que parou");
+});
+
+test("auditoria que falha nao derruba o run", async () => {
+  // Escolha deliberada, e o unico ponto do sistema onde ela vale: quando isto
+  // roda, o efeito ja aconteceu. Perder a resposta do usuario para salvar uma
+  // linha de auditoria troca um problema visivel por um pior.
+  const { loop } = montar({
+    audit: { record: async () => { throw new Error("banco fora"); } },
+  });
+  const r = await loop.run(pedido());
+  assert.equal(r.response.respondability, "EXECUTABLE");
 });
