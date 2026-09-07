@@ -484,3 +484,82 @@ test("precheck que reprova deixa o rascunho onde estava", async () => {
     `select state::text as state from mkt.content_versions where id = $1`, [cvid]);
   assert.equal(rows[0].state, "DRAFT", "reprovado nao anda");
 });
+
+// ── Conexoes de canal, gravadas pelo consentimento no navegador ────────────
+
+test("conectar grava a conexao ACTIVE com secret_ref, e nunca o token", async () => {
+  const c = await ports.connections.upsert({
+    org_id: ids.org, workspace_id: ids.ws, channel: "INSTAGRAM", provider: "meta",
+    external_account_id: "ig-777", display_name: "corretora",
+    secret_ref: "vault://meta/ig-777",
+    scopes: ["instagram_basic", "instagram_content_publish"],
+    expires_at: new Date(Date.now() + 60 * 86400000).toISOString(),
+  });
+
+  assert.equal(c.status, "ACTIVE");
+  assert.equal(c.external_account_id, "ig-777");
+
+  // A tabela nao tem coluna para token, e este teste existe para que ela
+  // continue nao tendo: o dia em que alguem acrescentar uma, ele acusa.
+  const { rows } = await db.query(
+    `select column_name from information_schema.columns
+      where table_schema = 'mkt' and table_name = 'connections'`);
+  const colunas = rows.map((r) => r.column_name);
+  for (const proibida of ["access_token", "token", "secret", "password"]) {
+    assert.ok(!colunas.includes(proibida),
+      `mkt.connections ganhou a coluna ${proibida}: segredo nao mora no banco de dominio`);
+  }
+});
+
+test("reconectar atualiza a mesma linha em vez de criar outra", async () => {
+  // Reconexao e rotina, nao excecao: o token longo da Meta dura 60 dias. Duas
+  // linhas para a mesma conta deixariam a publicacao escolhendo uma delas.
+  const args = {
+    org_id: ids.org, workspace_id: ids.ws, channel: "INSTAGRAM", provider: "meta",
+    external_account_id: "ig-888", secret_ref: "vault://meta/ig-888",
+  };
+  const a = await ports.connections.upsert({ ...args, display_name: "antigo" });
+  const b = await ports.connections.upsert({ ...args, display_name: "novo" });
+
+  assert.equal(a.id, b.id, "a constraint diz o que e a mesma conexao; o upsert obedece");
+  assert.equal(b.display_name, "novo");
+});
+
+test("conexao sem secret_ref e recusada antes de chegar ao banco", async () => {
+  await assert.rejects(
+    () => ports.connections.upsert({
+      org_id: ids.org, workspace_id: ids.ws, channel: "INSTAGRAM",
+      provider: "meta", external_account_id: "ig-999", secret_ref: null,
+    }),
+    (e) => e.reason_code === "CHANNEL_NOT_CONNECTED");
+});
+
+test("revogar preserva a linha e devolve a referencia do segredo a apagar", async () => {
+  const c = await ports.connections.upsert({
+    org_id: ids.org, workspace_id: ids.ws, channel: "INSTAGRAM", provider: "meta",
+    external_account_id: "ig-666", secret_ref: "vault://meta/ig-666",
+  });
+
+  const r = await ports.connections.revoke(ids.org, c.id);
+  // O secret_ref ANTIGO tem de voltar: quem chama precisa dele para apagar o
+  // segredo no vault, e depois do update ele ja e null.
+  assert.equal(r.secret_ref, "vault://meta/ig-666");
+
+  const { rows } = await db.query(
+    `select status::text as status, secret_ref from mkt.connections where id = $1`, [c.id]);
+  assert.equal(rows[0].status, "REVOKED");
+  assert.equal(rows[0].secret_ref, null);
+  assert.equal(rows.length, 1, "revogar nao apaga a linha: publications aponta para ela");
+
+  // Revogar de novo nao acha nada para revogar, e isso e resposta, nao erro.
+  assert.equal(await ports.connections.revoke(ids.org, c.id), null);
+});
+
+test("revogar conexao de outra organizacao nao encontra nada", async () => {
+  const c = await ports.connections.upsert({
+    org_id: ids.org, workspace_id: ids.ws, channel: "INSTAGRAM", provider: "meta",
+    external_account_id: "ig-555", secret_ref: "vault://meta/ig-555",
+  });
+  const outra = "00000000-0000-4000-8000-000000000abc";
+  assert.equal(await ports.connections.revoke(outra, c.id), null);
+});

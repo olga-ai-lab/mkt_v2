@@ -567,6 +567,75 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
    * assim nenhuma query deste arquivo tem como devolver credencial.
    */
   const connections = {
+    /**
+     * Grava a conexao consentida no navegador, ou atualiza a que ja existe.
+     *
+     * Reconectar o mesmo canal e o caso normal, e nao excecao: o token longo
+     * da Meta dura 60 dias. A constraint `unique (workspace_id, channel,
+     * external_account_id)` diz o que e "a mesma conexao", e o upsert obedece
+     * a ela em vez de inventar outro criterio.
+     *
+     * `secret_ref` entra; token nao passa por esta funcao em nenhum caminho.
+     * Nao e disciplina: nao existe parametro para ele.
+     */
+    /**
+     * @param {{ org_id: string, workspace_id: string, channel: string, provider: string,
+     *           external_account_id: string, display_name?: string|null, secret_ref: string,
+     *           scopes?: string[], expires_at?: string|null }} conexao
+     */
+    async upsert({ org_id, workspace_id, channel, provider, external_account_id,
+                   display_name = null, secret_ref, scopes = [], expires_at = null }) {
+      if (!secret_ref) {
+        const e = new Error("conexao sem secret_ref");
+        e.reason_code = "CHANNEL_NOT_CONNECTED";
+        throw e;
+      }
+      const { rows } = await pool.query(
+        `insert into ${S}.connections
+           (org_id, workspace_id, channel, provider, external_account_id,
+            display_name, status, secret_ref, scopes, expires_at, last_checked_at)
+         values ($1,$2,$3::${S}.channel,$4,$5,$6,'ACTIVE',$7,$8,$9, now())
+         on conflict (workspace_id, channel, external_account_id) do update
+           set display_name = excluded.display_name,
+               status = 'ACTIVE',
+               secret_ref = excluded.secret_ref,
+               scopes = excluded.scopes,
+               expires_at = excluded.expires_at,
+               last_checked_at = now()
+         returning id, channel::text as channel, external_account_id,
+                   display_name, status::text as status, expires_at`,
+        [org_id, workspace_id, channel, provider, external_account_id,
+         display_name, secret_ref, scopes, expires_at]);
+      return rows[0];
+    },
+
+    /**
+     * Revoga uma conexao.
+     *
+     * Marca REVOKED em vez de apagar: `publications` aponta para `connections`
+     * com foreign key, e apagar a linha levaria junto a resposta para "por
+     * onde aquele post saiu". O segredo, esse sim, sai do vault — quem chama
+     * cuida disso, porque so ele conhece o vault em uso.
+     */
+    async revoke(org_id, connection_id) {
+      // O CTE existe porque RETURNING devolve o valor NOVO, e o que interessa
+      // aqui e o ANTIGO: quem chama precisa do secret_ref para apagar o
+      // segredo no vault, e ele acabou de virar null.
+      const { rows } = await pool.query(
+        `with antes as (
+           select id, secret_ref from ${S}.connections
+            where id = $1 and org_id = $2 and status <> 'REVOKED'
+         ), feito as (
+           update ${S}.connections c
+              set status = 'REVOKED', secret_ref = null, last_checked_at = now()
+             from antes where c.id = antes.id
+           returning c.id
+         )
+         select antes.id, antes.secret_ref from antes join feito on feito.id = antes.id`,
+        [connection_id, org_id]);
+      return rows[0] ?? null;
+    },
+
     async get(connection_id) {
       const { rows } = await pool.query(
         `select id, org_id, workspace_id, channel::text as channel, provider,

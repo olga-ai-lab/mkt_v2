@@ -68,21 +68,10 @@ export function createAdapters({ ports, secrets, mode = process.env.META_ADAPTER
 }
 
 /**
- * Resolvedor de segredo por variavel de ambiente.
+ * Reexportado de @olga/runtime/secrets.
  *
- * Serve para desenvolvimento e para um deploy simples; a interface e a mesma
- * que um vault de verdade implementa, entao trocar nao mexe no adapter.
- * Um `secret_ref` de "vault://meta/conn1" procura META_SECRET_CONN1.
+ * Ele mudou de casa porque ganhou um segundo dono: o app web, no callback de
+ * OAuth, precisa saber que este vault NAO grava. A reexportacao mantem
+ * `apps/worker` importando do mesmo lugar de sempre.
  */
-export function createEnvSecrets(env = process.env) {
-  return {
-    async resolve(secret_ref) {
-      if (!secret_ref) return null;
-      const chave = "META_SECRET_" + String(secret_ref)
-        .replace(/^\w+:\/\//, "")
-        .replace(/[^a-zA-Z0-9]+/g, "_")
-        .toUpperCase();
-      return env[chave] ?? null;
-    },
-  };
-}
+export { createEnvSecrets, createVaultSecrets, refDeConexao, SecretError } from "@olga/runtime/secrets";
