@@ -68,8 +68,11 @@ jobs:
       - name: App web compila
         run: npm run build:web
 
-      - name: Parsers dos gates cobrem os reporters TAP e spec
-        run: npm run test:gates
+      # Parsers dos gates e o conferidor de ambiente. O segundo entrou aqui
+      # porque uma variavel ausente nao quebra o boot do Next: ela quebra a
+      # primeira requisicao que precisar dela, longe da causa.
+      - name: Scripts de gate e de ambiente
+        run: npm run test:scripts
 
       # Evals de governanca dos agentes. Deterministicos: so o modelo e
       # roteirizado; policies, registries e gateways sao os reais.
