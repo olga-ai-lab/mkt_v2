@@ -19,6 +19,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           <Link href="/">Início</Link>
           <Link href="/approvals">Aprovações</Link>
           <Link href="/content">Conteúdo</Link>
+          <Link href="/content/novo">Criar</Link>
           <Link href="/brand">Brand Brain</Link>
           <Link href="/traces">Auditoria</Link>
           <span className="nav-spacer" />

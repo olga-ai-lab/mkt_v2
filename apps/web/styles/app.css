@@ -189,3 +189,7 @@ nav.topo button {
 .bb-hash { font-size: 12px; color: var(--text-muted); }
 
 .bb-candidata { display: grid; gap: var(--space-3); margin-bottom: var(--space-6); }
+
+/* O resultado do agente entra abaixo do formulario, com o mesmo respiro
+   que separa as secoes das outras telas. */
+.resultado-agente { margin-top: var(--space-6); }
