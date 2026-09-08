@@ -143,3 +143,31 @@ test("o trace carrega provider, modelo, custo e versao do profile", async () => 
   assert.ok(ev.cost_cents > 0);
   assert.equal(ev.content, undefined, "o trace nao deve carregar o conteudo gerado");
 });
+
+// ── Custo por capability (C4) ───────────────────────────────────────────────
+
+test("o gasto registrado carrega a capability que pediu a chamada", async () => {
+  const { gw, ledger } = harness({});
+  await gw.complete(req({ capability_id: "content.create_draft" }));
+  assert.equal(ledger[0].capability_id, "content.create_draft");
+});
+
+test("chamada sem capability registra nulo, e nao um valor de conveniencia", async () => {
+  // Resolver, planner e responder chegam assim. Preencher com qualquer coisa
+  // faria a soma por capability incluir o que aquela capability nao gastou.
+  const { gw, ledger } = harness({});
+  await gw.complete(req());
+  assert.equal(ledger[0].capability_id, null);
+});
+
+test("gasto que estoura o teto tambem carrega a capability", async () => {
+  // O caminho em que o dinheiro saiu e a chamada falhou: o registro e
+  // obrigatorio, e sem a capability ele seria justamente o gasto mais caro a
+  // ficar sem dono.
+  const { gw, ledger } = harness({
+    route: { ...ROUTE, max_cost_cents: 0.0001 },
+  });
+  await assert.rejects(() => gw.complete(req({ capability_id: "brand.propose_version" })),
+    (e) => e.reason_code === "SPEND_LIMIT_EXCEEDED");
+  assert.equal(ledger.at(-1).capability_id, "brand.propose_version");
+});

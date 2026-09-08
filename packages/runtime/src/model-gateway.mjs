@@ -107,7 +107,8 @@ export function createModelGateway({ routing, providers, budget, tracer, clock }
         if (cost_cents != null && cost_cents > ceiling) {
           // Estourou o teto, mas o dinheiro ja saiu: registrar e obrigatorio.
           await budget.record(gastoDe({ tenant, cost_cents, trace_id, task_class, target, out,
-                                        fallback_used, agent_run_id: req.agent_run_id }));
+                                        fallback_used, agent_run_id: req.agent_run_id,
+                                        capability_id: req.capability_id }));
           throw new ModelError("SPEND_LIMIT_EXCEEDED",
             `chamada custou ${cost_cents} centavos, acima do teto ${ceiling}`, { cost_cents });
         }
@@ -124,7 +125,8 @@ export function createModelGateway({ routing, providers, budget, tracer, clock }
         }
 
         await budget.record(gastoDe({ tenant, cost_cents, trace_id, task_class, target, out,
-                                      fallback_used, agent_run_id: req.agent_run_id }));
+                                      fallback_used, agent_run_id: req.agent_run_id,
+                                      capability_id: req.capability_id }));
 
         const result = {
           trace_id, task_class,
@@ -184,11 +186,12 @@ export function createModelGateway({ routing, providers, budget, tracer, clock }
  * Gravar so o total responderia a primeira pergunta e deixaria as outras
  * duas sem resposta justamente quando a conta vier alta.
  */
-function gastoDe({ tenant, cost_cents, trace_id, task_class, target, out, fallback_used, agent_run_id }) {
+function gastoDe({ tenant, cost_cents, trace_id, task_class, target, out, fallback_used,
+                   agent_run_id, capability_id }) {
   return {
     org_id: tenant.org_id,
     workspace_id: tenant.workspace_id,
-    task_class, cost_cents, trace_id,
+    task_class, cost_cents, trace_id, capability_id: capability_id ?? null,
     provider: target?.provider ?? null,
     model: target?.model ?? null,
     input_tokens: out?.input_tokens ?? null,

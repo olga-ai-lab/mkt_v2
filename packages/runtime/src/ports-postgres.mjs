@@ -40,15 +40,19 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
       return v == null ? null : Number(v);   // null = sem orcamento, != zero
     },
     async record({ workspace_id, org_id, cost_cents, trace_id, task_class, provider, model,
-                   input_tokens, output_tokens, fallback_used, agent_run_id }) {
+                   input_tokens, output_tokens, fallback_used, agent_run_id, capability_id }) {
       if (cost_cents == null) return;
+      // `capability_id` nulo nao e lacuna: as chamadas do proprio loop
+      // (resolver, planner, responder) nao rodam sob capability nenhuma, e e
+      // essa distincao que separa custo de pensar de custo de produzir.
       await pool.query(
         `insert into ${S}.model_spend
            (org_id, workspace_id, task_class, provider, model, cost_cents,
-            input_tokens, output_tokens, fallback_used, trace_id, agent_run_id)
-         values ($1,$2,$3::${S}.task_class,$4,$5,$6,$7,$8,coalesce($9,false),$10,$11)`,
+            input_tokens, output_tokens, fallback_used, trace_id, agent_run_id, capability_id)
+         values ($1,$2,$3::${S}.task_class,$4,$5,$6,$7,$8,coalesce($9,false),$10,$11,$12)`,
         [org_id, workspace_id, task_class, provider ?? null, model ?? null, cost_cents,
-         input_tokens ?? null, output_tokens ?? null, fallback_used ?? false, trace_id, agent_run_id ?? null]);
+         input_tokens ?? null, output_tokens ?? null, fallback_used ?? false, trace_id,
+         agent_run_id ?? null, capability_id ?? null]);
     },
   };
 

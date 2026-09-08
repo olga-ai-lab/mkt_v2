@@ -433,3 +433,43 @@ test("o laudo nao carrega o estado resultante", async () => {
   });
   assert.deepEqual(Object.keys(r.output).sort(), ["checks", "reason_codes", "trace_id", "valid"]);
 });
+
+// ── Custo por capability (C4): o handler diz sob qual capability gastou ─────
+//
+// A porta e o Model Gateway ja tem teste proprio para isto. O que esses testes
+// nao alcancam e o elo daqui: se o handler passar o id errado, ou nao passar,
+// tudo continua verde e o ledger fica com o dono trocado.
+
+test("cada handler que chama o redator declara a propria capability", async () => {
+  const visto = {};
+  const a = montar({
+    knowledge: {
+      async brandBrain() { return { brand_id: "b1", prohibitions: [], disclaimers: [] }; },
+      async brandBrainForContent() { return { brand_id: "b1", prohibitions: [], disclaimers: [] }; },
+      async contentVersion() { return { id: "cv1", master_body: "Corpo." }; },
+    },
+    compose: {
+      async draft(x) { visto.draft = x.capability_id; return { title: "T", master_body: "C", claims: [] }; },
+      async variant(x) { visto.variant = x.capability_id; return { headline: "H", body: "B", cta: null }; },
+      async brandBrain(x) {
+        visto.brandBrain = x.capability_id;
+        return { identity: { nome: "M", o_que_faz: "x" }, tone: { descricao: "d" },
+                 claims_allowed: [], prohibitions: [], disclaimers: [] };
+      },
+    },
+  });
+
+  await a.call({ capability: cap("content.create_draft"),
+                 request: pedido({ brand_id: "b1", channel: "INSTAGRAM" }) });
+  await a.call({ capability: cap("content.create_variant"),
+                 request: pedido({ content_version_id: "cv1", channel: "INSTAGRAM" }) });
+  await a.call({ capability: cap("brand.propose_version"),
+                 request: pedido({ brand_id: "b1", source_text: "texto da pagina",
+                                   source_url: "https://m.test", source_hash: "h" }) });
+
+  assert.deepEqual(visto, {
+    draft: "content.create_draft",
+    variant: "content.create_variant",
+    brandBrain: "brand.propose_version",
+  });
+});

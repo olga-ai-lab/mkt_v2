@@ -99,3 +99,70 @@ test("image_generation nasce CANDIDATE: o maior custo unitario nao entra ligado"
   const r = await db.query(`select status from mkt.model_routing where task_class='image_generation'`);
   assert.equal(r.rows[0].status, "CANDIDATE");
 });
+
+// ── Custo por capability (C4) ───────────────────────────────────────────────
+//
+// `model_spend` sempre soube quanto custou uma execucao. Nao sabia sob qual
+// capability o dinheiro saiu — entao dava para responder "quanto custou aquele
+// run" e nao dava para responder "quanto custa gerar um post", que e a
+// pergunta que alguem faz ANTES de mandar gerar quarenta.
+
+test("a porta grava sob qual capability o gasto aconteceu", async () => {
+  const { createPostgresPorts } = await import("@olga/runtime/ports-postgres");
+  const ports = createPostgresPorts(db, { schema: "mkt" });
+
+  await ports.budget.record({
+    org_id: ids.org, workspace_id: ids.ws, task_class: "copywriting",
+    cost_cents: 7.5, trace_id: "tr_c4_cap", provider: "anthropic", model: "m",
+    capability_id: "content.create_draft",
+  });
+
+  const { rows } = await db.query(
+    `select capability_id, cost_cents from mkt.model_spend where trace_id = 'tr_c4_cap'`);
+  assert.equal(rows[0].capability_id, "content.create_draft");
+});
+
+test("o gasto do proprio loop fica sem capability, e isso e a informacao", async () => {
+  // Resolver, planner e responder sao o loop pensando: nao rodam sob
+  // capability nenhuma. Nulo aqui e o que separa custo de pensar de custo de
+  // produzir — se fosse preenchido com um valor de conveniencia, a soma por
+  // capability passaria a incluir o que aquela capability nao gastou.
+  const { createPostgresPorts } = await import("@olga/runtime/ports-postgres");
+  const ports = createPostgresPorts(db, { schema: "mkt" });
+
+  await ports.budget.record({
+    org_id: ids.org, workspace_id: ids.ws, task_class: "reasoning",
+    cost_cents: 2.25, trace_id: "tr_c4_loop", provider: "anthropic", model: "m",
+  });
+
+  const { rows } = await db.query(
+    `select capability_id from mkt.model_spend where trace_id = 'tr_c4_loop'`);
+  assert.equal(rows[0].capability_id, null);
+});
+
+test("da para responder quanto custa cada capability, separado do custo do loop", async () => {
+  // O aceite do C4 dito como consulta: e esta pergunta que nao tinha resposta.
+  const { rows } = await db.query(
+    `select coalesce(capability_id, '(loop)') as onde, sum(cost_cents)::float as total
+       from mkt.model_spend
+      where workspace_id = $1 and trace_id in ('tr_c4_cap','tr_c4_loop')
+      group by 1 order by 1`, [ids.ws]);
+
+  assert.deepEqual(rows, [
+    { onde: "(loop)", total: 2.25 },
+    { onde: "content.create_draft", total: 7.5 },
+  ]);
+});
+
+test("o gasto continua abatendo do saldo, com capability ou sem", async () => {
+  // A coluna nova nao pode ter mudado o que o orcamento enxerga: o teto vale
+  // sobre o gasto inteiro, e nao sobre a parte dele que tem capability.
+  const antes = await db.query(`select mkt.remaining_budget_cents($1) as saldo`, [ids.ws]);
+  const { createPostgresPorts } = await import("@olga/runtime/ports-postgres");
+  await createPostgresPorts(db, { schema: "mkt" }).budget.record({
+    org_id: ids.org, workspace_id: ids.ws, task_class: "copywriting",
+    cost_cents: 3, trace_id: "tr_c4_saldo", capability_id: "content.create_variant",
+  });
+  const depois = await db.query(`select mkt.remaining_budget_cents($1) as saldo`, [ids.ws]);
+  assert.equal(Number(antes.rows[0].saldo) - Number(depois.rows[0].saldo), 3);
+});

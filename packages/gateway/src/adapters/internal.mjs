@@ -348,6 +348,10 @@ export function createInternalAdapter({ authoring, knowledge, publishing, compos
       tenant, trace_id, brand: bb,
       objective: args.objective ?? null,
       channel: args.channel ?? null,
+      // Sob qual capability o dinheiro saiu. O redator nao usa isto; quem usa
+      // e o ledger de gasto, para poder responder "quanto custa gerar um post"
+      // e nao so "quanto custou aquela execucao".
+      capability_id: "content.create_draft",
     });
 
     // A forma ja veio validada contra olga://io/draft-composition pelo Model
@@ -397,6 +401,7 @@ export function createInternalAdapter({ authoring, knowledge, publishing, compos
     const escrito = await redator.variant({
       tenant, trace_id, channel: args.channel,
       master_body: versao.master_body, brand: bb,
+      capability_id: "content.create_variant",
     });
 
     const v = await a.createVariant({
@@ -435,6 +440,7 @@ export function createInternalAdapter({ authoring, knowledge, publishing, compos
       brand_name: marca?.brand_name ?? null,
       source_url: args.source_url,
       source_text: args.source_text,
+      capability_id: "brand.propose_version",
     });
 
     const nova = await a.proposeBrandVersion({

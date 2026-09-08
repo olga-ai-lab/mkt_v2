@@ -78,6 +78,11 @@ function exigirJson(out, oQueE) {
 }
 
 /**
+ * `capability_id` atravessa cada metodo sem ser usado por eles: o redator nao
+ * decide nada com ele. Ele existe para que o gasto que sai desta chamada saiba
+ * sob qual capability aconteceu — sem isso, `model_spend` responde "quanto
+ * custou aquela execucao" e nao responde "quanto custa gerar um post".
+ *
  * @param {{ modelGateway: any, task_class?: string, max_cost_cents?: number }} deps
  */
 export function createComposer({ modelGateway, task_class = "copywriting", max_cost_cents } = {}) {
@@ -93,7 +98,7 @@ export function createComposer({ modelGateway, task_class = "copywriting", max_c
      * Isso e o comportamento desejado, nao uma limitacao a contornar — o
      * agente nao promete cobertura que ninguem sustentou.
      */
-    async draft({ tenant, trace_id, brand, objective, channel }) {
+    async draft({ tenant, trace_id, brand, objective, channel, capability_id }) {
       const messages = assembleContext({
         system:
           "Voce escreve conteudo de marketing para uma corretora de seguros, em portugues do Brasil.\n" +
@@ -116,7 +121,7 @@ export function createComposer({ modelGateway, task_class = "copywriting", max_c
       // de ser rebaixado para GENERAL aqui — e rebaixar em silencio uma
       // afirmacao sobre cobertura e exatamente o erro que nao se pode cometer.
       const out = await modelGateway.complete({
-        trace_id, tenant, task_class,
+        trace_id, tenant, task_class, capability_id,
         schema_ref: "olga://io/draft-composition",
         messages: messages.map(({ role, content }) => ({ role, content })),
         max_cost_cents,
@@ -142,7 +147,7 @@ export function createComposer({ modelGateway, task_class = "copywriting", max_c
      * do trecho que a sustenta, porque sem isso ninguem tem como conferir se
      * a marca disse aquilo ou se o modelo completou a frase.
      */
-    async brandBrain({ tenant, trace_id, brand_name, source_url, source_text }) {
+    async brandBrain({ tenant, trace_id, brand_name, source_url, source_text, capability_id }) {
       const messages = assembleContext({
         system:
           "Voce le a pagina de uma corretora de seguros e organiza o que ELA diz sobre si mesma.\n" +
@@ -160,7 +165,7 @@ export function createComposer({ modelGateway, task_class = "copywriting", max_c
       });
 
       const out = await modelGateway.complete({
-        trace_id, tenant, task_class: "extraction",
+        trace_id, tenant, task_class: "extraction", capability_id,
         schema_ref: "olga://io/brand-brain-proposal",
         messages: messages.map(({ role, content }) => ({ role, content })),
         max_cost_cents,
@@ -176,7 +181,7 @@ export function createComposer({ modelGateway, task_class = "copywriting", max_c
      * para acrescentar: o que foi afirmado ja passou pelos claims do master, e
      * uma variante que afirme algo novo afirmaria fora de qualquer verificacao.
      */
-    async variant({ tenant, trace_id, channel, master_body, brand }) {
+    async variant({ tenant, trace_id, channel, master_body, brand, capability_id }) {
       const limite = LIMITE_POR_CANAL[channel] ?? 2000;
       const messages = assembleContext({
         system:
@@ -191,7 +196,7 @@ export function createComposer({ modelGateway, task_class = "copywriting", max_c
       });
 
       const out = await modelGateway.complete({
-        trace_id, tenant, task_class,
+        trace_id, tenant, task_class, capability_id,
         schema_ref: "olga://io/variant-composition",
         messages: messages.map(({ role, content }) => ({ role, content })),
         max_cost_cents,
