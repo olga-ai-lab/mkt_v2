@@ -396,6 +396,9 @@ export function createAgentLoop({
           trace_id,
           context: {
             capability_id: cap.capability_id, capability_mode: cap.mode,
+            // O efeito, e nao so o modo: e ele que decide se pedir acima do
+            // teto escala para aprovacao ou apenas rebaixa.
+            side_effect: cap.side_effect,
             agent_id: agent.agent_id, risk_tier: cap.risk_tier,
             channel: req.facts?.channel ?? null,
           },

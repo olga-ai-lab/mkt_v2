@@ -113,7 +113,7 @@ function conditionsMatch(policy, facts) {
 
 /**
  * @param {object} input
- * @param {object} input.context  { capability_id, capability_mode, channel, agent_id, risk_tier }
+ * @param {object} input.context  { capability_id, capability_mode, side_effect, channel, agent_id, risk_tier }
  * @param {object} input.facts    fatos do enum policy-fact
  * @param {string} input.requested_autonomy
  * @param {Array}  input.policies RulePolicy[] (qualquer status; so ACTIVE conta)
@@ -138,6 +138,28 @@ export function evaluate({ context, facts = {}, requested_autonomy = "A2", polic
   }
 
   const isWrite = context.capability_mode === "write";
+
+  /**
+   * Pedir acima do teto escala para aprovacao, ou apenas rebaixa?
+   *
+   * A regra pretendida sempre esteve escrita no comentario da clausula que a
+   * usa: efeito externo vira aprovacao; leitura e rascunho apenas rebaixam com
+   * reason code. A implementacao usava `isWrite` como proxy, e o proxy nao e a
+   * regra: `content.create_draft` escreve — no NOSSO banco, e se apaga.
+   *
+   * A diferenca era inalcancavel enquanto nenhum agente que escreve estava
+   * ACTIVE. Na migration 0013, BRAND e CONTENT foram promovidos, o teto deles
+   * passou de baseline para max, e todo rascunho comecou a pedir aprovacao por
+   * ter pedido A3 onde a policy do rascunho concede A2. Quem achou foi o eval
+   * CONTENT-GOLD-001, que e o caminho normal do agente.
+   *
+   * Sem `side_effect` no contexto, mantem-se o comportamento antigo — o mais
+   * restritivo. Um chamador que nao informa o efeito nao deve ganhar
+   * permissividade por omissao.
+   */
+  const escalaParaAprovacao = context.side_effect
+    ? context.side_effect === "external"
+    : isWrite;
 
   // Camada 3: rule policies ACTIVE, prioridade crescente, primeira correspondencia decide.
   const candidates = policies
@@ -205,8 +227,10 @@ export function evaluate({ context, facts = {}, requested_autonomy = "A2", polic
   // ALLOW
   if (autonomyRank(requested_autonomy) > autonomyRank(finalCeiling)) {
     // Pediu mais do que o teto. Nao rebaixa em silencio quando ha efeito externo:
-    // efeito externo vira aprovacao; leitura/rascunho apenas rebaixa com reason code.
-    if (isWrite) {
+    // efeito externo vira aprovacao; leitura/rascunho apenas rebaixa com reason
+    // code — e AUTONOMY_EXCEEDED sai nos dois casos, entao rebaixar nunca e
+    // silencioso, so nao e bloqueante.
+    if (escalaParaAprovacao) {
       return {
         ...base,
         state: "APPROVAL_REQUIRED",

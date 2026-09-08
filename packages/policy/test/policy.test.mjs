@@ -145,3 +145,79 @@ test("todo invariante declara reason code e nota", () => {
     assert.ok(inv.id && inv.reason_code && inv.note && inv.ceiling, `invariante incompleto: ${inv.id}`);
   }
 });
+
+// ── Pedir acima do teto: rebaixa, ou escala para aprovacao? ─────────────────
+//
+// A regra pretendida sempre esteve no comentario da clausula: efeito externo
+// vira aprovacao; leitura e rascunho apenas rebaixam. A implementacao usava
+// `capability_mode === "write"` como proxy, e o proxy nao e a regra —
+// `content.create_draft` escreve no NOSSO banco, e o que ele escreve se apaga.
+//
+// A diferenca era inalcancavel enquanto nenhum agente que escreve estava
+// ACTIVE. Depois da migration 0013 ela passou a valer em todo rascunho, e quem
+// achou foi o eval CONTENT-GOLD-001 — o caminho normal do agente de conteudo.
+
+const rascunhoCtx = {
+  capability_id: "content.create_draft", capability_mode: "write",
+  side_effect: "internal", agent_id: "AGT-MKT-CONTENT", risk_tier: "LOW",
+};
+
+const allowRascunho = {
+  policy_id: "POL_DRAFT", version: 1, status: "ACTIVE", priority: 600,
+  scope: { capability_id: "content.create_draft" },
+  conditions: [], effect: "ALLOW", max_autonomy: "A2",
+};
+
+test("rascunho pedido acima do teto rebaixa, e diz que rebaixou", () => {
+  const r = evaluate({
+    context: rascunhoCtx, facts: {}, requested_autonomy: "A3", policies: [allowRascunho],
+  });
+
+  assert.equal(r.state, "EXECUTABLE",
+    "efeito interno acima do teto nao vira fila de aprovacao: o que ele escreve se apaga");
+  assert.equal(r.granted_autonomy, "A2", "a policy so restringe, e restringiu");
+  assert.ok(r.reason_codes.includes("AUTONOMY_EXCEEDED"),
+    "rebaixar sem dizer seria rebaixamento silencioso, que e outra coisa");
+  assert.equal(r.required_approval, false);
+});
+
+test("publicar pedido acima do teto continua virando aprovacao", () => {
+  // O par do teste acima. Se os dois nao existissem juntos, trocar a regra
+  // por 'nunca escala' passaria com o primeiro sozinho.
+  const r = evaluate({
+    context: { ...publishCtx, side_effect: "external" },
+    facts: happyFacts, requested_autonomy: "A4",
+    policies: [{ ...allowPublish, max_autonomy: "A2" }],
+  });
+
+  assert.equal(r.state, "APPROVAL_REQUIRED",
+    "efeito externo acima do teto nao rebaixa em silencio: post no perfil do cliente nao desfaz");
+  assert.ok(r.reason_codes.includes("AUTONOMY_EXCEEDED"));
+  assert.equal(r.required_approval, true);
+});
+
+test("sem side_effect no contexto, mantem o comportamento antigo e mais restritivo", () => {
+  // Um chamador que nao informa o efeito nao deve ganhar permissividade por
+  // omissao. Escrita sem efeito declarado continua escalando.
+  const { side_effect, ...semEfeito } = rascunhoCtx;
+  const r = evaluate({
+    context: semEfeito, facts: {}, requested_autonomy: "A3", policies: [allowRascunho],
+  });
+  assert.equal(r.state, "APPROVAL_REQUIRED");
+});
+
+test("leitura acima do teto rebaixa, com ou sem side_effect declarado", () => {
+  for (const ctx of [
+    { capability_id: "brand.read", capability_mode: "read", risk_tier: "LOW" },
+    { capability_id: "brand.read", capability_mode: "read", side_effect: "none", risk_tier: "LOW" },
+  ]) {
+    const r = evaluate({
+      context: ctx, facts: {}, requested_autonomy: "A4",
+      policies: [{ policy_id: "P", version: 1, status: "ACTIVE", priority: 600,
+                   scope: { capability_id: "brand.read" }, conditions: [],
+                   effect: "ALLOW", max_autonomy: "A2" }],
+    });
+    assert.equal(r.state, "EXECUTABLE");
+    assert.equal(r.granted_autonomy, "A2");
+  }
+});

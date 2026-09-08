@@ -100,76 +100,107 @@ test("agente com autonomia maior nao ganha politica de incerteza mais solta", ()
   }
 });
 
-test("so os dois agentes somente-leitura estao ACTIVE, cada um por migration propria", () => {
-  // Este teste ja afirmou que os quatro eram CANDIDATE, e depois que so o
-  // COPILOT era ACTIVE. Ele falhou nas duas promocoes — que e exatamente o
-  // ponto dele: promover agente nao passa despercebido num diff.
-  //
-  // Hoje afirma o estado deliberado: COPILOT (0009) e COMPLIANCE (0012), os
-  // dois {read,simulate}. Promover BRAND ou CONTENT vai quebra-lo de novo, e
-  // de novo por design — os dois escrevem.
-  const ativos = agentes.filter((a) => a.status === "ACTIVE").map((a) => a.agent_id).sort();
-  assert.deepEqual(ativos, ["AGT-MKT-COMPLIANCE", "AGT-MKT-COPILOT"],
-    "promover agente entra por migration, com motivo junto (ver 0009 e 0012)");
-});
+/**
+ * O inventario dos agentes ACTIVE, fixado a mao.
+ *
+ * Este bloco ja foi tres coisas diferentes: "os quatro sao CANDIDATE", depois
+ * "so o COPILOT e ACTIVE", depois "os dois somente-leitura". Ele quebrou em
+ * cada promocao, e e para isso que serve — promover agente nao passa
+ * despercebido num diff.
+ *
+ * A forma mudou na 0013 porque a pergunta mudou. Enquanto nenhum agente ACTIVE
+ * escrevia, bastava afirmar isso. Agora dois escrevem, e afirmar "quem esta
+ * ACTIVE" ja nao diz o que eles alcancam: o que importa e o charter de cada um,
+ * capability por capability.
+ *
+ * Entao o inventario e explicito. Mudar o charter de um agente promovido — ou
+ * promover outro — obriga a editar esta constante, o que obriga a olhar para o
+ * que se esta concedendo.
+ */
+const ATIVOS_ESPERADOS = {
+  "AGT-MKT-COPILOT": ["brand.read", "evidence.read", "quality.precheck"],
+  "AGT-MKT-COMPLIANCE": ["brand.read", "compliance.review", "evidence.read"],
+  "AGT-MKT-BRAND": ["brand.extract_from_url", "brand.propose_version", "brand.read"],
+  "AGT-MKT-CONTENT": [
+    "brand.read", "content.create_draft", "content.create_variant",
+    "evidence.read", "publishing.schedule", "quality.precheck",
+  ],
+};
 
-test("nenhum agente ACTIVE tem modo write", () => {
-  // O criterio que sustentou as duas promocoes ate aqui, dito na propria
-  // coluna: os dois ACTIVE sao {read,simulate}. Um agente com modo write
-  // ACTIVE nao e proibido para sempre — e proibido de entrar sem que este
-  // teste seja reescrito junto com a migration que o promove.
-  for (const a of agentes.filter((x) => x.status === "ACTIVE")) {
-    assert.ok(!(a.modes ?? []).includes("write"),
-      `${a.agent_id} esta ACTIVE com modo write`);
+test("o inventario dos agentes ACTIVE bate com o registry, agente por agente", () => {
+  const ativos = agentes.filter((a) => a.status === "ACTIVE");
+
+  assert.deepEqual(
+    ativos.map((a) => a.agent_id).sort(), Object.keys(ATIVOS_ESPERADOS).sort(),
+    "promover ou rebaixar agente entra por migration, com motivo junto (0009, 0012, 0013)");
+
+  for (const a of ativos) {
+    assert.deepEqual(
+      [...(a.capabilities ?? [])].sort(), [...ATIVOS_ESPERADOS[a.agent_id]].sort(),
+      `o charter de ${a.agent_id} mudou. Se foi de proposito, atualize o inventario ` +
+      `junto com a migration — e olhe para o que esta sendo concedido.`);
   }
 });
 
-test("agente ACTIVE nao pode ter capability de escrita", () => {
-  // O invariante que sustenta a promocao do COPILOT: ela nao ampliou
-  // superficie de efeito. Promover algo que escreve e outra decisao, com
-  // outra migration e outro motivo — e este teste obriga a passar por ela.
-  //
-  // A migration 0009 tambem checa isto no banco, e as duas checagens servem a
-  // momentos diferentes: a do banco impede a promocao errada de ser aplicada,
-  // esta impede que ela seja escrita.
-  const ESCRITA = [
-    "content.create_draft", "content.create_variant", "publishing.publish",
-    "publishing.schedule", "approval.request", "brand.propose_version",
-    "brand.extract_from_url", "channel.connect",
-  ];
+/**
+ * O teto, e ele nao e uma lista de nomes.
+ *
+ * Ate a 0013 o invariante era "nenhum agente ACTIVE escreve", conferido contra
+ * uma lista de capabilities escrita a mao. A lista era um proxy grosseiro:
+ * juntava criar um rascunho no nosso banco com publicar no perfil de um
+ * cliente. A primeira se apaga; a segunda nao.
+ *
+ * O teto que ficou no lugar sai de `side_effect`, no proprio registry. Uma
+ * capability que ganhe efeito externo amanha passa a ser barrada sem que
+ * ninguem se lembre de editar isto — que e a diferenca entre um invariante e
+ * uma lista que envelhece.
+ */
+const alcanca = (agente, efeito) => (agente.capabilities ?? [])
+  .map((cap) => registroDeCapabilities.find((c) => c.capability_id === cap))
+  .filter((c) => c?.side_effect === efeito)
+  .map((c) => c.capability_id);
+
+test("nenhum agente ACTIVE alcanca efeito externo", () => {
   for (const a of agentes.filter((x) => x.status === "ACTIVE")) {
-    const escritas = (a.capabilities ?? []).filter((c) => ESCRITA.includes(c));
-    assert.deepEqual(escritas, [],
-      `${a.agent_id} esta ACTIVE com capability de escrita: ${escritas.join(", ")}`);
+    assert.deepEqual(alcanca(a, "external"), [],
+      `${a.agent_id} esta ACTIVE alcancando efeito EXTERNO. Publicar e do workflow ` +
+      `duravel depois de decisao humana; conectar canal e consentimento no navegador.`);
   }
 });
 
-test("nenhum agente ACTIVE alcanca efeito externo, e o efeito interno e nomeado", () => {
-  // A migration 0011 deu a `quality.precheck` side_effect 'internal': ela
-  // registra que a revisao de IA aconteceu, movendo DRAFT -> AI_REVIEW. O
-  // COPILOT esta ACTIVE e a tem no charter.
-  //
-  // Ou seja: a frase "os agentes ACTIVE so leem" deixou de ser literalmente
-  // verdadeira, e este teste existe para que ela nao volte a ser dita por
-  // engano. O invariante que continua valendo, e que e o que importa, e mais
-  // preciso: nenhum agente ACTIVE alcanca EFEITO EXTERNO, e a unica capability
-  // de efeito interno permitida a um agente ACTIVE esta nomeada aqui.
-  //
-  // Acrescentar outra a esta lista deve ser uma decisao consciente, com o
-  // motivo escrito na migration que a habilita — nao um efeito colateral de
-  // mudar uma linha do registry.
-  const INTERNO_PERMITIDO = new Set(["quality.precheck"]);
+test("as duas capabilities de efeito externo nao estao no charter de ninguem", () => {
+  // Dito do outro lado, porque e assim que a regra e lembrada. Um agente
+  // ACTIVE que as tivesse seria pego pelo teste acima; este pega tambem o
+  // CANDIDATE, antes de a promocao virar uma decisao que parece pequena.
+  const externas = registroDeCapabilities
+    .filter((c) => c.side_effect === "external").map((c) => c.capability_id).sort();
+  assert.deepEqual(externas, ["channel.connect", "publishing.publish"],
+    "surgiu capability de efeito externo nova: ela precisa de dono declarado, ou de nenhum");
 
+  for (const a of agentes) {
+    const tem = (a.capabilities ?? []).filter((c) => externas.includes(c));
+    assert.deepEqual(tem, [], `${a.agent_id} (${a.status}) declara ${tem.join(", ")}`);
+  }
+});
+
+test("o teto reprova um agente fabricado com capability externa", () => {
+  // Sem este caso, `alcanca()` poderia estar quebrada e os dois testes acima
+  // passariam por vacuidade — nenhum agente tem capability externa hoje, entao
+  // uma funcao que sempre devolve lista vazia os aprovaria igual.
+  const fabricado = { agent_id: "AGT-FAKE", capabilities: ["brand.read", "publishing.publish"] };
+  assert.deepEqual(alcanca(fabricado, "external"), ["publishing.publish"]);
+});
+
+test("o efeito interno de cada agente ACTIVE esta declarado", () => {
+  // Escrever no nosso banco e permitido a agente ACTIVE desde a 0013, e por
+  // isso deixou de ser interessante perguntar SE ele escreve. O que continua
+  // valendo a pena e que a lista do que ele escreve seja visivel — este teste
+  // nao reprova nada por si, ele existe para que o inventario acima nao seja
+  // lido como uma lista de nomes sem consequencia.
   for (const a of agentes.filter((x) => x.status === "ACTIVE")) {
-    for (const cap of a.capabilities ?? []) {
-      const c = registroDeCapabilities.find((x) => x.capability_id === cap);
-      assert.ok(c, `${a.agent_id} declara ${cap}, que nao esta no capability_registry`);
-      assert.notEqual(c.side_effect, "external",
-        `${a.agent_id} esta ACTIVE com ${cap}, que tem efeito EXTERNO`);
-      if (c.side_effect === "internal") {
-        assert.ok(INTERNO_PERMITIDO.has(cap),
-          `${a.agent_id} esta ACTIVE com ${cap}, de efeito interno, e ela nao esta na lista permitida`);
-      }
+    for (const cap of alcanca(a, "internal")) {
+      assert.ok(ATIVOS_ESPERADOS[a.agent_id].includes(cap),
+        `${a.agent_id} escreve por ${cap}, que nao esta no inventario`);
     }
   }
 });

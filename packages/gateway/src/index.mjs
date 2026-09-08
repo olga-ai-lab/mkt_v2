@@ -84,6 +84,7 @@ export function createGateway({ registry, policies, receipts, adapters, clock, t
       context: {
         capability_id: cap.capability_id,
         capability_mode: cap.mode,
+        side_effect: cap.side_effect,
         channel: request.args?.channel ?? null,
         agent_id: request.args?.agent_id ?? null,
         risk_tier: cap.risk_tier,
