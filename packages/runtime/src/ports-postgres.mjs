@@ -836,6 +836,62 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
    * duas faria uma mudanca de layout mexer no caminho que autoriza efeito.
    */
   /**
+   * O calendario editorial (C2).
+   *
+   * Leitura pura sobre o que ja existe: publicacoes com data e os slots
+   * recorrentes. Nao ha tabela de calendario, e nao deveria haver — um
+   * calendario que guardasse suas proprias linhas seria uma segunda verdade
+   * sobre o que vai ao ar, e um dia discordaria de `publications`.
+   */
+  const calendar = {
+    /**
+     * O que esta marcado numa janela de tempo.
+     *
+     * Publicado e agendado saem juntos, distinguidos por `status`: quem olha um
+     * calendario precisa ver o passado e o futuro na mesma tela, senao nao ha
+     * como notar a semana que ficou vazia.
+     */
+    async range(org_id, workspace_id, { de, ate }) {
+      const { rows } = await pool.query(
+        `select p.id, p.channel::text as channel, p.status::text as status,
+                coalesce(p.published_at, p.scheduled_at) as quando,
+                p.published_at, p.scheduled_at, p.external_id,
+                cv.id as content_version_id, cv.trace_id,
+                ct.title
+           from ${S}.publications p
+           join ${S}.content_versions cv on cv.id = p.content_version_id
+           join ${S}.contents ct on ct.id = cv.content_id
+          where p.org_id = $1 and p.workspace_id = $2
+            and coalesce(p.published_at, p.scheduled_at) >= $3
+            and coalesce(p.published_at, p.scheduled_at) < $4
+          order by quando asc`, [org_id, workspace_id, de, ate]);
+      return rows;
+    },
+
+    /**
+     * Quanto o workspace tem pronto para os slots consumirem, por canal.
+     *
+     * E a pergunta que decide se vale gerar mais: um slot diario com dois
+     * aprovados na fila fica sem conteudo em dois dias. Sem este numero, a
+     * tela mostraria o calendario cheio de NO_CONTENT sem dizer por que.
+     */
+    async prontosPorCanal(org_id, workspace_id) {
+      const { rows } = await pool.query(
+        `select v.channel::text as channel, count(*)::int as prontos
+           from ${S}.content_versions cv
+           join ${S}.contents ct on ct.id = cv.content_id
+           join ${S}.channel_variants v on v.content_version_id = cv.id
+          where cv.org_id = $1 and ct.workspace_id = $2
+            and cv.state = 'APPROVED'
+            and not exists (
+              select 1 from ${S}.publications p where p.content_version_id = cv.id)
+          group by v.channel
+          order by v.channel`, [org_id, workspace_id]);
+      return rows;
+    },
+  };
+
+  /**
    * Slots recorrentes do calendario editorial (C3).
    *
    * Cada ocorrencia consome a PROXIMA versao aprovada do canal — nao republica
@@ -1435,6 +1491,6 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
   };
 
   return { routing, budget, registry, iam, audit, trace, runs, policies, receipts, outbox, approvals,
-           schedules,
+           schedules, calendar,
            connections, variants, publishing, content, knowledge, authoring, governance };
 }

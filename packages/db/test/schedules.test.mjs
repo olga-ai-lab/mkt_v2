@@ -311,3 +311,77 @@ test("a superficie declarada cobre tudo que o runner chama em db", () => {
   assert.deepEqual(faltando, [],
     "metodo faltando aqui so apareceria na primeira passada real do agendador");
 });
+
+// ── O calendario (C2) ───────────────────────────────────────────────────────
+//
+// Leitura pura sobre o que ja existe. Nao ha tabela de calendario, e nao
+// deveria haver: uma segunda verdade sobre o que vai ao ar discordaria de
+// `publications` um dia.
+
+test("o calendario traz o agendado e o publicado na mesma janela", async () => {
+  // Passado e futuro juntos de proposito: sem o passado, nao da para notar a
+  // semana que ficou vazia.
+  await slotVencido();
+  await conteudo("APPROVED");
+  await runner();
+
+  const de = new Date(Date.now() - 7 * 86400000);
+  const ate = new Date(Date.now() + 28 * 86400000);
+  const marcados = await ports.calendar.range(ids.org, ids.ws, { de, ate });
+
+  assert.equal(marcados.length, 1);
+  assert.equal(marcados[0].status, "SCHEDULED");
+  assert.equal(marcados[0].channel, "INSTAGRAM");
+  assert.ok(marcados[0].title, "o calendario precisa do titulo, nao so do id");
+  assert.ok(marcados[0].quando, "linha sem data nao tem lugar num calendario");
+});
+
+test("a janela do calendario e respeitada nas duas pontas", async () => {
+  await slotVencido();
+  await conteudo("APPROVED");
+  await runner();
+
+  const futuro = { de: new Date(Date.now() + 60 * 86400000), ate: new Date(Date.now() + 90 * 86400000) };
+  assert.deepEqual(await ports.calendar.range(ids.org, ids.ws, futuro), []);
+
+  const passado = { de: new Date(Date.now() - 90 * 86400000), ate: new Date(Date.now() - 60 * 86400000) };
+  assert.deepEqual(await ports.calendar.range(ids.org, ids.ws, passado), []);
+});
+
+test("o calendario nao atravessa workspace", async () => {
+  await slotVencido();
+  await conteudo("APPROVED");
+  await runner();
+
+  const w2 = await db.query(
+    `insert into mkt.workspaces (org_id, name) values ($1,'Vizinho') returning id`, [ids.org]);
+  const marcados = await ports.calendar.range(ids.org, w2.rows[0].id, {
+    de: new Date(Date.now() - 7 * 86400000), ate: new Date(Date.now() + 28 * 86400000),
+  });
+  assert.deepEqual(marcados, []);
+});
+
+test("a fila de prontos conta o que os slots ainda podem consumir", async () => {
+  // O numero que decide se vale gerar mais: um slot diario com dois aprovados
+  // fica sem conteudo em dois dias.
+  await conteudo("APPROVED", "Primeiro texto.");
+  await conteudo("APPROVED", "Segundo texto.");
+  await conteudo("DRAFT", "Terceiro, ainda rascunho.");
+
+  const prontos = await ports.calendar.prontosPorCanal(ids.org, ids.ws);
+  assert.deepEqual(prontos, [{ channel: "INSTAGRAM", prontos: 2 }]);
+});
+
+test("conteudo ja agendado sai da fila de prontos", async () => {
+  // Senao a tela diria que ha o que publicar depois de o slot ja ter
+  // consumido, e a pessoa deixaria de gerar exatamente quando precisava.
+  await slotVencido();
+  await conteudo("APPROVED");
+
+  assert.deepEqual(await ports.calendar.prontosPorCanal(ids.org, ids.ws),
+    [{ channel: "INSTAGRAM", prontos: 1 }]);
+
+  await runner();
+
+  assert.deepEqual(await ports.calendar.prontosPorCanal(ids.org, ids.ws), []);
+});

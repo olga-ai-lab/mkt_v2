@@ -20,6 +20,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           <Link href="/approvals">Aprovações</Link>
           <Link href="/content">Conteúdo</Link>
           <Link href="/content/novo">Criar</Link>
+          <Link href="/calendar">Calendário</Link>
           <Link href="/brand">Brand Brain</Link>
           <Link href="/channels">Canais</Link>
           <Link href="/traces">Auditoria</Link>

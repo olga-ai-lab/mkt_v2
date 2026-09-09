@@ -9,3 +9,4 @@ export { createComposer, LIMITE_POR_CANAL } from "./composer.mjs";
 export { createEnvSecrets, createVaultSecrets, refDeConexao, SecretError } from "./secrets.mjs";
 export { createMetaOAuth, assinarEstado, conferirEstado, urlDeAutorizacao, ESCOPOS, OAuthError } from "./meta-oauth.mjs";
 export { proximaOcorrencia, CADENCIAS, RecurrenceError } from "./recurrence.mjs";
+export { createBatchRunner, RECUSAS_TERMINAIS, MAX_POR_LOTE, BatchError } from "./batch.mjs";

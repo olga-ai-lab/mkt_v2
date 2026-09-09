@@ -18,6 +18,7 @@
     "./composer": "./src/composer.mjs",
     "./secrets": "./src/secrets.mjs",
     "./recurrence": "./src/recurrence.mjs",
+    "./batch": "./src/batch.mjs",
     "./meta-oauth": "./src/meta-oauth.mjs"
   },
   "dependencies": {
