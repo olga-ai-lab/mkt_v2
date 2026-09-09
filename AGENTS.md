@@ -17,33 +17,47 @@ policy, e o agente agiria por uma regra sendo julgado por outra.
 | Agente | Status | Modos | Autonomia | Capabilities |
 |---|---|---|---|---|
 | **AGT-MKT-COPILOT** | `ACTIVE` | read, simulate | A1 → A2 | `brand.read`, `evidence.read`, `quality.precheck` |
-| **AGT-MKT-BRAND** | `CANDIDATE` | read, write | A2 → A2 | `brand.extract_from_url`, `brand.propose_version`, `brand.read` |
-| **AGT-MKT-CONTENT** | `CANDIDATE` | read, write | A2 → A3 | `brand.read`, `evidence.read`, `content.create_draft`, `content.create_variant`, `quality.precheck`, `publishing.schedule` |
+| **AGT-MKT-BRAND** | `ACTIVE` | read, write | A2 → A2 | `brand.extract_from_url`, `brand.propose_version`, `brand.read` |
+| **AGT-MKT-CONTENT** | `ACTIVE` | read, write | A2 → A3 | `brand.read`, `evidence.read`, `content.create_draft`, `content.create_variant`, `quality.precheck`, `publishing.schedule` |
 | **AGT-MKT-COMPLIANCE** | `ACTIVE` | read, simulate | A1 → A2 | `brand.read`, `evidence.read`, `compliance.review` |
 
-**Os dois ACTIVE são `{read,simulate}`:** COPILOT (migration 0009) e COMPLIANCE
-(0012). Nenhum deles cria conteúdo, agenda, aprova ou publica.
+**Os quatro estão ACTIVE**, cada um por migration própria com o motivo escrito:
+COPILOT (`0009`), COMPLIANCE (`0012`), BRAND e CONTENT (`0013`).
 
-Uma ressalva que passou a valer com a migration 0011, e que é melhor dizer que
-omitir: `quality.precheck` deixou de ter `side_effect: none`. Ela registra que a
-revisão de IA aconteceu, movendo `DRAFT` → `AI_REVIEW`, e está no charter do
-COPILOT. Então "os ACTIVE só leem" deixou de ser literalmente verdade. O
-invariante que continua valendo é mais preciso, e tem teste próprio: **nenhum
-agente ACTIVE alcança efeito externo**, e a única capability de efeito interno
-permitida a um agente ACTIVE está nomeada nesse teste — acrescentar outra tem de
-ser decisão consciente, não efeito colateral de mudar uma linha do registry.
+A `0013` fez mais que promover: **trocou o teto**. A guarda anterior recusava
+qualquer agente ACTIVE com capability de escrita, e ela não podia ser
+reexecutada — abortaria. Isso não é obstáculo a contornar: é a pergunta que a
+guarda existe para forçar. Ou a promoção não acontece, ou alguém declara qual
+invariante fica no lugar.
 
-Promover um agente que escreve é ato de governança com migration própria — a 0009 derruba a transação
-se um agente com capability de escrita estiver ACTIVE, e diz por quê; a 0012
-reexecuta a mesma guarda em vez de compartilhá-la, para que afrouxá-la exija
-mexer em cada promoção separadamente.
+A guarda antiga era um proxy grosseiro. "Escreve" juntava criar um rascunho no
+nosso banco com publicar no perfil de um cliente. A primeira se apaga; a segunda
+não. O que ficou é mais estreito e mais forte, e sai de `side_effect` no próprio
+registry:
 
-Há teste afirmando exatamente quais agentes estão ACTIVE. Ele já falhou nas duas
-promoções, e é para isso que serve: promover não passa despercebido num diff.
+> **Nenhum agente ACTIVE tem capability de efeito externo.**
 
-Agente `CANDIDATE` não é agente quebrado: ele roda com `internal: true`, que
-`apps/web/app/api/agent/route.ts` só permite para `OWNER`. Dá para exercitar;
-não dá para servir usuário.
+Ele não é uma lista de nomes que alguém precisa lembrar de atualizar: uma
+capability que ganhe efeito externo amanhã passa a ser barrada sem que ninguém
+edite a guarda.
+
+O que nenhum agente alcança, e continua não alcançando: **publicar, aprovar,
+conectar canal e promover Brand Brain para ACTIVE.**
+
+Há teste com o inventário explícito de quais agentes estão ACTIVE e com qual
+charter. Ele já falhou nas três promoções, e é para isso que serve: promover não
+passa despercebido num diff — e mudar o charter de um agente promovido obriga a
+olhar para o que está sendo concedido.
+
+Um agente `CANDIDATE` — se algum voltar a existir — roda com `internal: true`,
+que `apps/web/app/api/agent/route.ts` só permite para `OWNER`. Dá para
+exercitar; não dá para servir usuário.
+
+Uma consequência da promoção que vale registrar: agente `ACTIVE` recebe como
+teto o `max_autonomy` em vez do `baseline_autonomy`. Foi isso que expôs um
+defeito parado no policy engine — ele perguntava pelo MODO onde o comentário
+dizia EFEITO, e todo rascunho passou a virar pedido de aprovação. Ver o
+histórico da `0013`.
 
 A promoção dos dois que faltam está no [`docs/ROADMAP.md`](docs/ROADMAP.md),
 bloco B, marcada como **[proposto]** — é decisão de governança, não minha. O

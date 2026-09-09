@@ -84,19 +84,25 @@ nomeada no teste.
 | # | Item | Procedência | Bloqueio |
 |---|---|---|---|
 | B1 | Promover `AGT-MKT-COMPLIANCE` | **[proposto]** | ✅ feito na migration 0012 |
-| B2 | Promover `AGT-MKT-BRAND` | **[proposto]** | escreve — exige migration própria e motivo próprio |
-| B3 | Promover `AGT-MKT-CONTENT` | **[proposto]** | escreve, e é o de maior superfície |
+| B2 | Promover `AGT-MKT-BRAND` | **[proposto]** | ✅ feito na migration 0013 |
+| B3 | Promover `AGT-MKT-CONTENT` | **[proposto]** | ✅ feito na migration 0013 |
 
-**B2 e B3 não são decisão minha.** A migration 0009 diz por quê: ela derruba a
-transação se um agente com capability de escrita estiver ACTIVE, com a mensagem
-*"promover um deles exige migration própria e motivo próprio"*. A 0012 reexecuta
-essa mesma guarda, e não a extraiu para função compartilhada de propósito — uma
-função comum poderia ser afrouxada uma vez e enfraquecer todas as promoções
-passadas de uma só vez.
+**O bloco B está fechado**, e a `0013` fez mais que promover: trocou o teto.
 
-O que mudou desde então: **A4 existe.** O argumento para segurar B2 e B3 era não
-ter onde ver o que um agente que escreve fez. Esse argumento acabou; o que
-resta é a decisão de governança.
+A guarda das `0009` e `0012` recusava qualquer agente `ACTIVE` com capability de
+escrita — e ela não podia ser reexecutada na `0013`, porque abortaria. Isso não
+é obstáculo a contornar: é a pergunta que a guarda existe para forçar. Ou a
+promoção não acontece, ou alguém declara qual invariante fica no lugar.
+
+O que ficou é mais estreito e mais forte, e sai de `side_effect` no registry:
+**nenhum agente `ACTIVE` tem capability de efeito externo.** Uma capability que
+ganhe efeito externo amanhã passa a ser barrada sem que ninguém edite a guarda.
+
+A promoção revelou um defeito que valia mais que ela: o policy engine
+perguntava pelo MODO (`capability_mode === "write"`) onde o comentário dizia
+EFEITO. O ramo era inalcançável enquanto nenhum agente que escreve estava
+`ACTIVE`, então o proxy passava por correto — e com CONTENT promovido, todo
+rascunho virava pedido de aprovação. Quem achou foi o eval `CONTENT-GOLD-001`.
 
 Os evals dos quatro já existem e passam — há teste exigindo que todo agente
 ACTIVE tenha eval próprio. Promover sem medir é promover no escuro; medir sem
@@ -109,9 +115,9 @@ promover é o estado de agora.
 | # | Item | Procedência |
 |---|---|---|
 | C1 | Golden dataset de qualidade, com as três corretoras piloto | **[MKT-17, achado G11]** |
-| C2 | Plano editorial: calendário e geração em lote | **[MKT-17]** |
-| C3 | Agendamento recorrente | **[MKT-17]** |
-| C4 | Instrumentação de custo por capability, não só por run | **[derivado]** |
+| C2 | Plano editorial: calendário e geração em lote | **[MKT-17]** — ✅ feito |
+| C3 | Agendamento recorrente | **[MKT-17]** — ✅ feito |
+| C4 | Instrumentação de custo por capability, não só por run | **[derivado]** — ✅ feito |
 
 **C1 é o que fecha o achado G11 de verdade.** A parte executável — evals de
 governança, determinísticos, rodando em CI — está feita. A parte estatística
@@ -120,9 +126,22 @@ julgamento das corretoras sobre o que é um bom texto. As duas suítes são
 separadas de propósito: misturar produz uma suíte que ninguém confia porque
 falha por motivo aleatório.
 
-**C4 é [derivado]:** `mkt.model_spend` registra gasto por run e task class. Sob
-qual capability o gasto aconteceu, não. Hoje não dá para responder "quanto custa
-gerar um post" — só "quanto custou aquela execução".
+**C4 está feito** (migration 0014): `model_spend` ganhou `capability_id`, e nulo
+é informação — resolver, planner e responder são o loop pensando, e não rodam
+sob capability nenhuma. É isso que separa custo de pensar de custo de produzir.
+
+**C3 obrigou a decidir o que "recorrente" pode significar.** A state machine não
+deixa republicar a mesma versão — `PUBLISHED` é terminal, e a aprovação é
+vinculada à versão. Então recorrência aqui é um **slot** no calendário: cada
+ocorrência consome a próxima versão aprovada do canal. Slot sem conteúdo
+aprovado não publica nada, e isso é estado esperado, não falha.
+
+**C2 é a única parte do produto em que um clique gasta dinheiro N vezes.** O
+lote para na primeira recusa de orçamento em vez de tentar os seguintes, e os
+não tentados voltam marcados como tal — a tela precisa distinguir "tentou e não
+deu" de "nem chegou a tentar".
+
+**Sobra o C1**, e ele continua dependendo de corretora piloto julgando texto.
 
 ---
 
@@ -161,12 +180,17 @@ A3. O que sobrou dela é o que depende de decisão ou de terceiro.
 
 1. ~~**A2 e A4**~~ — feitos. A4 primeiro, de propósito: promover um agente que
    escreve sem ter onde ver o que ele fez é promover sem instrumento.
-2. ~~**B1**~~ — feito na migration 0012.
-3. **O app review da Meta** — o código de A3 está pronto e desligado. Este é o
-   caminho crítico e o relógio mais lento, e continua não sendo código.
-4. **B2 e B3** — agora há onde ver o que eles fazem. É decisão de governança:
-   os dois escrevem, e cada um exige migration própria com motivo próprio.
+2. ~~**B1, B2 e B3**~~ — feitos nas migrations 0012 e 0013.
+3. ~~**C4, C3 e C2**~~ — feitos, nessa ordem: sem custo por capability, um lote
+   produz fatura que ninguém decompõe.
+4. **O app review da Meta** — o código de A3 está pronto e desligado. Este é o
+   caminho crítico e o relógio mais lento, e continua não sendo código. É a
+   única coisa entre o produto e o Gate G1 fechado.
 5. **C1** — quando houver corretora piloto de verdade para julgar texto.
+
+Depois disso, o bloco D. **D6 (UI de autonomia por workspace) subiu de
+prioridade** com os quatro agentes `ACTIVE`: hoje o teto de cada um vem do
+registry e só muda por migration.
 
 Os blocos C e D estão em ordem de documento, não de prioridade. Reordenar é
 decisão de produto, e ela é sua.

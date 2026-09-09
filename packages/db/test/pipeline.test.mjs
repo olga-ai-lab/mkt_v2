@@ -136,7 +136,30 @@ function pipeline() {
 
   const entregues = [];
   const relay = createOutboxRelay({ db: dbPorts, bus: { send: async (e) => entregues.push(e) } });
-  return { adapter, relay, handler, entregues };
+
+  /**
+   * O evento DESTE workspace, e nao "o primeiro entregue".
+   *
+   * `claimOutboxBatch` drena o outbox inteiro, sem filtrar por organizacao — e
+   * esse e o comportamento certo em producao: ha um relay para todos os
+   * tenants. A consequencia aparece no teste: os arquivos rodam em paralelo
+   * contra o mesmo banco, e uma linha escrita por outro arquivo podia chegar
+   * aqui primeiro. Quando isso acontecia, o teste montava o evento de outro
+   * tenant com o ator deste e falhava com TENANT_SCOPE_VIOLATION — de forma
+   * intermitente, que e a pior maneira de falhar.
+   *
+   * Este helper existe para pegar o evento pelo tenant, e nao pela ordem de
+   * chegada. Nao e so conserto de flakiness: um teste que afirma sobre "o
+   * primeiro que veio" nao esta afirmando sobre o proprio caminho.
+   */
+  const meuEvento = (name = "olga/content.publish.requested") => {
+    const e = entregues.find((x) => x.name === name && x.data?.org_id === ids.org)
+           ?? entregues.find((x) => x.name === name);
+    assert.ok(e, `nenhum evento ${name} deste workspace foi entregue`);
+    return e;
+  };
+
+  return { adapter, relay, handler, entregues, meuEvento };
 }
 
 // ── Os produtores ───────────────────────────────────────────────────────────
@@ -248,10 +271,10 @@ test("ACEITE — aprovar, agendar e publicar, do inicio ao fim", async () => {
   const p = pipeline();
   const r = await p.relay();
   assert.equal(r.sent.length, 1);
-  assert.equal(p.entregues[0].name, "olga/content.publish.requested");
+  assert.equal(p.meuEvento().name, "olga/content.publish.requested");
 
   // 5. O workflow consome e publica.
-  const data = { ...p.entregues[0].data, trace_id: "tr_e2e", requested_autonomy: "A3",
+  const data = { ...p.meuEvento().data, trace_id: "tr_e2e", requested_autonomy: "A3",
                  approval_id, actor: { role: "OWNER", org_id: ids.org } };
   const out = await p.handler(data, durableStep());
 
@@ -290,7 +313,7 @@ test("ACEITE — reentrega do mesmo pedido nao publica duas vezes", async () => 
 
   const p = pipeline();
   await p.relay();
-  const data = { ...p.entregues[0].data, trace_id: "tr_dup", requested_autonomy: "A3",
+  const data = { ...p.meuEvento().data, trace_id: "tr_dup", requested_autonomy: "A3",
                  approval_id, actor: { role: "OWNER", org_id: ids.org } };
 
   await p.handler(data, durableStep());
@@ -386,7 +409,7 @@ test("depois de publicar, a listagem mostra o canal publicado", async () => {
 
   const p = pipeline();
   await p.relay();
-  await p.handler({ ...p.entregues[0].data, trace_id: "tr_lista", requested_autonomy: "A3",
+  await p.handler({ ...p.meuEvento().data, trace_id: "tr_lista", requested_autonomy: "A3",
                     approval_id, actor: { role: "OWNER", org_id: ids.org } }, durableStep());
 
   const lista = await ports.content.listByWorkspace(ids.org, ids.ws);
@@ -422,7 +445,7 @@ test("G1 — receipt carrega o external ID do provider, e o trace liga pedido a 
   const p = pipeline();
   await p.relay();
   const out = await p.handler(
-    { ...p.entregues[0].data, trace_id: trace, requested_autonomy: "A3", approval_id,
+    { ...p.meuEvento().data, trace_id: trace, requested_autonomy: "A3", approval_id,
       actor: { role: "OWNER", org_id: ids.org } },
     durableStep());
   assert.equal(out.status, "SUCCEEDED");

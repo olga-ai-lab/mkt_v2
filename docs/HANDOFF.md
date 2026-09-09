@@ -546,11 +546,68 @@ Mais o `agent-runtime.mjs`, código morto com 29 testes verdes, apagado.
 
 ---
 
-*Última verificação: 07/09/2026. 474 testes, 10/10 no Gate G0, 10/10 nos
-critérios verificáveis do G1, typecheck limpo, `next build` limpo,
-12 migrations, árvore limpa.*
+## 9. Sessão de 08–09/09/2026 — os agentes que escrevem, Railway e a Fase 2
 
-*O schema `mkt_v2` está completo e conferido: 29 tabelas, nenhuma sem RLS.*
+Quatro decisões da Olga, e o que cada uma custou:
+
+| Decisão | O que entrou |
+|---|---|
+| Promover BRAND e CONTENT | migration `0013`, e a troca do teto de governança |
+| Railway | `Dockerfile`, `railway.toml`, `/api/health`, ADR-0012 ACEITA |
+| Começar a Fase 2 | C4 (`0014`), C3 (`0015`), C2 |
+| Meta: não saiu | segue `META_ADAPTER=fake`; o G1 continua declarando o que falta |
+
+### Três defeitos que só apareceram ao ligar as coisas
+
+Todos do mesmo tipo, e todos achados por **exercitar**, não por ler:
+
+1. **O policy engine perguntava pelo modo onde o comentário dizia efeito.**
+   `if (isWrite)` num ramo cujo comentário diz *"efeito externo vira aprovação;
+   leitura/rascunho apenas rebaixa"*. Inalcançável enquanto nenhum agente que
+   escreve estava `ACTIVE` — então o proxy passava por correto. Com CONTENT
+   promovido, todo rascunho virava pedido de aprovação. **Quem achou foi o eval
+   `CONTENT-GOLD-001`**, o caminho normal do agente.
+
+2. **`packages/contracts` lê os schemas do disco em tempo de execução.** Bundler
+   nenhum rastreia isso. A primeira imagem Docker subiu, ficou saudável, e
+   respondeu **500** no primeiro request com um `ENOENT` dentro de um chunk do
+   webpack. Na Vercel nunca apareceu porque a plataforma sobe o repositório
+   inteiro. É a diferença que uma troca de plataforma cobra — e o argumento
+   para a verificação de deploy **rodar** a imagem, não só construí-la.
+
+3. **O reason code reportado num bloqueio era o errado.** `reason_codes[0]`
+   trazia o primeiro invariante coletado, não a causa: um slot bloqueado por
+   canal desconectado gravava `WORKSPACE_FIRST_PUBLISH`. A regra final não é "o
+   primeiro da lista" — é **o código que responde "por que isto não aconteceu"
+   vem primeiro**, e `AUTONOMY_EXCEEDED` fica por último porque é o mecanismo,
+   não a explicação.
+
+### O que a próxima sessão precisa saber
+
+- **O teto de governança mudou.** Não é mais "nenhum agente ACTIVE escreve" — é
+  **nenhum agente ACTIVE alcança efeito externo**, lido de `side_effect` no
+  registry. `publishing.publish` e `channel.connect` seguem sem dono.
+- **Recorrência é um slot, não republicação.** `PUBLISHED` é terminal e a
+  aprovação é vinculada à versão. Cada ocorrência consome a próxima versão
+  aprovada; slot sem conteúdo é estado esperado, não falha.
+- **A ocorrência roda sob a autoridade de quem criou o slot**, com o papel que
+  a pessoa tem agora. Não existe ator "sistema": inventar um criaria um caminho
+  que ignora a coluna `permissions` do registry.
+- **O lote para na primeira recusa de orçamento.** É a única parte do produto
+  em que um clique gasta dinheiro N vezes.
+- **O Supabase Vault continua sem teste de fumaça** — a extensão não existe no
+  Postgres da CI. Registrado como teste de nome próprio em
+  `packages/runtime/test/secrets.test.mjs`.
+- **D6 (UI de autonomia por workspace) subiu de prioridade**: com os quatro
+  agentes ACTIVE, o teto de cada um só muda por migration.
+
+---
+
+*Última verificação: 09/09/2026. 539 testes, 10/10 no Gate G0, 10/10 nos
+critérios verificáveis do G1, 24 evals, typecheck limpo, `next build` limpo,
+imagem Docker construída e executada, 15 migrations, árvore limpa.*
+
+*O schema `mkt_v2` está completo e conferido: 30 tabelas, nenhuma sem RLS.*
 
 *Sobrou **uma** pendência na Fase 1, e ela não é código: a submissão do app
 na Meta (ADR-0008). Enquanto ela não sair, o produto roda inteiro com
