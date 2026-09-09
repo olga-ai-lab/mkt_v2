@@ -10,10 +10,13 @@
  */
 import { createPublishWorkflow } from "./publish-workflow.mjs";
 import { createOutboxRelay, createDedupedHandler } from "./outbox-relay.mjs";
+import { createScheduleRunner } from "./schedule-runner.mjs";
 
 export const PUBLISH_CONSUMER = "publish-content";
 
-export function registerFunctions({ inngest, gateway, db, tracer, outboxCron = "*/1 * * * *" }) {
+export function registerFunctions({ inngest, gateway, db, tracer,
+                                   outboxCron = "*/1 * * * *",
+                                   scheduleCron = "*/5 * * * *" }) {
   const publish = createPublishWorkflow({ gateway, db, tracer });
 
   // O handler registrado nao e o workflow cru: e o workflow atras da guarda de
@@ -61,6 +64,31 @@ export function registerFunctions({ inngest, gateway, db, tracer, outboxCron = "
           bus: { send: async (e) => inngest.send(e) },
         });
         return step.run("drenar-outbox", relay);
+      },
+    ),
+
+    // Slots recorrentes (C3). No relogio pelo mesmo motivo do relay: depender
+    // de evento para acordar seria depender do caminho que pode ter falhado.
+    //
+    // A cada cinco minutos, e nao a cada minuto: a granularidade do slot e a
+    // hora, entao passar de minuto em minuto so multiplicaria consultas para
+    // achar a mesma coisa.
+    inngest.createFunction(
+      {
+        id: "publication-schedules",
+        triggers: [{ cron: scheduleCron }],
+        // Um agendador por vez. Aqui, ao contrario do relay, concorrencia nao
+        // seria so trabalho perdido: duas passadas no mesmo slot agendariam
+        // dois posts para o mesmo horario. O `skip locked` do claim ja
+        // defende, e este limite e a segunda tranca.
+        concurrency: { limit: 1 },
+      },
+      async ({ step }) => {
+        const runner = createScheduleRunner({
+          gateway, db, tracer,
+          ids: { newTraceId: () => `tr_${crypto.randomUUID()}` },
+        });
+        return step.run("materializar-slots", runner);
       },
     ),
   ];

@@ -122,6 +122,29 @@ function conditionsMatch(policy, facts) {
  */
 export function evaluate({ context, facts = {}, requested_autonomy = "A2", policies = [], trace_id = "trace" }) {
   const applied = [];
+  /**
+   * Os codigos que explicam a decisao.
+   *
+   * Ordem com significado: **o codigo que DECIDIU vem primeiro**, e os
+   * invariantes que apenas baixaram o teto vem depois. Quem consome isto le
+   * `reason_codes[0]` — o gateway faz exatamente isso ao montar um
+   * ExecutionResult BLOCKED.
+   *
+   * Antes, os invariantes vinham primeiro por serem coletados antes, e um
+   * bloqueio por canal desconectado se apresentava como
+   * WORKSPACE_FIRST_PUBLISH. Nao e detalhe de apresentacao: manda quem opera
+   * procurar no lugar errado. Achado ao ligar o agendador recorrente (C3), que
+   * grava o motivo na linha do slot.
+   *
+   * `AUTONOMY_EXCEEDED` e a excecao, e ela ensina qual e a regra. Ele nao
+   * explica nada: e o MECANISMO — "pediu acima do teto". Quem explica e o
+   * invariante que baixou o teto, e por isso ele fica DEPOIS. Um operador que
+   * le "autonomia excedida" nao sabe o que fazer; um que le "conteudo nao
+   * aprovado" sabe.
+   *
+   * A regra, entao, nao e "o primeiro da lista": e **o codigo que responde
+   * 'por que isto nao aconteceu' vem primeiro.**
+   */
   const reason_codes = [];
 
   // Teto 1: matriz risco x autonomia (MKT-17 §5.1).
@@ -181,7 +204,7 @@ export function evaluate({ context, facts = {}, requested_autonomy = "A2", polic
       return {
         ...base,
         state: "POLICY_BLOCKED",
-        reason_codes: [...reason_codes, "NO_ACTIVE_POLICY"],
+        reason_codes: ["NO_ACTIVE_POLICY", ...reason_codes],
         granted_autonomy: null,
         required_approval: false,
         user_message_key: "policy.no_active_policy",
@@ -203,7 +226,7 @@ export function evaluate({ context, facts = {}, requested_autonomy = "A2", polic
     return {
       ...base,
       state: "POLICY_BLOCKED",
-      reason_codes: [...reason_codes, matched.reason_code].filter(Boolean),
+      reason_codes: [matched.reason_code, ...reason_codes].filter(Boolean),
       granted_autonomy: null,
       required_approval: false,
       user_message_key: matched.message_key ?? "policy.blocked",
@@ -217,7 +240,7 @@ export function evaluate({ context, facts = {}, requested_autonomy = "A2", polic
     return {
       ...base,
       state: "APPROVAL_REQUIRED",
-      reason_codes: [...reason_codes, matched.reason_code].filter(Boolean),
+      reason_codes: [matched.reason_code, ...reason_codes].filter(Boolean),
       granted_autonomy: minAutonomy("A3", finalCeiling),
       required_approval: true,
       user_message_key: matched.message_key ?? "policy.approval_required",

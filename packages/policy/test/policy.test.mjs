@@ -221,3 +221,81 @@ test("leitura acima do teto rebaixa, com ou sem side_effect declarado", () => {
     assert.equal(r.granted_autonomy, "A2");
   }
 });
+
+// ── A ordem dos reason codes tem significado ───────────────────────────────
+//
+// Quem consome le `reason_codes[0]`: o gateway monta o ExecutionResult BLOCKED
+// exatamente assim. Se um invariante que so baixou o teto vier antes do codigo
+// que decidiu, quem opera procura no lugar errado.
+//
+// Achado ao ligar o agendador recorrente (C3): um slot bloqueado por canal
+// desconectado gravava WORKSPACE_FIRST_PUBLISH na propria linha.
+
+test("num bloqueio, o codigo que decidiu vem antes dos invariantes", () => {
+  const r = evaluate({
+    context: publishCtx,
+    // `workspace_first_publish` dispara um invariante que baixa o teto, e a
+    // conexao caida dispara o BLOCK. Os dois codigos saem; a ordem diz qual
+    // deles e a causa.
+    facts: { ...happyFacts, channel_connected: false, workspace_first_publish: true },
+    requested_autonomy: "A3",
+    policies: [allowPublish, {
+      policy_id: "POL_BLOCK_SEM_CANAL", version: 1, status: "ACTIVE", priority: 10,
+      scope: {}, conditions: [{ fact: "channel_connected", op: "is_false", value: true }],
+      effect: "BLOCK", reason_code: "CHANNEL_NOT_CONNECTED",
+    }],
+  });
+
+  assert.equal(r.state, "POLICY_BLOCKED");
+  assert.equal(r.reason_codes[0], "CHANNEL_NOT_CONNECTED",
+    "o primeiro codigo tem de ser a causa do bloqueio, nao um teto que baixou junto");
+  assert.ok(r.reason_codes.includes("WORKSPACE_FIRST_PUBLISH"),
+    "os invariantes continuam sendo relatados; eles so nao vem na frente");
+});
+
+test("numa exigencia de aprovacao, o codigo da policy tambem vem primeiro", () => {
+  const r = evaluate({
+    context: publishCtx,
+    facts: { ...happyFacts, claim_types: ["COVERAGE"], workspace_first_publish: true },
+    requested_autonomy: "A3",
+    policies: [{
+      policy_id: "POL_COMPLIANCE", version: 1, status: "ACTIVE", priority: 30,
+      scope: {}, conditions: [{ fact: "claim_types", op: "contains_any", value: ["COVERAGE"] }],
+      effect: "REQUIRE_APPROVAL", max_autonomy: "A2", reason_code: "COMPLIANCE_REVIEW_REQUIRED",
+    }],
+  });
+
+  assert.equal(r.state, "APPROVAL_REQUIRED");
+  assert.equal(r.reason_codes[0], "COMPLIANCE_REVIEW_REQUIRED");
+});
+
+test("sem policy ACTIVE, NO_ACTIVE_POLICY vem primeiro", () => {
+  const r = evaluate({
+    context: publishCtx,
+    facts: { ...happyFacts, workspace_first_publish: true },
+    requested_autonomy: "A3", policies: [],
+  });
+  assert.equal(r.state, "POLICY_BLOCKED");
+  assert.equal(r.reason_codes[0], "NO_ACTIVE_POLICY");
+});
+
+test("AUTONOMY_EXCEEDED e a excecao: quem explica e o invariante, nao o mecanismo", () => {
+  // A excecao que ensina a regra. "Pediu acima do teto" nao diz a ninguem o
+  // que fazer; "o conteudo nao esta aprovado" diz. Entao o invariante que
+  // baixou o teto vem primeiro, e o mecanismo depois.
+  //
+  // Este par de testes existe junto de proposito: com o de cima sozinho,
+  // trocar a ordem em toda a funcao passaria.
+  const r = evaluate({
+    context: { ...publishCtx, side_effect: "external" },
+    facts: { ...happyFacts, content_status: "DRAFT" },
+    requested_autonomy: "A3",
+    policies: [allowPublish],
+  });
+
+  assert.equal(r.state, "APPROVAL_REQUIRED");
+  assert.equal(r.reason_codes[0], "CONTENT_NOT_APPROVED",
+    "quem le o primeiro codigo precisa saber o que fazer a respeito");
+  assert.equal(r.reason_codes.at(-1), "AUTONOMY_EXCEEDED",
+    "o mecanismo fica, mas nao na frente");
+});

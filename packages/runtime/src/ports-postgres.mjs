@@ -835,6 +835,118 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
    * mostra e o que o gateway avalia nao sao a mesma pergunta, e misturar as
    * duas faria uma mudanca de layout mexer no caminho que autoriza efeito.
    */
+  /**
+   * Slots recorrentes do calendario editorial (C3).
+   *
+   * Cada ocorrencia consome a PROXIMA versao aprovada do canal — nao republica
+   * a mesma, porque PUBLISHED e terminal e a aprovacao e vinculada a versao.
+   * Ver o cabecalho da migration 0015.
+   */
+  const schedules = {
+    /**
+     * Reserva os slots vencidos.
+     *
+     * `for update skip locked` pelo mesmo motivo do outbox: mais de um
+     * agendador rodando pega slots diferentes em vez de disputar os mesmos. E,
+     * ao contrario do outbox, aqui a disputa nao seria so trabalho perdido —
+     * duas passadas no mesmo slot agendariam dois posts para o mesmo horario.
+     */
+    async claimDue(agora = new Date(), limit = 50) {
+      const { rows } = await pool.query(
+        `select id, org_id, workspace_id, channel::text as channel, connection_id,
+                cadence, at_hour_utc, at_weekday, at_monthday, next_run_at, created_by
+           from ${S}.publication_schedules
+          where active and next_run_at <= $1
+          order by next_run_at asc
+          limit $2
+          for update skip locked`, [agora, limit]);
+      return rows;
+    },
+
+    /** Registra o que aconteceu e move o slot para o proximo vencimento. */
+    async advance(id, { next_run_at, outcome, reason_code = null, agora = new Date() }) {
+      await pool.query(
+        `update ${S}.publication_schedules
+            set next_run_at = $2, last_run_at = $3,
+                last_outcome = $4, last_reason_code = $5
+          where id = $1`, [id, next_run_at, agora, outcome, reason_code]);
+    },
+
+    /**
+     * A proxima versao aprovada que aquele canal pode publicar.
+     *
+     * Tres exigencias, e nenhuma delas e opcional: estado APPROVED, variante
+     * para o canal, e nenhuma publicacao ja criada. A ultima evita que um slot
+     * pegue o mesmo conteudo que outro slot acabou de agendar.
+     *
+     * Ordem por aprovacao mais antiga: quem esperou mais sai primeiro, que e o
+     * que uma fila editorial significa.
+     */
+    async nextApproved(org_id, workspace_id, channel) {
+      const { rows } = await pool.query(
+        `select cv.id as content_version_id, v.id as channel_variant_id
+           from ${S}.content_versions cv
+           join ${S}.contents ct on ct.id = cv.content_id
+           join ${S}.channel_variants v
+             on v.content_version_id = cv.id and v.channel = $3::${S}.channel
+          where cv.org_id = $1
+            and ct.workspace_id = $2
+            and cv.state = 'APPROVED'
+            and not exists (
+              select 1 from ${S}.publications p where p.content_version_id = cv.id)
+          order by cv.approved_at asc nulls last
+          limit 1`, [org_id, workspace_id, channel]);
+      return rows[0] ?? null;
+    },
+
+    /** Leitura para a tela: os slots do workspace. */
+    async listByWorkspace(org_id, workspace_id) {
+      const { rows } = await pool.query(
+        `select s.id, s.channel::text as channel, s.cadence, s.at_hour_utc,
+                s.at_weekday, s.at_monthday, s.active, s.next_run_at,
+                s.last_run_at, s.last_outcome, s.last_reason_code,
+                c.display_name, c.status::text as connection_status
+           from ${S}.publication_schedules s
+           join ${S}.connections c on c.id = s.connection_id
+          where s.org_id = $1 and s.workspace_id = $2
+          order by s.next_run_at asc`, [org_id, workspace_id]);
+      return rows;
+    },
+
+    /**
+     * Sob que autoridade uma ocorrencia roda.
+     *
+     * O papel e resolvido AGORA, e nao gravado quando o slot foi criado. Se a
+     * pessoa que configurou o slot perdeu o papel — saiu da empresa, mudou de
+     * funcao — o slot para de publicar, que e o comportamento certo. Um papel
+     * congelado na linha continuaria agendando em nome de quem ja nao pode.
+     *
+     * Devolve null quando nao ha membership, e o runner trata como recusa
+     * nomeada em vez de seguir com um papel inventado.
+     */
+    async creatorRole(org_id, user_id) {
+      if (!user_id) return null;
+      const { rows } = await pool.query(
+        `select role::text as role from ${S}.memberships
+          where org_id = $1 and user_id = $2 limit 1`, [org_id, user_id]);
+      return rows[0]?.role ?? null;
+    },
+
+    async create({ org_id, workspace_id, channel, connection_id, cadence,
+                   at_hour_utc, at_weekday = null, at_monthday = null,
+                   next_run_at, created_by = null }) {
+      const { rows } = await pool.query(
+        `insert into ${S}.publication_schedules
+           (org_id, workspace_id, channel, connection_id, cadence,
+            at_hour_utc, at_weekday, at_monthday, next_run_at, created_by)
+         values ($1,$2,$3::${S}.channel,$4,$5,$6,$7,$8,$9,$10)
+         returning id, next_run_at`,
+        [org_id, workspace_id, channel, connection_id, cadence,
+         at_hour_utc, at_weekday, at_monthday, next_run_at, created_by]);
+      return rows[0];
+    },
+  };
+
   const content = {
     /**
      * Versao corrente de cada conteudo do workspace, com o que a tela precisa
@@ -1323,5 +1435,6 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
   };
 
   return { routing, budget, registry, iam, audit, trace, runs, policies, receipts, outbox, approvals,
+           schedules,
            connections, variants, publishing, content, knowledge, authoring, governance };
 }

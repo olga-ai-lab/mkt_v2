@@ -79,15 +79,20 @@ test("sem cliente Inngest, monta o resto e nao registra funcao", () => {
     "o composition serve tambem a quem so precisa das portas, sem motor durável");
 });
 
-test("com cliente Inngest, registra o workflow e o relay do outbox", async () => {
+test("com cliente Inngest, registra as tres funcoes duraveis", async () => {
+  // Este teste ja quebrou uma vez ao ganhar a terceira funcao, e e para isso
+  // que ele existe: uma funcao escrita e nao registrada nao roda, por mais
+  // testada que esteja. Foi assim que `registerFunctions()` ficou pronta sem
+  // ninguem a chamar.
   const { createInngestClient } = await import("../../../apps/worker/src/client.mjs");
   const inngest = createInngestClient({ env: { NODE_ENV: "test" } });
   const app = createWorkerApp({ pool, inngest, env: {}, tracer: null, schema: "mkt" });
 
-  assert.equal(app.functions.length, 2, "publish-content e outbox-relay");
   const ids = app.functions.map((f) => f.id?.() ?? f.id).map(String);
-  assert.ok(ids.some((i) => i.includes("publish-content")), `ids: ${ids}`);
-  assert.ok(ids.some((i) => i.includes("outbox-relay")), `ids: ${ids}`);
+  assert.equal(app.functions.length, 3, `esperava tres, vieram: ${ids}`);
+  for (const esperado of ["publish-content", "outbox-relay", "publication-schedules"]) {
+    assert.ok(ids.some((i) => i.includes(esperado)), `falta ${esperado} em: ${ids}`);
+  }
 });
 
 test("sem pool, falha claro em vez de montar pela metade", () => {

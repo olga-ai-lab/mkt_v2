@@ -17,6 +17,7 @@
     "./retrieval": "./src/retrieval.mjs",
     "./composer": "./src/composer.mjs",
     "./secrets": "./src/secrets.mjs",
+    "./recurrence": "./src/recurrence.mjs",
     "./meta-oauth": "./src/meta-oauth.mjs"
   },
   "dependencies": {

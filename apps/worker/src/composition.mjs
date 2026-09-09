@@ -31,6 +31,7 @@ import { createAdapters, createEnvSecrets } from "./adapters.mjs";
 import { registerFunctions } from "./inngest.mjs";
 import { PUBLISH_DB_SURFACE } from "./publish-workflow.mjs";
 import { OUTBOX_DB_SURFACE } from "./outbox-relay.mjs";
+import { SCHEDULE_DB_SURFACE } from "./schedule-runner.mjs";
 
 const tracerPadrao = {
   event: (e) => console.log(JSON.stringify({ ...e, kind: "trace" })),
@@ -87,7 +88,7 @@ export function createWorkerApp({ pool, inngest, providers, env = process.env, t
 
   // O `db` do workflow e a uniao das duas portas. O workflow nao sabe que sao
   // duas; para ele e uma interface so.
-  const db = { ...worker, ...ports.outbox };
+  const db = { ...worker, ...ports.outbox, ...ports.schedules };
   conferirSuperficie(db);
 
   const functions = inngest ? registerFunctions({ inngest, gateway, db, tracer }) : [];
@@ -126,7 +127,7 @@ export function createWorkerApp({ pool, inngest, providers, env = process.env, t
 
 /** Falha alto e cedo, com o nome do que falta. */
 export function conferirSuperficie(db) {
-  const exigidos = [...PUBLISH_DB_SURFACE, ...OUTBOX_DB_SURFACE];
+  const exigidos = [...PUBLISH_DB_SURFACE, ...OUTBOX_DB_SURFACE, ...SCHEDULE_DB_SURFACE];
   const faltando = exigidos.filter((m) => typeof db?.[m] !== "function");
   if (faltando.length) {
     throw new Error(

@@ -96,7 +96,11 @@ check("O adapter real e o falso entram pela mesma porta", () =>
 // --- Montagem: codigo que ninguem monta nao roda -------------------------
 check("O sistema monta com pool, portas e funcoes duraveis", () => {
   precisaDeBanco();
-  return exigeTeste("test:rls", "com cliente Inngest, registra o workflow");
+  // O trecho procurado e o inicio do nome, e nao o nome inteiro, porque ele
+  // muda quando uma funcao duravel nova e registrada — e mudou, ao entrar o
+  // agendador de slots (C3). O gate quer saber que a montagem acontece, nao
+  // quantas funcoes existem hoje.
+  return exigeTeste("test:rls", "com cliente Inngest, registra as tres funcoes");
 });
 
 const larg = Math.max(...checks.map((c) => c.nome.length));
