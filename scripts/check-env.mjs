@@ -81,6 +81,25 @@ const REGRAS = [
       "ficam agendadas para sempre, que e a falha mais dificil de diagnosticar.",
     quando: () => !dev,
   },
+  // ── Railway (ADR-0012) ──────────────────────────────────────────────────
+  {
+    nome: "PORT",
+    porque:
+      "o Railway injeta a porta em runtime. O Dockerfile traz 3000 como padrao, " +
+      "entao a ausencia aqui e aviso, nao falha.",
+    opcional: true,
+    valida: (v) =>
+      /^\d+$/.test(v) && Number(v) > 0 && Number(v) < 65536 ? null : `porta invalida: ${v}`,
+  },
+  {
+    nome: "INNGEST_SERVE_ORIGIN",
+    porque:
+      "o host publico por onde o Inngest chama /api/inngest. Atras de proxy, o " +
+      "Next nao adivinha o host externo — e uma URL errada aqui nao da erro: o " +
+      "workflow simplesmente nunca e chamado.",
+    quando: () => !dev,
+    valida: (v) => (v.startsWith("https://") ? null : "use a URL publica com https://"),
+  },
   {
     nome: "META_ADAPTER",
     porque: "decide se o produto fala com a Meta de verdade. O padrao e `fake`.",

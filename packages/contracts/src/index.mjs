@@ -6,9 +6,35 @@ import addFormats from "ajv-formats";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
+/**
+ * Os contratos sao lidos do disco, e nao importados.
+ *
+ * E deliberado: os mesmos `.json` sao lidos pelo gerador de tipos, citados
+ * pelas migrations e validados na CI. Transforma-los em modulos criaria uma
+ * segunda copia que um dia divergiria da primeira.
+ *
+ * O preco disso aparece no empacotamento: um bundler nao rastreia arquivo lido
+ * em tempo de execucao, entao a imagem de container precisa copiar estes
+ * diretorios explicitamente. Foi assim que a primeira imagem do Railway subiu
+ * e respondeu 500 na primeira requisicao — com um ENOENT dentro de um chunk
+ * do webpack, longe da causa.
+ *
+ * Por isso a falta vira uma frase, e nao um stack: quem for empacotar isto
+ * noutro lugar recebe o nome do diretorio e o que fazer com ele.
+ */
 function loadDir(rel) {
   const dir = join(ROOT, rel);
-  return readdirSync(dir)
+  let arquivos;
+  try {
+    arquivos = readdirSync(dir);
+  } catch (e) {
+    throw new Error(
+      `contratos ausentes: ${dir} nao existe. Os schemas sao lidos do disco em ` +
+      `tempo de execucao, entao empacotar este pacote exige copiar ` +
+      `packages/contracts/enums e packages/contracts/schemas junto do codigo ` +
+      `(ver Dockerfile). Causa original: ${e.code ?? e.message}`);
+  }
+  return arquivos
     .filter((f) => f.endsWith(".json"))
     .map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")));
 }

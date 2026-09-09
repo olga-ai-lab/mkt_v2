@@ -17,6 +17,7 @@ const COMPLETO = {
   DATABASE_URL: "postgres://x", MKT_SCHEMA: "mkt_v2",
   SUPABASE_URL: "https://x", SUPABASE_ANON_KEY: "k", SUPABASE_JWT_SECRET: "s",
   ANTHROPIC_API_KEY: "a", INNGEST_EVENT_KEY: "e", INNGEST_SIGNING_KEY: "g",
+  INNGEST_SERVE_ORIGIN: "https://olga.up.railway.app",
 };
 
 /** Roda o script com um ambiente montado do zero e devolve saida e codigo. */
@@ -94,10 +95,38 @@ test("modo real com vault somente leitura reprova", () => {
 });
 
 test("--dev afrouxa o que so vale em producao, e nada alem disso", () => {
-  const { INNGEST_EVENT_KEY, INNGEST_SIGNING_KEY, ...semInngest } = COMPLETO;
+  const { INNGEST_EVENT_KEY, INNGEST_SIGNING_KEY, INNGEST_SERVE_ORIGIN, ...semInngest } = COMPLETO;
   assert.equal(conferir(semInngest, ["--dev"]).codigo, 0);
 
   // Mas nao afrouxa o resto: banco e sessao continuam exigidos.
   const { DATABASE_URL, ...semBanco } = semInngest;
   assert.equal(conferir(semBanco, ["--dev"]).codigo, 1);
+});
+
+// ── Railway (ADR-0012) ─────────────────────────────────────────────────────
+
+test("INNGEST_SERVE_ORIGIN e exigido, e a mensagem diz por que", () => {
+  // Das oito variaveis, esta e uma das duas que nao aparecem como erro em
+  // lugar nenhum quando faltam: o registro acontece com a URL errada, o deploy
+  // fica verde, e o workflow duravel simplesmente nunca e chamado.
+  const { INNGEST_SERVE_ORIGIN, ...sem } = COMPLETO;
+  const { codigo, out } = conferir(sem);
+  assert.equal(codigo, 1);
+  assert.match(out, /nunca e chamado/);
+});
+
+test("INNGEST_SERVE_ORIGIN sem https e recusado", () => {
+  // Atras do proxy do Railway, http vira redirect e o registro do Inngest
+  // aponta para um lugar que responde 301 em vez de executar a funcao.
+  assert.equal(conferir({ ...COMPLETO, INNGEST_SERVE_ORIGIN: "olga.up.railway.app" }).codigo, 1);
+  assert.equal(conferir({ ...COMPLETO, INNGEST_SERVE_ORIGIN: "http://olga.test" }).codigo, 1);
+});
+
+test("PORT e opcional, mas porta invalida reprova", () => {
+  // O Railway injeta PORT em runtime e o Dockerfile traz 3000 como padrao,
+  // entao a ausencia e aviso. Um valor sem sentido, nao.
+  assert.equal(conferir(COMPLETO).codigo, 0, "sem PORT continua passando");
+  assert.equal(conferir({ ...COMPLETO, PORT: "3000" }).codigo, 0);
+  assert.equal(conferir({ ...COMPLETO, PORT: "oitenta" }).codigo, 1);
+  assert.equal(conferir({ ...COMPLETO, PORT: "99999" }).codigo, 1);
 });

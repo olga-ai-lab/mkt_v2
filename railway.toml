@@ -1,0 +1,29 @@
+# Deploy no Railway (ADR-0012).
+#
+# O healthcheck aponta para /api/health, que TOCA O BANCO. Um endpoint que so
+# responde 200 declararia vivo um processo que perdeu o Postgres, e o Railway
+# manteria de pe exatamente o que nao serve.
+#
+# O que este arquivo nao configura, e por que: o Inngest continua sendo o motor
+# duravel (ADR-0001). Railway substitui a Vercel, nao o Inngest — os dois nunca
+# foram alternativas um do outro. O que muda e para onde o Inngest chama:
+# https://<host-do-railway>/api/inngest.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "node apps/web/server.js"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 30
+
+# ON_FAILURE, e nao ALWAYS: reiniciar sempre esconde um processo que morre
+# limpo por configuracao faltando, e ele voltaria em looping parecendo saudavel.
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+# Uma replica ate haver motivo medido para mais. O relay do outbox aguenta
+# concorrencia (o claim usa `for update skip locked`), entao escalar e seguro —
+# mas escalar sem numero na mao e otimizacao no escuro.
+numReplicas = 1

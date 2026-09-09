@@ -1,10 +1,23 @@
-# ADR-0012 — Railway como alternativa de deploy (supersede a ADR-0002?)
+# ADR-0012 — Railway para a web (supersede a ADR-0002)
 
-- **Status:** PROPOSTA — não decidida. Falta a Olga dizer.
+- **Status:** ACEITA em 08/09/2026, por decisão da Olga.
+- **Supersede:** a parte da ADR-0002 sobre onde a web roda.
 - **Data:** 26/08/2026
 - **Revisa:** ADR-0002 (Vercel para a web, Inngest Cloud para o worker)
 
-## Por que esta ADR existe como PROPOSTA
+## A decisão, e o que ela contraria
+
+A Olga decidiu ir para o Railway. **A recomendação desta ADR era a oposta** —
+ficar na Vercel até a Fase 3 —, e ela fica preservada abaixo, inteira. Uma ADR
+que apaga o conselho que não foi seguido perde a metade útil: daqui a seis meses,
+quem ler precisa saber que a alternativa foi considerada e por quais razões, para
+poder julgar se elas ainda valem.
+
+O que a decisão **não** muda: o Inngest continua sendo o motor durável
+(ADR-0001). Railway substituiu a Vercel; os dois nunca foram alternativas um do
+outro.
+
+## Por que esta ADR nasceu como PROPOSTA
 
 A pergunta "nosso agente está no Railway?" apareceu nesta sessão. A resposta
 factual é: **não há configuração de deploy nenhuma no repositório** — nem
@@ -71,7 +84,19 @@ sobre onde roda aquele processo — possivelmente só ele, sem mover o resto.
 
 Uma frase basta, e ela vira o Status desta ADR:
 
-- "Fica Vercel" → esta ADR vira RECUSADA e a ADR-0002 continua ACEITA.
-- "Vai para Railway" → esta ADR vira ACEITA, a ADR-0002 vira SUPERSEDIDA, e
-  entra trabalho de infraestrutura: Dockerfile, healthcheck, variáveis e o
-  endpoint do Inngest apontando para o host novo.
+ - ~~"Fica Vercel"~~ → não foi essa.
+- **"Vai para Railway"** → foi essa. Esta ADR virou ACEITA, a ADR-0002 virou
+  SUPERSEDIDA, e o trabalho de infraestrutura entrou: `Dockerfile`,
+  `railway.toml`, healthcheck em `/api/health` e `docs/DEPLOY.md` reescrito.
+
+## O que a construção da imagem ensinou
+
+Construir e **rodar** a imagem — e não só escrever o `Dockerfile` — achou um
+defeito que nenhum teste pegaria: `packages/contracts` lê os schemas do **disco**
+em tempo de execução, e bundler nenhum rastreia leitura de arquivo. A primeira
+imagem subiu, ficou saudável, e respondeu **500** no primeiro request com um
+`ENOENT` dentro de um chunk do webpack.
+
+Na Vercel isso nunca apareceu porque a plataforma sobe o repositório inteiro. É
+exatamente a diferença que uma mudança de plataforma cobra, e é o argumento
+concreto a favor de a verificação do deploy **rodar** a imagem.
