@@ -444,3 +444,59 @@ alguém escreveria "ignore as instruções anteriores".
 O passo 7 é o que fecha, de verdade, o achado 4 da revisão — o compliance deixa
 de depender de o cliente ter escrito a proibição, e passa a ter a vedação do
 mercado como dado.
+
+---
+
+## 10. Estado da implementação
+
+Atualizado conforme cada passo sai do papel. O que está aqui foi executado.
+
+| # | Passo | Estado |
+|---|---|---|
+| 1 | Três P0 da revisão | **feito** — `messages.mjs`, migration `0011`, `facts.collectForAgent` |
+| 2 | Taxonomia: tabelas + carga | **tabelas feitas, carga proposta** — migration `0012`, tudo `CANDIDATE` |
+| 3 | Perfil da empresa | não começado |
+| 4 | Adapter `linkedin` | não começado |
+| 5 | Entrevista | não começado |
+| 6 | CONTENT exige perfil `ACTIVE` | não começado |
+| 7 | COMPLIANCE lê a vedação da taxonomia | não começado — depende da curadoria do passo 2 |
+| 8 | Charter do COPILOT | não começado — decisão 5 |
+
+### O que a migration `0012` criou
+
+Quatro tabelas em `mkt` (retargetadas para `mkt_v2` pelo runner), com RLS
+ligada e forçada, leitura liberada e escrita sem policy — só migration e
+`service_role` escrevem:
+
+| Tabela | Linhas semeadas | Observação |
+|---|---|---|
+| `taxonomy_products` | **32**, todas `CANDIDATE` | 7 agrupadores de ramo + 25 produtos, com sinônimos como o mercado fala |
+| `taxonomy_terms` | **16**, todas `CANDIDATE` | 13 vedações de mercado + 3 sensíveis, cada uma com `rationale` e `suggestion` |
+| `taxonomy_audiences` | **0** | público-alvo não tem fonte pública de onde partir |
+| `taxonomy_content_types` | **0** | taxonomia editorial é curadoria, não inferência |
+
+Três desvios do desenho da §6.1, todos para o lado mais restritivo:
+
+1. **Toda tabela ganhou `status`, `curated_at` e `curated_by`.** A carga nasce
+   `CANDIDATE`, o port `ports.taxonomy` lê só `ACTIVE`, e há constraint
+   recusando `ACTIVE` sem dono e data — curado é um fato com responsável, não
+   um estado que alguém alcança por `update`.
+2. **`ramo_susep` fica nulo.** Um código de ramo errado é pior que nenhum: ele
+   parece autoridade regulatória e vai ser citado como se fosse. A curadoria
+   preenche a partir da fonte normativa.
+3. **`pendingCuration()` existe.** Um compliance que receba lista vazia e
+   responda "conferi as vedações do mercado" estaria mentindo. A plataforma
+   precisa conseguir dizer *"semeada, não curada"* — e o smoke imprime isso.
+
+### O que falta no passo 2, e é de vocês
+
+**A curadoria.** Enquanto nenhuma linha for promovida, a taxonomia não julga
+nada: `activeProducts()` e `forbiddenTerms()` devolvem vazio, e o achado 4 da
+revisão continua aberto. Promover é `update ... set status = 'ACTIVE',
+curated_at = now(), curated_by = '<quem>'` — e vale a pena fazer em migration,
+para o ato ficar com rastro, como toda promoção neste repositório.
+
+Três perguntas que a revisão de vocês responde melhor que qualquer leitura
+minha: os 25 produtos cobrem o que as corretoras piloto realmente vendem? As
+16 vedações são as que a área de compliance de vocês já barra na prática? E
+quais públicos-alvo e tipos de conteúdo entram nas duas tabelas vazias?

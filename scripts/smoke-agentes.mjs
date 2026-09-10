@@ -471,6 +471,19 @@ const gravado = await db.query(`
 console.log("\n  ── o que ficou gravado ──");
 for (const g of gravado.rows) console.log(`     ${g.t.padEnd(24)} ${g.n}`);
 
+// A taxonomia do mercado nasce CANDIDATE e o codigo so le ACTIVE. Enquanto
+// ninguem curar, ela nao decide nada — e dizer isso aqui evita que alguem leia
+// "compliance passou" como "as vedacoes do mercado foram conferidas".
+const pendentes = await ports.taxonomy.pendingCuration();
+const curados = (await ports.taxonomy.activeProducts()).length;
+console.log("\n  ── taxonomia do mercado ──");
+console.log(`     produtos curados ....... ${curados}`);
+console.log(`     esperando curadoria .... produtos ${pendentes.products}, termos ${pendentes.terms}, ` +
+            `publicos ${pendentes.audiences}, tipos de conteudo ${pendentes.content_types}`);
+if (curados === 0) {
+  console.log("     ⚠ nenhuma linha curada: a taxonomia ainda nao julga nada.");
+}
+
 const runs = await db.query(
   `select agent_id, status::text as status, respondability, reason_codes,
           model, cost_cents

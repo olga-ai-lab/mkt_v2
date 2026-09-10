@@ -1117,7 +1117,80 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
     },
   };
 
+  /**
+   * A camada canonica do mercado.
+   *
+   * ── Por que tudo aqui filtra por ACTIVE ─────────────────────────────────
+   *
+   * A taxonomia nasce CANDIDATE (migration 0012) porque ela e a regua contra a
+   * qual todo conteudo vai ser julgado, e uma regua errada promovida contamina
+   * todo julgamento posterior sem que ninguem perceba a origem.
+   *
+   * Entao estas funcoes devolvem VAZIO enquanto ninguem curou — e vazio aqui
+   * significa "a taxonomia ainda nao decide nada", nao "nao ha vedacao no
+   * mercado". Quem consome precisa saber a diferenca: um compliance que
+   * receba lista vazia e diga "conferi as vedacoes do mercado" estaria
+   * mentindo. Por isso `forbiddenTerms` devolve tambem quantas linhas existem
+   * esperando curadoria.
+   */
+  const taxonomy = {
+    /** Produtos e ramos ja curados. */
+    async activeProducts() {
+      const { rows } = await pool.query(
+        `select product_code, label, parent_code, regulator, ramo_susep, synonyms,
+                required_disclaimers
+           from ${S}.taxonomy_products
+          where status = 'ACTIVE'
+          order by coalesce(parent_code, product_code), product_code`);
+      return rows;
+    },
+
+    /**
+     * Termos vedados e sensiveis que valem para este conjunto de produtos.
+     *
+     * Escopo nulo = vale para o mercado inteiro. Escopo preenchido = so
+     * naquele ramo, e o agrupador conta: um termo com escopo SAUDE alcanca
+     * SAUDE_PME, porque o produto aponta para o pai.
+     *
+     * @param {string[]} product_codes  produtos do perfil da empresa
+     */
+    async forbiddenTerms(product_codes = []) {
+      const codes = Array.isArray(product_codes) ? product_codes : [];
+      const { rows } = await pool.query(
+        `select t.id, t.term, t.kind, t.claim_type, t.scope_product,
+                t.rationale, t.suggestion
+           from ${S}.taxonomy_terms t
+      left join ${S}.taxonomy_products p on p.product_code = t.scope_product
+          where t.status = 'ACTIVE'
+            and (t.scope_product is null
+                 or t.scope_product = any($1::text[])
+                 or p.product_code in (
+                      select coalesce(pp.parent_code, pp.product_code)
+                        from ${S}.taxonomy_products pp
+                       where pp.product_code = any($1::text[])))
+          order by t.kind, t.term`,
+        [codes]);
+      return rows;
+    },
+
+    /**
+     * Quantas linhas esperam curadoria, por tabela.
+     *
+     * Existe para a plataforma conseguir dizer "a taxonomia esta semeada mas
+     * nao curada" em vez de se comportar como se o mercado nao tivesse regra
+     * nenhuma. Silencio e a resposta errada para as duas perguntas.
+     */
+    async pendingCuration() {
+      const { rows } = await pool.query(
+        `select 'products' as tabela, count(*)::int as pendentes from ${S}.taxonomy_products where status = 'CANDIDATE'
+         union all select 'audiences', count(*)::int from ${S}.taxonomy_audiences where status = 'CANDIDATE'
+         union all select 'content_types', count(*)::int from ${S}.taxonomy_content_types where status = 'CANDIDATE'
+         union all select 'terms', count(*)::int from ${S}.taxonomy_terms where status = 'CANDIDATE'`);
+      return Object.fromEntries(rows.map((r) => [r.tabela, r.pendentes]));
+    },
+  };
+
   return { routing, budget, registry, runs, policies, receipts, outbox, approvals,
            connections, variants, publishing, content, knowledge, authoring, governance,
-           facts };
+           facts, taxonomy };
 }
