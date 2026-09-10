@@ -29,7 +29,20 @@ jobs:
 
       - run: npm install
 
-      # Contratos primeiro: se schema e tipo divergirem, nada mais importa.
+      # Migrations antes de qualquer teste, não só do RLS: desde que
+      # packages/runtime/test passou a ter casos que tocam Postgres de
+      # verdade (prompt-templates.test.mjs, ports-postgres-briefs.test.mjs),
+      # rodar "Model Gateway e Agent Runtime" contra um banco sem schema
+      # falhava com "relation mkt.organizations does not exist" — a suíte
+      # via TEST_DATABASE_URL definido e presumia que o schema já existia,
+      # mas aqui só a etapa Migrations o cria. Rodar migrations primeiro é
+      # a garantia que se aplica a qualquer teste futuro que precise do
+      # banco, não só ao de hoje.
+      - name: Migrations
+        run: npm run db:migrate:local
+
+      # Contratos primeiro entre os testes: se schema e tipo divergirem,
+      # nada mais importa.
       - name: Contratos
         run: npm run test:contracts
 
@@ -53,9 +66,6 @@ jobs:
 
       - name: Microcopy cobre todo reason code
         run: npm run test:web
-
-      - name: Migrations
-        run: npm run db:migrate:local
 
       - name: Isolamento cross-tenant
         run: npm run test:rls

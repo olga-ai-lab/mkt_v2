@@ -90,7 +90,7 @@ function comoLista(v) {
 export const SUPERFICIE_INTERNA = {
   authoring: ["createDraft", "createVariant", "proposeBrandVersion"],
   knowledge: ["brandBrain", "brandBrainForContent", "contentVersion", "claimsFor",
-              "evidenceFor", "duplicateOf"],
+              "evidenceFor", "duplicateOf", "marketingProfile", "promptTemplates"],
   publishing: ["requestApproval", "schedule"],
 };
 
@@ -299,6 +299,45 @@ export function createInternalAdapter({ authoring, knowledge, publishing, compos
   // ── Escrita ───────────────────────────────────────────────────────────────
 
   /**
+   * A estrategia da marca: o perfil declarado e a biblioteca do objetivo.
+   *
+   * Devolve DADO, nao texto. Escolher template e substituir variavel sao
+   * trabalho do redator (packages/runtime/src/prompt-templates.mjs), e o
+   * motivo e de dependencia: o runtime ja importa o gateway, entao o
+   * gateway importar o runtime fecharia um ciclo. A divisao coincide com
+   * a boa: o gateway le, o runtime monta prompt.
+   *
+   * ── As tres saidas possiveis ──────────────────────────────────────────
+   *
+   * 1. Marca SEM perfil -> null, e o redator escreve como antes de existir
+   *    formulario. Nao e degradacao silenciosa: o template usado volta
+   *    nulo, e o nulo e gravado na versao e devolvido no output. Recusar
+   *    aqui quebraria toda marca cadastrada antes desta migration, para
+   *    dizer "voce nao preencheu um formulario que nao existia".
+   *
+   * 2. Perfil SEM tema para esta peca -> AMBIGUOUS_GOAL. O template exige
+   *    {{briefing}}, e a alternativa seria render "Tema pedido agora: " e
+   *    deixar o modelo escolher o assunto sozinho. Perguntar custa uma
+   *    rodada; adivinhar custa uma peca publicada sobre o que ninguem pediu.
+   *
+   * 3. Perfil e tema -> os dois seguem para o redator.
+   */
+  async function estrategiaDe({ k, tenant, args }) {
+    if (typeof k.marketingProfile !== "function") return null;
+
+    const perfil = await k.marketingProfile(tenant.org_id, args.brand_id);
+    if (!perfil) return null;
+
+    const tema = args.objective ?? null;
+    if (!tema || String(tema).trim() === "") {
+      throw new CapabilityError("AMBIGUOUS_GOAL",
+        "a marca tem estrategia configurada, mas esta peca nao disse sobre o que falar");
+    }
+
+    return { perfil, templates: await k.promptTemplates(perfil.objective), tema };
+  }
+
+  /**
    * content.create_draft.
    *
    * O modelo escreve o corpo e DECLARA o que afirmou. As duas coisas sao
@@ -321,10 +360,18 @@ export function createInternalAdapter({ authoring, knowledge, publishing, compos
         "nao escrevo para uma marca sem Brand Brain ativo");
     }
 
+    // A estrategia entra aqui, e nao no chamador, porque ela e propriedade da
+    // MARCA e nao do formulario: qualquer caminho que chegue a esta capability
+    // — o formulario, o chat, um agendamento futuro — escreve dentro da mesma
+    // estrategia. Se o render morasse na rota do formulario, o chat produziria
+    // texto fora dela e ninguem notaria.
+    const estrategia = await estrategiaDe({ k, tenant, args });
+
     const escrito = await redator.draft({
       tenant, trace_id, brand: bb,
       objective: args.objective ?? null,
       channel: args.channel ?? null,
+      estrategia,
     });
 
     // A forma ja veio validada contra olga://io/draft-composition pelo Model
@@ -351,11 +398,19 @@ export function createInternalAdapter({ authoring, knowledge, publishing, compos
       claims,
       actor_id: tenant.actor_id ?? null, trace_id,
       agent_id: args.agent_id ?? null, agent_version: args.agent_version ?? null,
+      prompt_template_id: escrito.prompt_template?.template_id ?? null,
+      prompt_template_version: escrito.prompt_template?.version ?? null,
     });
 
     return {
       external_id: String(criado.content_version_id),
-      output: { ...criado, brand_brain_version_id: String(bb.id), claims: claims.length },
+      output: {
+        ...criado, brand_brain_version_id: String(bb.id), claims: claims.length,
+        // Sai no output para a resposta poder dizer com que estrategia
+        // escreveu. Uma peca gerada sem template e um fato que o operador
+        // precisa ver, nao um detalhe de implementacao.
+        prompt_template_id: escrito.prompt_template?.template_id ?? null,
+      },
     };
   }
 

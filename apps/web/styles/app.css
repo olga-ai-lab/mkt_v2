@@ -126,6 +126,33 @@ nav.topo button {
 .login-form .btn { margin-top: var(--space-2); }
 .login-help { margin-top: var(--space-4); font-size: 14px; text-align: center; }
 
+/* Gerar conteúdo — formulário que aciona o AGT-MKT-CONTENT.
+   Mesma gramática visual do .login-form: rótulo em cima do campo, um campo
+   por linha. Fica dentro de um .card porque é um bloco de ação, não uma
+   lista. */
+.gerar-form { display: grid; gap: var(--space-4); margin-bottom: var(--space-6); }
+.gerar-form-titulo { margin: 0; font-size: 18px; }
+.gerar-form label { display: grid; gap: var(--space-1); font-size: 14px; font-weight: 600; }
+.gerar-form input,
+.gerar-form select,
+.gerar-form textarea {
+  width: 100%; padding: var(--space-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--surface); color: var(--ink-950);
+  font: inherit; font-size: 14px; font-weight: 400;
+}
+.gerar-form input:focus,
+.gerar-form select:focus,
+.gerar-form textarea:focus { outline: 2px solid var(--teal-600); outline-offset: 2px; }
+.gerar-form textarea { resize: vertical; }
+.gerar-form .btn { justify-self: start; }
+
+/* Canais: caixas de marcar. Multiplo de propósito — uma empresa publica em
+   mais de um lugar, e o perfil precisa dizer em quais. */
+.canais { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-3) var(--space-4); margin: 0; }
+.canais legend { font-size: 14px; font-weight: 600; padding: 0 var(--space-2); }
+.canal-item { display: inline-flex; align-items: center; gap: var(--space-2); margin-right: var(--space-4); font-weight: 400; font-size: 14px; }
+.canal-item input { width: auto; }
+
 /* Brand Brain — o quadro de revisão e promoção.
    Duas colunas lado a lado de propósito: promover é substituir, e decidir sem
    ver o que sai é decidir no escuro. Em telas estreitas viram uma coluna só,

@@ -64,6 +64,16 @@ evidence e ao objetivo. Agenda; **não publica** — `publishing.publish` não e
 no charter de agente nenhum, porque publicar é consequência de decisão humana de
 agendar, e quem executa é o workflow durável.
 
+Desde a migration 0012 ele escreve **dentro de uma estratégia declarada**: o
+perfil de marketing da marca (`mkt.marketing_profiles`) escolhe um template da
+biblioteca (`mkt.prompt_templates`), o código substitui as variáveis, e o texto
+renderizado entra no prompt como **material** — nunca como instrução de sistema.
+O motivo está em `packages/runtime/src/prompt-templates.mjs`: as variáveis vêm
+de um formulário que o cliente preenche, e campo de formulário com autoridade de
+sistema é a porta de injeção mais barata que existe. Marca sem perfil continua
+gerando, sem template — e o `prompt_template_id` nulo fica gravado na versão,
+para a degradação ser visível em vez de silenciosa.
+
 - **Erro mais caro:** publicar uma afirmação sobre cobertura, preço ou prazo que
   a evidência não sustenta.
 - **Na dúvida:** escreve sem a afirmação. Texto mais fraco se conserta na

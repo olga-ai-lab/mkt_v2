@@ -34,6 +34,7 @@
  * o comportamento do agente.
  */
 import { assembleContext } from "./agent-stages.mjs";
+import { escolherTemplate, renderTemplate, variaveisDoPerfil } from "./prompt-templates.mjs";
 
 /** Limite pratico por canal. Corta o que nao cabe ANTES de existir variante. */
 export const LIMITE_POR_CANAL = {
@@ -93,7 +94,31 @@ export function createComposer({ modelGateway, task_class = "copywriting", max_c
      * Isso e o comportamento desejado, nao uma limitacao a contornar — o
      * agente nao promete cobertura que ninguem sustentou.
      */
-    async draft({ tenant, trace_id, brand, objective, channel }) {
+    async draft({ tenant, trace_id, brand, objective, channel, estrategia = null }) {
+      // O briefing da estrategia e montado aqui, e nao no gateway, porque o
+      // que importa nele e ONDE ele entra — e essa decisao e deste arquivo.
+      //
+      // Ele desce para `governed`, junto do material da marca, nunca para
+      // `system`. O texto renderizado carrega o que o cliente digitou no
+      // formulario de perfil ({{o_que_comunica}}, {{publico_alvo}}), e um
+      // campo de formulario com autoridade de sistema seria o lugar por onde
+      // quem preenche o cadastro reescreve o comportamento do agente. E a
+      // mesma regra que ja vale para o Brand Brain, pela mesma razao.
+      let template = null;
+      let briefing = null;
+      if (estrategia?.perfil) {
+        template = escolherTemplate(estrategia.templates, {
+          org_type: estrategia.perfil.org_type,
+          objective: estrategia.perfil.objective,
+          channel: channel ?? null,
+        });
+        briefing = renderTemplate(template, variaveisDoPerfil(estrategia.perfil, {
+          brand_name: brand?.brand_name,
+          briefing: estrategia.tema ?? objective,
+          channel: channel ?? null,
+        }));
+      }
+
       const messages = assembleContext({
         system:
           "Voce escreve conteudo de marketing para uma corretora de seguros, em portugues do Brasil.\n" +
@@ -108,7 +133,13 @@ export function createComposer({ modelGateway, task_class = "copywriting", max_c
           '"claims": [{"text": "...", "claim_type": "COVERAGE|PRICE|DEADLINE|PERFORMANCE|GENERAL", "material": true|false}]}',
         schemas: "Responda no contrato olga://io/draft-composition.",
         session: { objetivo: objective ?? null, canal_de_destino: channel ?? null },
-        governed: marcaComoMaterial(brand),
+        governed: {
+          ...(marcaComoMaterial(brand) ?? {}),
+          // Nomeado como "briefing": e o pedido de quem contratou, e o modelo
+          // deve trata-lo como tal. Sem template configurado a chave some, em
+          // vez de virar null — chave vazia e um lugar para inventar sentido.
+          ...(briefing ? { briefing_da_estrategia: briefing } : {}),
+        },
       });
 
       // `schema_ref` faz o Model Gateway validar antes de devolver. E ele que
@@ -123,7 +154,13 @@ export function createComposer({ modelGateway, task_class = "copywriting", max_c
       });
 
       const t = exigirJson(out, "redator");
-      return { title: t.title, master_body: t.master_body, claims: t.claims ?? [] };
+      return {
+        title: t.title, master_body: t.master_body, claims: t.claims ?? [],
+        // Volta para o adapter gravar em content_versions: sem isso, um
+        // template que produz texto ruim nao teria como ser rastreado ate as
+        // pecas que escreveu.
+        prompt_template: template,
+      };
     },
 
     /**
