@@ -71,6 +71,7 @@ before(async () => {
   ports = createPostgresPorts(db, { schema: "mkt" });
   adapter = createInternalAdapter({
     authoring: ports.authoring, knowledge: ports.knowledge, publishing: ports.publishing,
+    taxonomy: ports.taxonomy,
     compose: redatorFixo({ title: "Titulo", master_body: "Corpo neutro do post.", claims: [] }),
   });
 });
@@ -118,6 +119,7 @@ test("brand.read traz o Brand Brain ACTIVE do banco", async () => {
 test("create_draft grava conteudo, versao e claims numa transacao so", async () => {
   const a = createInternalAdapter({
     authoring: ports.authoring, knowledge: ports.knowledge, publishing: ports.publishing,
+    taxonomy: ports.taxonomy,
     compose: redatorFixo({
       title: "Enchente", master_body: "Falamos sobre enchente.",
       claims: [{ text: "Falamos sobre enchente.", claim_type: "GENERAL", material: false }],

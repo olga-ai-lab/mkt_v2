@@ -1,0 +1,112 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "olga://io/company-profile-proposal",
+  "title": "CompanyProfileProposal",
+  "description": "Saida do extrator para profile.propose: quem e a empresa, ja mapeado para os ids canonicos da taxonomia do mercado. Nunca vira ACTIVE por este caminho — promover e ato humano. Cada afirmacao carrega `citacao`, o trecho que a sustenta: sem ela nao ha como conferir se a empresa disse aquilo ou se o modelo completou. O que a fonte nao diz vai para `gaps`, declarado; preencher com o que e razoavel transforma palpite em fato sobre a marca do cliente.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["company_type", "identity", "tone_axes", "products", "audiences", "gaps"],
+  "properties": {
+    "company_type": {
+      "enum": ["CORRETORA", "SEGURADORA", "MGA", "INSURTECH"],
+      "description": "O que a empresa e. Muda o roteiro da entrevista e o que pode ser afirmado sobre risco de terceiro."
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nome", "o_que_faz"],
+      "properties": {
+        "nome": { "type": "string", "minLength": 1 },
+        "o_que_faz": { "type": "string", "minLength": 1 },
+        "diferenciais": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "tone_axes": {
+      "type": "object",
+      "description": "Tom em eixos de 1 a 5, nunca em prosa. 'Profissional e proximo' nao e verificavel; formalidade 4 e.",
+      "additionalProperties": false,
+      "required": ["formalidade", "tecnicidade", "calor"],
+      "properties": {
+        "formalidade": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "tecnicidade": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "calor": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "humor": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "urgencia": { "type": "integer", "minimum": 1, "maximum": 5 }
+      }
+    },
+    "tone_observed": {
+      "type": "object",
+      "description": "Os mesmos eixos, medidos das publicacoes reais. Divergir do declarado nao e erro: e a conversa a ter com o cliente.",
+      "additionalProperties": false,
+      "properties": {
+        "formalidade": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "tecnicidade": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "calor": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "humor": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "urgencia": { "type": "integer", "minimum": 1, "maximum": 5 }
+      }
+    },
+    "voice_examples": {
+      "type": "array",
+      "description": "Trechos que a propria empresa publicou. Exemplo real vale mais que adjetivo sobre o tom.",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "products": {
+      "type": "array",
+      "description": "Produtos operados, em codigo canonico. Codigo que nao existir na taxonomia e recusado pelo executor e vira lacuna — o modelo nao cria vocabulario de mercado.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["product_code", "citacao"],
+        "properties": {
+          "product_code": { "type": "string", "minLength": 1 },
+          "is_focus": { "type": "boolean" },
+          "priority": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "citacao": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "audiences": {
+      "type": "array",
+      "description": "Publicos atendidos, em codigo canonico.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["audience_code", "citacao"],
+        "properties": {
+          "audience_code": { "type": "string", "minLength": 1 },
+          "weight": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "citacao": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "carriers": {
+      "type": "array",
+      "description": "Seguradoras representadas. Citar nome de terceiro em peca de marketing tem regra de marca que nao e nossa, e por isso `can_mention` e decisao humana, nao do modelo.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["carrier_name", "relationship", "citacao"],
+        "properties": {
+          "carrier_name": { "type": "string", "minLength": 1 },
+          "relationship": { "enum": ["REPRESENTA", "PARCEIRO", "RESSEGURO", "PROPRIA"] },
+          "citacao": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "prohibitions": {
+      "type": "array",
+      "description": "O que ESTA empresa nao quer dizer. As vedacoes do mercado moram na taxonomia e nao se repetem aqui.",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "disclaimers": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "gaps": {
+      "type": "array",
+      "description": "O que a fonte nao respondeu. Alimenta a entrevista: e dele que sai a proxima pergunta.",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

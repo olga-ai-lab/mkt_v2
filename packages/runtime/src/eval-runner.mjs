@@ -82,7 +82,8 @@ function defaultsPara(ponta, { trace_id, tenant, agent_id, agent_version }) {
   // O redator e o adaptador respondem contratos que NAO tem trace_id nem
   // tenant, e os dois sao additionalProperties: false. Preencher ali faria o
   // proprio Model Gateway recusar a saida do script.
-  if (ponta === "redator" || ponta === "adaptador" || ponta === "redator_marca") return {};
+  if (ponta === "redator" || ponta === "adaptador" || ponta === "redator_marca" ||
+      ponta === "redator_de_perfil") return {};
   return { trace_id: trace_id ?? "tr_eval", tenant };
 }
 
@@ -101,6 +102,7 @@ function detectarPonta(messages) {
   if (texto.includes("olga://io/draft-composition")) return "redator";
   if (texto.includes("olga://io/variant-composition")) return "adaptador";
   if (texto.includes("olga://io/brand-brain-proposal")) return "redator_marca";
+  if (texto.includes("olga://io/company-profile-proposal")) return "redator_de_perfil";
   return "responder";
 }
 

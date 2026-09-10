@@ -59,7 +59,10 @@ test("o adapter interno entra nos dois modos", () => {
   for (const mode of ["fake", "real"]) {
     const { adapters } = createAdapters({ mode, ports: portas, secrets });
     assert.equal(adapters.internal.name, "internal", mode);
-    assert.equal(adapters.internal.capabilities.length, 9, mode);
+    // Dez desde que profile.propose entrou (migration 0013). O numero e
+    // conferido contra o registry no teste de banco; aqui ele so precisa nao
+    // mudar sem alguem notar.
+    assert.equal(adapters.internal.capabilities.length, 10, mode);
   }
 });
 

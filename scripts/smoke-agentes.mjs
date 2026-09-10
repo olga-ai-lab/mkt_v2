@@ -138,7 +138,7 @@ const criarGateway = ({ compose }) => createGateway({
   adapters: {
     meta_graph: createFakeMetaAdapter(),
     internal: createInternalAdapter({
-      authoring: ports.authoring, knowledge: ports.knowledge,
+      authoring: ports.authoring, knowledge: ports.knowledge, taxonomy: ports.taxonomy,
       publishing: ports.publishing, compose,
     }),
     // O adapter web_fetch é o de verdade: assim a extração atravessa a defesa
@@ -282,6 +282,43 @@ await cenario({
   },
   espera: { estado: "EXECUTABLE", executou: true,
             porque: "o segundo passo precisa do texto que o primeiro buscou" },
+});
+
+// ── 3b. BRAND: a jornada de entrada nova — site → PERFIL da empresa ────────
+//
+// É a cadeia que substitui a proposta de Brand Brain: o mesmo passo de leitura,
+// e um segundo passo que mapeia o que foi lido para os ids canônicos da
+// taxonomia do mercado. O que o modelo inventar de código não vira produto —
+// vira lacuna declarada no próprio perfil.
+await cenario({
+  nome: "BRAND propõe o PERFIL da empresa a partir do site",
+  agent_id: "AGT-MKT-BRAND",
+  input: { text: "monta o perfil da nossa empresa a partir do site" },
+  facts: { brand_brain_status: "ACTIVE" },
+  modelo: {
+    resolver: { intent: "ONBOARD_BRAND", confidence_band: "HIGH", entities: entidadeMarca, ambiguities: [] },
+    planner: { steps: [
+      { step_id: "s1", capability_id: "brand.extract_from_url", mode: "read", args_summary: "ler o site" },
+      { step_id: "s2", capability_id: "profile.propose", mode: "write", args_summary: "propor o perfil" }] },
+    // A ponta "redator_de_perfil" responde ao contrato company-profile-proposal.
+    redator_de_perfil: {
+      company_type: "CORRETORA",
+      identity: { nome: "Corretora Piloto", o_que_faz: "seguro residencial e de vida para familias" },
+      tone_axes: { formalidade: 3, tecnicidade: 2, calor: 4, humor: 1, urgencia: 2 },
+      tone_observed: { formalidade: 2, tecnicidade: 2, calor: 5 },
+      products: [
+        { product_code: "RESIDENCIAL", is_focus: true, citacao: "Seguro residencial" },
+        { product_code: "VIDA_INDIVIDUAL", citacao: "e de vida para familias" },
+        // Código que o modelo inventou: tem de virar lacuna, não produto.
+        { product_code: "SEGURO_DE_TUDO", citacao: "para familias" },
+      ],
+      audiences: [],
+      gaps: ["nao achei publico-alvo declarado", "nao achei disclaimers"],
+    },
+    responder: RESPONDER,
+  },
+  espera: { estado: "EXECUTABLE", executou: true,
+            porque: "dois passos encadeados: o texto do site alimenta a proposta de perfil" },
 });
 
 // ── 4. CONTENT: rascunho sem afirmação material ────────────────────────────
@@ -460,6 +497,10 @@ const gravado = await db.query(`
   union all select 'channel_variants', count(*) from ${SCHEMA}.channel_variants where org_id=$1
   union all select 'brand_brain CANDIDATE', count(*) from ${SCHEMA}.brand_brain_versions
                 where org_id=$1 and status='CANDIDATE'
+  union all select 'perfil CANDIDATE', count(*) from ${SCHEMA}.company_profile_versions
+                where org_id=$1 and status='CANDIDATE'
+  union all select 'perfil: produtos', count(*) from ${SCHEMA}.profile_products where org_id=$1
+  union all select 'perfil: procedencia', count(*) from ${SCHEMA}.profile_field_sources where org_id=$1
   union all select 'claims', count(*) from ${SCHEMA}.claims where org_id=$1
   union all select 'evidence', count(*) from ${SCHEMA}.evidence where org_id=$1
   union all select 'action_receipts', count(*) from ${SCHEMA}.action_receipts where org_id=$1

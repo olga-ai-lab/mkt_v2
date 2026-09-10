@@ -455,8 +455,8 @@ Atualizado conforme cada passo sai do papel. O que está aqui foi executado.
 |---|---|---|
 | 1 | Três P0 da revisão | **feito** — `messages.mjs`, migration `0011`, `facts.collectForAgent` |
 | 2 | Taxonomia: tabelas + carga | **tabelas feitas, carga proposta** — migration `0012`, tudo `CANDIDATE` |
-| 3 | Perfil da empresa | não começado |
-| 4 | Adapter `linkedin` | não começado |
+| 3 | Perfil da empresa | **feito** — migration `0013`, capability `profile.propose`, portas e testes |
+| 4 | Adapter `linkedin` | não começado — decisão 4 |
 | 5 | Entrevista | não começado |
 | 6 | CONTENT exige perfil `ACTIVE` | não começado |
 | 7 | COMPLIANCE lê a vedação da taxonomia | não começado — depende da curadoria do passo 2 |
@@ -500,3 +500,48 @@ Três perguntas que a revisão de vocês responde melhor que qualquer leitura
 minha: os 25 produtos cobrem o que as corretoras piloto realmente vendem? As
 16 vedações são as que a área de compliance de vocês já barra na prática? E
 quais públicos-alvo e tipos de conteúdo entram nas duas tabelas vazias?
+
+
+### O que a migration `0013` criou
+
+Seis tabelas do tenant, todas com RLS pela policy padrão de organização, e a
+capability que as escreve:
+
+| Peça | O que faz |
+|---|---|
+| `company_profile_versions` | quem é a empresa: tipo, identidade, tom em eixos, tom observado, proibições, disclaimers e **lacunas declaradas** |
+| `profile_products` · `profile_audiences` · `profile_content_mix` | as listas, referenciando **só ids canônicos** da taxonomia |
+| `profile_carriers` | seguradoras representadas, com `can_mention` que **nunca vem do modelo** |
+| `profile_field_sources` | procedência campo a campo: origem, citação e confiança |
+| `profile.propose` | capability `write`/`internal`, com policy própria e no charter do `AGT-MKT-BRAND` |
+
+O invariante do Brand Brain foi mantido palavra por palavra: nasce `CANDIDATE`,
+o status é literal na porta, promover é ato humano e a promoção **guarda quem**
+— com constraint no banco recusando `ACTIVE` sem dono.
+
+Três decisões que valem ser lidas:
+
+1. **Tom em eixos, não em prosa.** `formalidade: 4` é verificável; "profissional
+   e próximo" não é. E é o que permite comparar o tom que a empresa **declara**
+   com o `tone_observed` medido das publicações — quando divergem, isso é a
+   conversa a ter com o cliente, não um dado a esconder.
+2. **Código fora da taxonomia não vira produto.** O executor confere contra o
+   banco o que o modelo devolveu; o que não existe entra em `gaps` como *"fora
+   da taxonomia: produto X"*. Criar a linha na taxonomia deixaria o modelo
+   escrever o vocabulário do mercado a partir do texto de **um** cliente.
+3. **A ressalva da taxonomia não curada viaja no perfil.** Enquanto nada estiver
+   `ACTIVE`, o extrator recebe a carga `CANDIDATE` — e o perfil grava *"os
+   códigos vieram de taxonomia ainda não curada"*. Usar em silêncio seria o erro
+   que a `0012` existe para impedir, com uma camada a mais de disfarce.
+
+Verificado no smoke, cenário novo: o agente lê o site, propõe o perfil, dois
+produtos canônicos entram, o código inventado vira lacuna, e quatro linhas de
+procedência ficam gravadas.
+
+### O que falta do passo 3
+
+A **tela de revisão** — onde a pessoa lê o perfil proposto, corrige o que a
+leitura errou e promove. Hoje a promoção existe como porta (`governance.
+promoteCompanyProfile`) e não tem tela: dá para exercitar por teste e por
+script, não pelo navegador. É o mesmo estado em que a promoção do Brand Brain
+esteve até a tela `/brand` existir.
