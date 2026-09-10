@@ -38,7 +38,7 @@ export function createAdapters({ ports, secrets, mode = process.env.META_ADAPTER
   // responde PROVIDER_UNAVAILABLE a tudo que sabe fazer.
   conferirPortasInternas(ports);
   const internal = createInternalAdapter({
-    authoring: ports?.authoring, knowledge: ports?.knowledge,
+    authoring: ports?.authoring, knowledge: ports?.knowledge, taxonomy: ports?.taxonomy,
     publishing: ports?.publishing, compose,
   });
 

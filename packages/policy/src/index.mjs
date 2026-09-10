@@ -139,6 +139,18 @@ export function evaluate({ context, facts = {}, requested_autonomy = "A2", polic
 
   const isWrite = context.capability_mode === "write";
 
+  /**
+   * Esta capability produz efeito?
+   *
+   * A pergunta separa o que precisa de gate humano do que precisa apenas de
+   * um teto. Escrever produz efeito; buscar uma pagina tambem (side_effect
+   * "internal" ou "external"). Ler e conferir, nao — `side_effect: "none"`.
+   *
+   * Sem `side_effect` no contexto, `isWrite` decide sozinho, como antes.
+   */
+  const produzEfeito = isWrite ||
+    (context.side_effect != null && context.side_effect !== "none");
+
   // Camada 3: rule policies ACTIVE, prioridade crescente, primeira correspondencia decide.
   const candidates = policies
     .filter((p) => p.status === "ACTIVE")
@@ -192,6 +204,36 @@ export function evaluate({ context, facts = {}, requested_autonomy = "A2", polic
   const finalCeiling = minAutonomy(ceiling, matched.max_autonomy ?? ceiling);
 
   if (matched.effect === "REQUIRE_APPROVAL") {
+    // ── Aprovacao gateia EFEITO, nao conferencia ──────────────────────────
+    //
+    // POL_COMPLIANCE_ON_MATERIAL_CLAIM tem escopo vazio: vale para toda
+    // capability. A intencao — "claim de cobertura, preco ou prazo sempre
+    // passa por humano" — e sobre o que vira efeito. Aplicada tambem a
+    // leitura e simulacao, ela produz o resultado exatamente invertido:
+    // exige aprovacao humana para RODAR A CONFERENCIA que apuraria se o
+    // claim se sustenta. A pessoa e chamada a decidir sem o laudo que so o
+    // precheck produz.
+    //
+    // Isso ficou invisivel enquanto os fatos vinham do pedido: eles chegavam
+    // limpos, a condicao nao casava, e a conferencia rodava. Com os fatos
+    // colhidos do banco, a policy passou a casar de verdade — e o defeito
+    // apareceu num eval que existia desde antes (COPILOT-ADV-005).
+    //
+    // O engine ja fazia essa distincao logo abaixo, em AUTONOMY_EXCEEDED:
+    // "efeito externo vira aprovacao; leitura/rascunho apenas rebaixa com
+    // reason code". Aqui e a mesma regra, no ramo que faltava. Os reason
+    // codes continuam saindo: quem le a resposta sabe que ha claim material
+    // pendente de humano — o que muda e que a conferencia acontece.
+    if (!produzEfeito) {
+      return {
+        ...base,
+        state: "EXECUTABLE",
+        reason_codes: [...reason_codes, matched.reason_code].filter(Boolean),
+        granted_autonomy: minAutonomy(requested_autonomy, finalCeiling),
+        required_approval: false,
+        user_message_key: matched.message_key ?? "policy.approval_required",
+      };
+    }
     return {
       ...base,
       state: "APPROVAL_REQUIRED",

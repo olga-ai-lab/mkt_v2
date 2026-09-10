@@ -251,6 +251,41 @@ export function createInternalCompilers({ publishing, knowledge } = {}) {
     },
 
     /**
+     * Perfil da empresa.
+     *
+     * Recebe os TEXTOS que os passos de leitura buscaram — site, LinkedIn,
+     * publicações — e não uma proposta pronta. Estruturar aquilo é trabalho de
+     * modelo, e modelo não roda em compilador: roda dentro da capability,
+     * atrás do gateway, com orçamento e contrato.
+     *
+     * Enquanto `profile.extract_from_linkedin` não existir (passo 4), só o
+     * texto do site chega aqui — e é o suficiente para a jornada rodar, com o
+     * perfil declarando em `gaps` o que só o LinkedIn responderia.
+     */
+    "profile.propose": ({ entities, tenant, produzido }) => {
+      const brand_id = exigirEntidade(entities, "brand", "marca");
+      const site = produzido?.["brand.extract_from_url"];
+      const linkedin = produzido?.["profile.extract_from_linkedin"];
+
+      if (!site?.texto && !linkedin?.texto) {
+        // Não é falha técnica: é falta de lastro. Propor um perfil sem ter
+        // lido nada seria escrever sobre a empresa do cliente por conta
+        // própria, e todo conteúdo gerado depois herdaria o erro.
+        throw new CompileError("EVIDENCE_INSUFFICIENT",
+          "não tenho o que propor: nenhuma fonte foi lida nesta execução");
+      }
+
+      return {
+        brand_id,
+        workspace_id: tenant.workspace_id,
+        source_site: site?.texto ?? null,
+        source_site_url: site?.url_final ?? null,
+        source_linkedin: linkedin?.texto ?? null,
+        recent_posts: linkedin?.posts ?? [],
+      };
+    },
+
+    /**
      * Conexão de canal — sempre recusa, e é isso que deve fazer.
      *
      * Conectar uma conta é consentimento: passa por OAuth, no navegador de uma

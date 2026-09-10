@@ -145,3 +145,57 @@ test("todo invariante declara reason code e nota", () => {
     assert.ok(inv.id && inv.reason_code && inv.note && inv.ceiling, `invariante incompleto: ${inv.id}`);
   }
 });
+
+// ── Aprovacao gateia efeito, nao conferencia ────────────────────────────────
+
+const POL_CLAIM_MATERIAL = {
+  policy_id: "POL_COMPLIANCE_ON_MATERIAL_CLAIM", version: 1, status: "ACTIVE", priority: 30,
+  scope: {}, conditions: [{ fact: "claim_types", op: "contains_any", value: ["COVERAGE", "PRICE", "DEADLINE"] }],
+  effect: "REQUIRE_APPROVAL", max_autonomy: "A2", reason_code: "COMPLIANCE_REVIEW_REQUIRED",
+};
+
+test("conferir um claim material nao exige aprovacao para acontecer", () => {
+  // A policy tem escopo vazio: vale para toda capability. Aplicada a uma
+  // simulacao, ela exigiria aprovacao humana para RODAR a conferencia que
+  // apuraria se o claim se sustenta — a pessoa decidiria sem o laudo.
+  const r = evaluate({
+    context: { capability_id: "quality.precheck", capability_mode: "simulate",
+               side_effect: "none", risk_tier: "LOW" },
+    facts: { claim_types: ["COVERAGE"] },
+    requested_autonomy: "A2",
+    policies: [POL_CLAIM_MATERIAL],
+  });
+
+  assert.equal(r.state, "EXECUTABLE");
+  assert.equal(r.required_approval, false);
+  // O motivo nao some: quem le a resposta continua sabendo que ha claim
+  // material esperando humano.
+  assert.ok(r.reason_codes.includes("COMPLIANCE_REVIEW_REQUIRED"));
+});
+
+test("escrever com claim material continua exigindo aprovacao", () => {
+  const r = evaluate({
+    context: { capability_id: "content.create_draft", capability_mode: "write",
+               side_effect: "internal", risk_tier: "LOW" },
+    facts: { claim_types: ["COVERAGE"] },
+    requested_autonomy: "A2",
+    policies: [POL_CLAIM_MATERIAL],
+  });
+
+  assert.equal(r.state, "APPROVAL_REQUIRED");
+  assert.equal(r.required_approval, true);
+});
+
+test("leitura que sai para a rede conta como efeito", () => {
+  // brand.extract_from_url le, mas busca uma pagina: side_effect internal.
+  // Rebaixar isso para "conferencia" abriria a excecao para o lado errado.
+  const r = evaluate({
+    context: { capability_id: "brand.extract_from_url", capability_mode: "read",
+               side_effect: "internal", risk_tier: "LOW" },
+    facts: { claim_types: ["PRICE"] },
+    requested_autonomy: "A2",
+    policies: [POL_CLAIM_MATERIAL],
+  });
+
+  assert.equal(r.state, "APPROVAL_REQUIRED");
+});

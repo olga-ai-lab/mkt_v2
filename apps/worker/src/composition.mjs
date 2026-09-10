@@ -111,6 +111,8 @@ export function createWorkerApp({ pool, inngest, providers, env = process.env, t
         workspaceBelongsToOrg: (ws, org) => ports.registry.workspaceBelongsToOrg(ws, org),
       },
       policies: ports.policies,
+      // Os fatos que a policy julga saem do banco, nao do corpo do pedido.
+      facts: ports.facts,
       runs: ports.runs,
       tracer,
       ids: { newId: () => crypto.randomUUID(), newTraceId: () => `tr_${crypto.randomUUID()}` },

@@ -88,10 +88,11 @@ function comoLista(v) {
  * precheck de um cliente.
  */
 export const SUPERFICIE_INTERNA = {
-  authoring: ["createDraft", "createVariant", "proposeBrandVersion"],
+  authoring: ["createDraft", "createVariant", "proposeBrandVersion", "proposeCompanyProfile"],
   knowledge: ["brandBrain", "brandBrainForContent", "contentVersion", "claimsFor",
-              "evidenceFor", "duplicateOf"],
+              "evidenceFor", "duplicateOf", "brandSite", "companyProfile"],
   publishing: ["requestApproval", "schedule"],
+  taxonomy: ["proposalVocabulary", "forbiddenTerms", "activeProducts"],
 };
 
 /** Falha alto e cedo, com o nome do que falta. Nao considera `compose`. */
@@ -115,9 +116,10 @@ export function conferirPortasInternas(ports) {
  * @param {any} deps.authoring   porta de escrita: createDraft, createVariant, proposeBrandVersion
  * @param {any} deps.knowledge   porta de leitura governada: brandBrain, claimsFor, evidenceFor...
  * @param {any} deps.publishing  porta de agendamento e pedido de aprovacao
+ * @param {any} deps.taxonomy   camada canonica do mercado: vocabulario e vedacoes
  * @param {any} [deps.compose]   redator: draft() e variant(). Ausente = worker sem modelo.
  */
-export function createInternalAdapter({ authoring, knowledge, publishing, compose } = {}) {
+export function createInternalAdapter({ authoring, knowledge, publishing, taxonomy, compose } = {}) {
   const exigirPorta = (porta, nome, cap) => {
     if (!porta) {
       throw new CapabilityError("PROVIDER_UNAVAILABLE",
@@ -478,8 +480,115 @@ export function createInternalAdapter({ authoring, knowledge, publishing, compos
     };
   }
 
+  /**
+   * profile.propose — o perfil da empresa.
+   *
+   * Sucede brand.propose_version na jornada de entrada. A diferenca que
+   * importa nao e o tamanho do objeto: e que aqui o modelo mapeia fala livre
+   * para ID CANONICO, e o codigo confere o mapeamento contra o banco.
+   *
+   * Codigo que nao existe na taxonomia nao vira produto — vira lacuna
+   * declarada no proprio perfil (a porta devolve `nao_canonicos`). Criar a
+   * linha da taxonomia aqui deixaria o modelo escrever o vocabulario do
+   * mercado a partir do texto de UM cliente, que e o que a separacao das duas
+   * camadas existe para impedir.
+   *
+   * `status` nao e argumento: a porta escreve CANDIDATE como literal.
+   */
+  async function profilePropose({ args, tenant, trace_id }) {
+    const a = exigirPorta(authoring, "authoring", "profile.propose");
+    const k = exigirPorta(knowledge, "knowledge", "profile.propose");
+    const t = exigirPorta(taxonomy, "taxonomy", "profile.propose");
+    const redator = exigirRedator("profile.propose");
+
+    if (!args.source_site && !args.source_linkedin) {
+      // Sem ter lido nada, propor perfil seria escrever sobre a empresa do
+      // cliente por conta propria — e o perfil errado contamina todo conteudo
+      // gerado depois, sem que ninguem perceba a origem.
+      throw new CapabilityError("EVIDENCE_INSUFFICIENT",
+        "nao proponho perfil sem ter lido o site ou o LinkedIn da empresa");
+    }
+
+    const marca = await k.brandSite(tenant.org_id, args.brand_id);
+    const vocabulario = await t.proposalVocabulary();
+
+    const proposta = await redator.companyProfile({
+      tenant, trace_id,
+      company_name: marca?.name ?? null,
+      company_type: args.company_type ?? null,
+      source_site: args.source_site ?? null,
+      source_linkedin: args.source_linkedin ?? null,
+      recent_posts: args.recent_posts ?? [],
+      vocabulario,
+    });
+
+    // A procedencia nasce aqui, campo a campo, a partir das citacoes que o
+    // contrato exigiu. Sem isto o perfil seria um objeto bonito sem lastro: e
+    // a citacao que permite a pessoa que revisa conferir se a empresa disse
+    // aquilo ou se o modelo completou.
+    const sources = [
+      ...(proposta.products ?? []).map((x) => ({
+        field_path: `products.${x.product_code}`,
+        source_kind: args.source_linkedin ? "LINKEDIN" : "SITE",
+        quote: x.citacao, confidence: "MEDIUM",
+      })),
+      ...(proposta.audiences ?? []).map((x) => ({
+        field_path: `audiences.${x.audience_code}`,
+        source_kind: args.source_linkedin ? "LINKEDIN" : "SITE",
+        quote: x.citacao, confidence: "MEDIUM",
+      })),
+      ...(proposta.carriers ?? []).map((x) => ({
+        field_path: `carriers.${x.carrier_name}`,
+        source_kind: args.source_linkedin ? "LINKEDIN" : "SITE",
+        quote: x.citacao, confidence: "MEDIUM",
+      })),
+    ];
+    // Tom observado e inferencia sobre um conjunto de posts: nao ha um trecho
+    // unico que o sustente, e por isso ele entra como INFERIDO. Dar-lhe uma
+    // citacao qualquer seria fabricar procedencia.
+    if (proposta.tone_observed && Object.keys(proposta.tone_observed).length) {
+      sources.push({ field_path: "tone_observed", source_kind: "INFERIDO",
+                     confidence: "LOW" });
+    }
+
+    const gaps = [...(proposta.gaps ?? [])];
+    if (!vocabulario.curated) {
+      // Nao e silencio: o perfil carrega a ressalva, e quem for promover le.
+      gaps.push("os codigos de produto e publico vieram de taxonomia ainda nao curada");
+    }
+
+    const nova = await a.proposeCompanyProfile({
+      org_id: tenant.org_id, brand_id: args.brand_id,
+      company_type: proposta.company_type ?? args.company_type ?? "CORRETORA",
+      identity: proposta.identity, tone_axes: proposta.tone_axes,
+      tone_observed: proposta.tone_observed ?? {},
+      voice_examples: proposta.voice_examples ?? [],
+      prohibitions: proposta.prohibitions ?? [],
+      disclaimers: proposta.disclaimers ?? [],
+      gaps,
+      products: proposta.products ?? [],
+      audiences: proposta.audiences ?? [],
+      carriers: proposta.carriers ?? [],
+      sources,
+      actor_id: tenant.actor_id ?? null,
+    });
+
+    return {
+      external_id: String(nova.id),
+      output: {
+        profile_version_id: String(nova.id), version: nova.version, status: nova.status,
+        produtos: nova.produtos, publicos: nova.publicos,
+        // O que nao entrou viaja junto. Quem for promover precisa saber o que
+        // o perfil NAO diz antes de dizer que ele vale.
+        nao_canonicos: nova.nao_canonicos,
+        gaps,
+      },
+    };
+  }
+
   const handlers = {
     "brand.read": brandRead,
+    "profile.propose": profilePropose,
     "evidence.read": evidenceRead,
     "quality.precheck": qualityPrecheck,
     "compliance.review": complianceReview,

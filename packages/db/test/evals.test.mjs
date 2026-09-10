@@ -120,7 +120,7 @@ before(async () => {
     adapters: {
       meta_graph: createFakeMetaAdapter(),
       internal: createInternalAdapter({
-        authoring: ports.authoring, knowledge: ports.knowledge,
+        authoring: ports.authoring, knowledge: ports.knowledge, taxonomy: ports.taxonomy,
         publishing: ports.publishing, compose,
       }),
       // web_fetch e o ADAPTER DE VERDADE, com resolver e fetch injetados.

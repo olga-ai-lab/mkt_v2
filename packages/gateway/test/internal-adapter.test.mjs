@@ -29,12 +29,18 @@ function portas(over = {}) {
       async claimsFor() { return []; },
       async evidenceFor() { return []; },
       async duplicateOf() { return null; },
+      async brandSite() { return { brand_id: "b1", name: "Marca", website_url: "https://x.test" }; },
+      async companyProfile() { return null; },
       ...(over.knowledge ?? {}),
     },
     authoring: {
       async createDraft() { return { content_id: "c1", content_version_id: "cv1", version: 1 }; },
       async createVariant() { return { id: "v1", channel: "INSTAGRAM" }; },
       async proposeBrandVersion() { return { id: "bb2", version: 4, status: "CANDIDATE" }; },
+      async proposeCompanyProfile() {
+        return { id: "pf1", version: 1, status: "CANDIDATE", nao_canonicos: [],
+                 produtos: 1, publicos: 0 };
+      },
       ...(over.authoring ?? {}),
     },
     publishing: {
@@ -42,12 +48,32 @@ function portas(over = {}) {
       async schedule() { return { publication_id: "p1", outbox_id: "9" }; },
       ...(over.publishing ?? {}),
     },
+    taxonomy: {
+      // `curated: false` de proposito: e o estado real enquanto ninguem curou
+      // a carga da migration 0012, e o handler tem de declarar isso no perfil.
+      async proposalVocabulary() {
+        return { products: [{ code: "RESIDENCIAL", label: "Residencial", synonyms: [] }],
+                 audiences: [], curated: false };
+      },
+      async forbiddenTerms() { return []; },
+      async activeProducts() { return []; },
+      ...(over.taxonomy ?? {}),
+    },
     compose: over.compose ?? {
       async draft() { return { title: "T", master_body: "Corpo.", claims: [] }; },
       async variant() { return { headline: "H", body: "B", cta: "C" }; },
       async brandBrain() {
         return { identity: { nome: "M", o_que_faz: "x" }, tone: { descricao: "d" },
                  claims_allowed: [], prohibitions: [], disclaimers: [] };
+      },
+      async companyProfile() {
+        return {
+          company_type: "CORRETORA",
+          identity: { nome: "Marca", o_que_faz: "seguros" },
+          tone_axes: { formalidade: 3, tecnicidade: 3, calor: 4 },
+          products: [{ product_code: "RESIDENCIAL", citacao: "seguro residencial" }],
+          audiences: [], gaps: [],
+        };
       },
     },
   };
@@ -57,7 +83,7 @@ const montar = (over) => createInternalAdapter(portas(over));
 
 // ── O mapa de capabilities ──────────────────────────────────────────────────
 
-test("cobre as nove capabilities que o registry manda para internal", () => {
+test("cobre as dez capabilities que o registry manda para internal", () => {
   // Esta lista e a do capability_registry com provider_adapter nulo. Se uma
   // capability nova entrar la sem entrar aqui, o gateway responderia
   // "capability interna sem executor" em producao — este teste antecipa isso.
@@ -66,6 +92,7 @@ test("cobre as nove capabilities que o registry manda para internal", () => {
     "content.create_draft", "content.create_variant",
     "quality.precheck", "compliance.review",
     "approval.request", "publishing.schedule",
+    "profile.propose",
   ].sort();
   assert.deepEqual([...montar().capabilities].sort(), esperadas);
 });
@@ -342,7 +369,7 @@ test("a superficie exigida cobre todo metodo que os handlers chamam", () => {
   // handlers chamam as portas sempre por `k.`, `a.` ou `p.` — os nomes que
   // exigirPorta() devolve — entao da para ler isso da propria fonte.
   const fonte = readFileSync(new URL("../src/adapters/internal.mjs", import.meta.url), "utf8");
-  const usados = [...new Set([...fonte.matchAll(/\b[kap]\.(\w+)\(/g)].map((m) => m[1]))];
+  const usados = [...new Set([...fonte.matchAll(/\b[kapt]\.(\w+)\(/g)].map((m) => m[1]))];
   const declarados = new Set(Object.values(SUPERFICIE_INTERNA).flat());
 
   assert.ok(usados.length >= 8, `esperava achar as chamadas as portas, achei ${usados.length}`);

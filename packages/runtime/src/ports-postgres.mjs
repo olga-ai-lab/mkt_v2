@@ -653,6 +653,91 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
      * defesa de SSRF do web_fetch existe para conter, e o melhor jeito de
      * conter e nao deixar chegar la.
      */
+    /**
+     * O perfil ACTIVE da marca, com as listas.
+     *
+     * Devolve null quando nao ha — e null aqui e resposta, nao falha: significa
+     * "esta empresa ainda nao passou pelo onboarding", e quem chama decide o
+     * que fazer com isso. Devolver um objeto vazio faria o redator escrever
+     * para uma empresa sem produto, publico nem tom, que e exatamente o texto
+     * igual para todo mundo que a jornada existe para acabar.
+     */
+    async companyProfile(org_id, brand_id) {
+      const { rows } = await pool.query(
+        `select p.id, p.brand_id, p.version, p.company_type, p.identity, p.tone_axes,
+                p.tone_observed, p.voice_examples, p.prohibitions, p.disclaimers, p.gaps,
+                p.activated_at,
+                coalesce((select json_agg(json_build_object(
+                    'product_code', pp.product_code, 'priority', pp.priority,
+                    'is_focus', pp.is_focus, 'label', tp.label))
+                   from ${S}.profile_products pp
+                   join ${S}.taxonomy_products tp on tp.product_code = pp.product_code
+                  where pp.profile_version_id = p.id), '[]'::json) as products,
+                coalesce((select json_agg(json_build_object(
+                    'audience_code', pa.audience_code, 'weight', pa.weight, 'label', ta.label))
+                   from ${S}.profile_audiences pa
+                   join ${S}.taxonomy_audiences ta on ta.audience_code = pa.audience_code
+                  where pa.profile_version_id = p.id), '[]'::json) as audiences,
+                coalesce((select json_agg(json_build_object(
+                    'carrier_name', pc.carrier_name, 'relationship', pc.relationship,
+                    'can_mention', pc.can_mention))
+                   from ${S}.profile_carriers pc
+                  where pc.profile_version_id = p.id), '[]'::json) as carriers
+           from ${S}.company_profile_versions p
+          where p.org_id = $1 and p.brand_id = $2 and p.status = 'ACTIVE'
+          limit 1`, [org_id, brand_id]);
+      return rows[0] ?? null;
+    },
+
+    /**
+     * O quadro de perfis do workspace: o que vale e o que espera decisao.
+     *
+     * Uma linha por VERSAO, e nao por marca, porque a tela precisa mostrar as
+     * duas lado a lado — promover e substituir, e uma tela que mostrasse so a
+     * candidata pediria decisao sobre o que muda sem mostrar o que havia
+     * antes. O agrupamento por marca acontece na tela; fazer isso no SQL
+     * exigiria um json_agg dificil de ler para servir uma decisao de layout.
+     */
+    async companyProfileBoard(org_id, workspace_id) {
+      const { rows } = await pool.query(
+        `select b.id as brand_id, b.name as brand_name, b.website_url,
+                p.id as version_id, p.version, p.status::text as status,
+                p.company_type, p.identity, p.tone_axes, p.tone_observed,
+                p.voice_examples, p.prohibitions, p.disclaimers, p.gaps,
+                p.created_at, p.created_by_actor_type as criado_por_tipo,
+                p.activated_at, p.activated_by_actor_id as ativado_por,
+                coalesce((select json_agg(json_build_object(
+                    'product_code', pp.product_code, 'label', tp.label,
+                    'is_focus', pp.is_focus, 'priority', pp.priority) order by pp.product_code)
+                   from ${S}.profile_products pp
+                   join ${S}.taxonomy_products tp on tp.product_code = pp.product_code
+                  where pp.profile_version_id = p.id), '[]'::json) as products,
+                coalesce((select json_agg(json_build_object(
+                    'audience_code', pa.audience_code, 'label', ta.label, 'weight', pa.weight)
+                    order by pa.audience_code)
+                   from ${S}.profile_audiences pa
+                   join ${S}.taxonomy_audiences ta on ta.audience_code = pa.audience_code
+                  where pa.profile_version_id = p.id), '[]'::json) as audiences,
+                coalesce((select json_agg(json_build_object(
+                    'carrier_name', pc.carrier_name, 'relationship', pc.relationship,
+                    'can_mention', pc.can_mention) order by pc.carrier_name)
+                   from ${S}.profile_carriers pc
+                  where pc.profile_version_id = p.id), '[]'::json) as carriers,
+                coalesce((select json_agg(json_build_object(
+                    'field_path', pf.field_path, 'source_kind', pf.source_kind,
+                    'quote', pf.quote, 'confidence', pf.confidence) order by pf.field_path)
+                   from ${S}.profile_field_sources pf
+                  where pf.profile_version_id = p.id), '[]'::json) as sources
+           from ${S}.brands b
+           left join ${S}.company_profile_versions p
+             on p.brand_id = b.id and p.org_id = b.org_id
+            and p.status in ('ACTIVE','CANDIDATE')
+          where b.org_id = $1 and b.workspace_id = $2
+          order by b.name, p.version desc`,
+        [org_id, workspace_id]);
+      return rows;
+    },
+
     async brandSite(org_id, brand_id) {
       const { rows } = await pool.query(
         `select id as brand_id, name, website_url from ${S}.brands
@@ -915,6 +1000,103 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
         return { ...rows[0], source_refs: refs };
       });
     },
+
+    /**
+     * Nova versao do perfil da empresa — SEMPRE CANDIDATE.
+     *
+     * Mesmo desenho de proposeBrandVersion, e pelo mesmo motivo: o status e
+     * literal, nao parametro. Nao existe argumento que faca esta funcao
+     * escrever ACTIVE. Promover e ato humano, em `governance`.
+     *
+     * ── O que ela recusa, e por que recusar e o comportamento certo ────────
+     *
+     * Codigo de produto ou publico que nao existe na taxonomia NAO entra, e
+     * volta em `nao_canonicos`. O executor transforma isso em lacuna declarada
+     * no proprio perfil. A alternativa — criar a linha na taxonomia — deixaria
+     * o modelo escrever o vocabulario do mercado a partir do texto de UM
+     * cliente, que e exatamente o que a separacao das duas camadas existe para
+     * impedir.
+     *
+     * Tudo numa transacao: um perfil com produto gravado e procedencia
+     * faltando seria pior que nenhum, porque parece completo.
+     */
+    async proposeCompanyProfile({ org_id, brand_id, company_type, identity, tone_axes,
+                                  tone_observed, voice_examples, prohibitions, disclaimers,
+                                  gaps = [], products = [], audiences = [], carriers = [],
+                                  sources = [], actor_id = null }) {
+      return emTransacao(async (c) => {
+        const codigos = await c.query(
+          `select
+             (select array_agg(product_code) from ${S}.taxonomy_products
+               where product_code = any($1::text[])) as produtos,
+             (select array_agg(audience_code) from ${S}.taxonomy_audiences
+               where audience_code = any($2::text[])) as publicos`,
+          [products.map((p) => p.product_code), audiences.map((a) => a.audience_code)]);
+
+        const okProdutos = new Set(codigos.rows[0].produtos ?? []);
+        const okPublicos = new Set(codigos.rows[0].publicos ?? []);
+        const nao_canonicos = [
+          ...products.filter((p) => !okProdutos.has(p.product_code))
+                     .map((p) => `produto ${p.product_code}`),
+          ...audiences.filter((a) => !okPublicos.has(a.audience_code))
+                      .map((a) => `publico ${a.audience_code}`),
+        ];
+
+        const prox = await c.query(
+          `select coalesce(max(version), 0) + 1 as v from ${S}.company_profile_versions
+            where org_id = $1 and brand_id = $2`, [org_id, brand_id]);
+
+        const { rows } = await c.query(
+          `insert into ${S}.company_profile_versions
+             (org_id, brand_id, version, status, company_type, identity, tone_axes,
+              tone_observed, voice_examples, prohibitions, disclaimers, gaps,
+              created_by_actor_type, created_by_actor_id)
+           values ($1,$2,$3,'CANDIDATE',$4,
+                   coalesce($5::jsonb,'{}'::jsonb), coalesce($6::jsonb,'{}'::jsonb),
+                   coalesce($7::jsonb,'{}'::jsonb), coalesce($8::jsonb,'[]'::jsonb),
+                   coalesce($9::jsonb,'[]'::jsonb), coalesce($10::jsonb,'[]'::jsonb),
+                   coalesce($11::jsonb,'[]'::jsonb), 'agent', $12)
+           returning id, version, status::text as status`,
+          [org_id, brand_id, prox.rows[0].v, company_type ?? "CORRETORA",
+           json(identity), json(tone_axes), json(tone_observed), json(voice_examples),
+           json(prohibitions), json(disclaimers),
+           json([...(gaps ?? []), ...nao_canonicos.map((x) => `fora da taxonomia: ${x}`)]),
+           actor_id]);
+
+        const perfil = rows[0];
+
+        for (const p of products.filter((x) => okProdutos.has(x.product_code))) {
+          await c.query(
+            `insert into ${S}.profile_products (org_id, profile_version_id, product_code, priority, is_focus)
+             values ($1,$2,$3,$4,$5) on conflict do nothing`,
+            [org_id, perfil.id, p.product_code, p.priority ?? 3, p.is_focus === true]);
+        }
+        for (const a of audiences.filter((x) => okPublicos.has(x.audience_code))) {
+          await c.query(
+            `insert into ${S}.profile_audiences (org_id, profile_version_id, audience_code, weight)
+             values ($1,$2,$3,$4) on conflict do nothing`,
+            [org_id, perfil.id, a.audience_code, a.weight ?? 3]);
+        }
+        for (const s of carriers) {
+          // can_mention nunca vem do modelo: citar marca de terceiro e decisao
+          // com consequencia juridica, e quem decide e uma pessoa na revisao.
+          await c.query(
+            `insert into ${S}.profile_carriers (org_id, profile_version_id, carrier_name, relationship, can_mention)
+             values ($1,$2,$3,$4,false) on conflict do nothing`,
+            [org_id, perfil.id, s.carrier_name, s.relationship]);
+        }
+        for (const f of sources) {
+          await c.query(
+            `insert into ${S}.profile_field_sources
+               (org_id, profile_version_id, field_path, source_kind, evidence_id, quote, confidence)
+             values ($1,$2,$3,$4,$5,$6,$7)`,
+            [org_id, perfil.id, f.field_path, f.source_kind, f.evidence_id ?? null,
+             f.quote ?? null, f.confidence ?? "MEDIUM"]);
+        }
+
+        return { ...perfil, nao_canonicos, produtos: okProdutos.size, publicos: okPublicos.size };
+      });
+    },
   };
 
   /**
@@ -986,8 +1168,318 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
         };
       });
     },
+
+    /**
+     * Promove uma versao CANDIDATE do PERFIL para ACTIVE.
+     *
+     * Mesma coreografia da promocao do Brand Brain, e nao por simetria
+     * estetica: e o mesmo ato de governanca. O que muda e o tamanho do que
+     * passa a valer — o perfil carrega produto, publico e tom, e todo conteudo
+     * gerado depois herda os tres.
+     *
+     * Recusa promover o que ja foi DEPRECATED: perfil rebaixado nao volta por
+     * promocao, volta por proposta nova. Reativar o passado apagaria a razao
+     * pela qual ele foi rebaixado.
+     */
+    async promoteCompanyProfile({ org_id, brand_id, version_id,
+                                  actor_type = "user", actor_id }) {
+      if (!actor_id) {
+        const e = new Error("promover perfil exige quem promoveu");
+        e.reason_code = "ACTOR_ROLE_FORBIDDEN";
+        throw e;
+      }
+      return emTransacao(async (c) => {
+        const alvo = await c.query(
+          `select status::text as status from ${S}.company_profile_versions
+            where id = $1 and org_id = $2 and brand_id = $3 for update`,
+          [version_id, org_id, brand_id]);
+        if (!alvo.rows[0]) {
+          const e = new Error("versao de perfil inexistente neste tenant");
+          e.reason_code = "NORMALIZATION_FAILED";
+          throw e;
+        }
+        if (alvo.rows[0].status !== "CANDIDATE") {
+          const e = new Error(`so promove CANDIDATE: esta versao esta ${alvo.rows[0].status}`);
+          e.reason_code = "UNSUPPORTED_VALUE";
+          throw e;
+        }
+
+        const anterior = await c.query(
+          `update ${S}.company_profile_versions
+              set status = 'DEPRECATED', superseded_at = now()
+            where brand_id = $1 and org_id = $2 and status = 'ACTIVE'
+            returning id, version`, [brand_id, org_id]);
+
+        const nova = await c.query(
+          `update ${S}.company_profile_versions
+              set status = 'ACTIVE', activated_at = now(),
+                  activated_by_actor_type = $4::${S}.actor_type,
+                  activated_by_actor_id = $5
+            where id = $1 and org_id = $2 and brand_id = $3
+            returning id, version, status::text as status, activated_at`,
+          [version_id, org_id, brand_id, actor_type, actor_id]);
+
+        return { promovida: nova.rows[0], substituida: anterior.rows[0] ?? null };
+      });
+    },
+  };
+
+  /**
+   * Os fatos que o Policy Engine julga — colhidos do BANCO.
+   *
+   * ── Por que esta porta existe ───────────────────────────────────────────
+   *
+   * O caminho do agente recebia os fatos pelo corpo do pedido HTTP:
+   * `facts: body.facts ?? {}` na rota, e dali direto para o engine. Quem
+   * chamava escolhia `content_status`, `channel_connected` e
+   * `workspace_first_publish` — exatamente as entradas das policies que
+   * protegem o produto. Um pedido com `content_status: "APPROVED"` sobre um
+   * rascunho passava pela policy; quem recusava era a porta do banco, uma
+   * camada depois. Defesa em profundidade funcionando, e a primeira linha
+   * ausente.
+   *
+   * O workflow duravel ja fazia certo desde sempre (`collectPublishFacts`).
+   * Esta e a irma dela, do lado do agente, e existe pela mesma razao: o
+   * engine nunca le texto livre nem consulta banco — ele recebe fatos ja
+   * reduzidos aos nomes do enum `olga://enums/policy-fact`.
+   *
+   * ── O que ela devolve, e o que ela NAO devolve ──────────────────────────
+   *
+   * Devolve SO as chaves que o banco consegue responder para este pedido. Um
+   * fato que ela nao sabe fica de fora do objeto — e nao vira `false`, `null`
+   * ou `"UNKNOWN"`. A diferenca importa: o loop sobrepoe o que vem do pedido
+   * com o que vem daqui, entao uma chave devolvida com valor errado seria
+   * pior que uma chave ausente.
+   *
+   * `claim_types` e o caso que merece nome: quando existe versao de conteudo,
+   * ele vem das claims gravadas — fato. Quando o pedido e para CRIAR conteudo,
+   * o texto ainda nao existe, e ninguem no banco sabe o que ele vai afirmar;
+   * ali o fato continua sendo declaracao de intencao, vinda da leitura do
+   * pedido. A defesa que nao depende de declaracao e a que le o texto DEPOIS
+   * de gravado — e essa e trabalho da taxonomia de termos vedados
+   * (docs/JORNADA-PERFIL.md §6.1), nao desta porta.
+   */
+  const facts = {
+    /**
+     * @param {{ org_id: string, workspace_id: string }} tenant
+     * @param {{ entities?: Array<{type: string, canonical_id: any}>,
+     *           actor?: { role?: string }, capability?: { risk_tier?: string, mode?: string } }} ctx
+     * @returns {Promise<object>} so as chaves que o banco respondeu
+     */
+    async collectForAgent(tenant, { entities = [], actor, capability } = {}) {
+      const idDe = (tipo) =>
+        entities.find((e) => e.type === tipo && e.canonical_id != null)?.canonical_id ?? null;
+
+      const content_version_id = idDe("content_version");
+      const brand_id = idDe("brand");
+      const canal = idDe("channel");
+      const channel = canal ? String(canal).toUpperCase() : null;
+
+      const fatos = {};
+
+      // Papel e risco nao vem do banco de dominio, mas tambem nao vem do
+      // pedido: um e contexto confiavel da sessao, o outro e o registry.
+      if (actor?.role) fatos.actor_role = actor.role;
+      if (capability?.risk_tier) fatos.risk_tier = capability.risk_tier;
+      if (capability?.mode) fatos.capability_mode = capability.mode;
+
+      const { rows } = await pool.query(
+        `select
+           -- Primeira publicacao do workspace: a policy que exige humano na
+           -- estreia depende disto, e era trivialmente contornavel de fora.
+           not exists (
+             select 1 from ${S}.publications p
+              where p.workspace_id = $2 and p.org_id = $1
+                and p.status in ('PUBLISHED','PUBLISHING')
+           ) as workspace_first_publish,
+
+           -- Conexao viva no canal pedido. Sem canal na intencao, null.
+           case when $4::text is null then null else exists (
+             select 1 from ${S}.connections c
+              where c.org_id = $1 and c.workspace_id = $2
+                and c.channel = $4::${S}.channel and c.status = 'ACTIVE'
+           ) end as channel_connected,
+
+           (select cv.state::text from ${S}.content_versions cv
+             where cv.id = $3 and cv.org_id = $1) as content_status,
+
+           (select cv.risk_tier::text from ${S}.content_versions cv
+             where cv.id = $3 and cv.org_id = $1) as content_risk_tier,
+
+           -- O que o conteudo JA afirma, gravado. Nao e o que alguem disse
+           -- que ele afirma.
+           (select array_agg(distinct cl.claim_type) from ${S}.claims cl
+             where cl.content_version_id = $3 and cl.org_id = $1) as claim_types,
+
+           -- Cobertura de evidencia: todo claim material tem ao menos uma
+           -- evidence que ainda existe. A evidence pode ser apagada depois de
+           -- o claim citar o id — e ai o lastro sumiu sem o texto mudar.
+           (select bool_and(exists (
+              select 1 from ${S}.evidence e
+               where e.id = any(cl.evidence_ids) and e.org_id = cl.org_id))
+              from ${S}.claims cl
+             where cl.content_version_id = $3 and cl.org_id = $1
+               and cl.material = true) as evidence_coverage,
+
+           -- Brand Brain da marca pedida, ou da marca do conteudo pedido.
+           coalesce(
+             (select max(bb.status::text) from ${S}.brand_brain_versions bb
+               where bb.org_id = $1 and bb.brand_id = $5 and bb.status = 'ACTIVE'),
+             (select max(bb.status::text)
+                from ${S}.content_versions cv
+                join ${S}.contents ct on ct.id = cv.content_id
+                join ${S}.brand_brain_versions bb on bb.brand_id = ct.brand_id
+               where cv.id = $3 and cv.org_id = $1 and bb.status = 'ACTIVE')
+           ) as brand_brain_status`,
+        [tenant.org_id, tenant.workspace_id, content_version_id, channel, brand_id]);
+
+      const r = rows[0] ?? {};
+
+      fatos.workspace_first_publish = r.workspace_first_publish === true;
+      if (r.channel_connected !== null && r.channel_connected !== undefined) {
+        fatos.channel_connected = r.channel_connected === true;
+      }
+      if (r.content_status != null) fatos.content_status = r.content_status;
+      if (r.content_risk_tier != null) fatos.risk_tier = r.content_risk_tier;
+      if (r.claim_types != null) fatos.claim_types = r.claim_types;
+      if (r.evidence_coverage != null) fatos.evidence_coverage = r.evidence_coverage === true;
+      // Marca sem Brand Brain ativo e um fato, e ele tem nome: MISSING. Aqui
+      // o valor ausente seria lido como "nao conferi", que e outra coisa.
+      if (brand_id || content_version_id) {
+        fatos.brand_brain_status = r.brand_brain_status ?? "MISSING";
+      }
+
+      return fatos;
+    },
+  };
+
+  /**
+   * A camada canonica do mercado.
+   *
+   * ── Por que tudo aqui filtra por ACTIVE ─────────────────────────────────
+   *
+   * A taxonomia nasce CANDIDATE (migration 0012) porque ela e a regua contra a
+   * qual todo conteudo vai ser julgado, e uma regua errada promovida contamina
+   * todo julgamento posterior sem que ninguem perceba a origem.
+   *
+   * Entao estas funcoes devolvem VAZIO enquanto ninguem curou — e vazio aqui
+   * significa "a taxonomia ainda nao decide nada", nao "nao ha vedacao no
+   * mercado". Quem consome precisa saber a diferenca: um compliance que
+   * receba lista vazia e diga "conferi as vedacoes do mercado" estaria
+   * mentindo. Por isso `forbiddenTerms` devolve tambem quantas linhas existem
+   * esperando curadoria.
+   */
+  const taxonomy = {
+    /** Produtos e ramos ja curados. */
+    async activeProducts() {
+      const { rows } = await pool.query(
+        `select product_code, label, parent_code, regulator, ramo_susep, synonyms,
+                required_disclaimers
+           from ${S}.taxonomy_products
+          where status = 'ACTIVE'
+          order by coalesce(parent_code, product_code), product_code`);
+      return rows;
+    },
+
+    /**
+     * Termos vedados e sensiveis que valem para este conjunto de produtos.
+     *
+     * Escopo nulo = vale para o mercado inteiro. Escopo preenchido = so
+     * naquele ramo, e o agrupador conta: um termo com escopo SAUDE alcanca
+     * SAUDE_PME, porque o produto aponta para o pai.
+     *
+     * @param {string[]} product_codes  produtos do perfil da empresa
+     */
+    async forbiddenTerms(product_codes = []) {
+      const codes = Array.isArray(product_codes) ? product_codes : [];
+      const { rows } = await pool.query(
+        `select t.id, t.term, t.kind, t.claim_type, t.scope_product,
+                t.rationale, t.suggestion
+           from ${S}.taxonomy_terms t
+      left join ${S}.taxonomy_products p on p.product_code = t.scope_product
+          where t.status = 'ACTIVE'
+            and (t.scope_product is null
+                 or t.scope_product = any($1::text[])
+                 or p.product_code in (
+                      select coalesce(pp.parent_code, pp.product_code)
+                        from ${S}.taxonomy_products pp
+                       where pp.product_code = any($1::text[])))
+          order by t.kind, t.term`,
+        [codes]);
+      return rows;
+    },
+
+    /**
+     * O vocabulario que o extrator recebe para mapear fala livre em id canonico.
+     *
+     * ── O caso incomodo, resolvido em voz alta ──────────────────────────────
+     *
+     * O certo e oferecer so o que foi curado. Enquanto ninguem curou, isso
+     * significa vocabulario vazio — e um perfil em que TODO produto vira
+     * lacuna, o que trava a jornada inteira antes de ela poder ser testada.
+     *
+     * A saida nao e usar a carga nao curada em silencio: e usa-la DIZENDO. O
+     * retorno carrega `curated: false`, o executor grava uma lacuna explicita
+     * no perfil, e quem revisa le "os produtos vieram de taxonomia nao
+     * curada". Um default silencioso aqui seria o mesmo erro que a 0012 existe
+     * para impedir, com uma camada a mais de disfarce.
+     */
+    async proposalVocabulary() {
+      const { rows } = await pool.query(
+        `select product_code as code, label, synonyms, status::text as status
+           from ${S}.taxonomy_products
+          where status in ('ACTIVE','CANDIDATE')
+          order by status desc, product_code`);
+      const ativos = rows.filter((r) => r.status === "ACTIVE");
+      const products = ativos.length ? ativos : rows;
+
+      const aud = await pool.query(
+        `select audience_code as code, label, synonyms, status::text as status
+           from ${S}.taxonomy_audiences
+          where status in ('ACTIVE','CANDIDATE')
+          order by status desc, audience_code`);
+      const audAtivos = aud.rows.filter((r) => r.status === "ACTIVE");
+      const audiences = audAtivos.length ? audAtivos : aud.rows;
+
+      return {
+        products: products.map(({ code, label, synonyms }) => ({ code, label, synonyms })),
+        audiences: audiences.map(({ code, label, synonyms }) => ({ code, label, synonyms })),
+        curated: ativos.length > 0,
+      };
+    },
+
+    /** Codigos que existem de fato. O executor confere o que o modelo devolveu. */
+    async existingCodes({ products = [], audiences = [] } = {}) {
+      const p = await pool.query(
+        `select product_code from ${S}.taxonomy_products where product_code = any($1::text[])`,
+        [products]);
+      const a = await pool.query(
+        `select audience_code from ${S}.taxonomy_audiences where audience_code = any($1::text[])`,
+        [audiences]);
+      return {
+        products: new Set(p.rows.map((r) => r.product_code)),
+        audiences: new Set(a.rows.map((r) => r.audience_code)),
+      };
+    },
+
+    /**
+     * Quantas linhas esperam curadoria, por tabela.
+     *
+     * Existe para a plataforma conseguir dizer "a taxonomia esta semeada mas
+     * nao curada" em vez de se comportar como se o mercado nao tivesse regra
+     * nenhuma. Silencio e a resposta errada para as duas perguntas.
+     */
+    async pendingCuration() {
+      const { rows } = await pool.query(
+        `select 'products' as tabela, count(*)::int as pendentes from ${S}.taxonomy_products where status = 'CANDIDATE'
+         union all select 'audiences', count(*)::int from ${S}.taxonomy_audiences where status = 'CANDIDATE'
+         union all select 'content_types', count(*)::int from ${S}.taxonomy_content_types where status = 'CANDIDATE'
+         union all select 'terms', count(*)::int from ${S}.taxonomy_terms where status = 'CANDIDATE'`);
+      return Object.fromEntries(rows.map((r) => [r.tabela, r.pendentes]));
+    },
   };
 
   return { routing, budget, registry, runs, policies, receipts, outbox, approvals,
-           connections, variants, publishing, content, knowledge, authoring, governance };
+           connections, variants, publishing, content, knowledge, authoring, governance,
+           facts, taxonomy };
 }
