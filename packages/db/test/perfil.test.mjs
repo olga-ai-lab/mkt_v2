@@ -172,3 +172,46 @@ test("o vocabulario oferecido diz se veio de taxonomia curada", async () => {
   assert.equal(v.curated, false);
   assert.ok(v.products.length > 20, "o vocabulario nao pode chegar vazio ao extrator");
 });
+
+test("o quadro traz a ativa e as candidatas da mesma marca", async () => {
+  // Promover e substituir. Uma tela que mostrasse so a candidata pediria uma
+  // decisao sobre o que muda sem mostrar o que havia antes.
+  const linhas = await ports.knowledge.companyProfileBoard(ids.org, ids.ws);
+  const desta = linhas.filter((l) => l.brand_id === ids.brand);
+
+  assert.ok(desta.some((l) => l.status === "ACTIVE"), "a que vale precisa aparecer");
+  assert.ok(desta.some((l) => l.status === "CANDIDATE"), "as que esperam decisao tambem");
+  // DEPRECATED nao aparece: o quadro serve para decidir, e versao rebaixada
+  // nao tem decisao pendente.
+  assert.ok(!desta.some((l) => l.status === "DEPRECATED"));
+
+  const ativa = desta.find((l) => l.status === "ACTIVE");
+  assert.ok(Array.isArray(ativa.products), "as listas vem junto, para a tela nao ter de buscar de novo");
+  assert.ok(Array.isArray(ativa.sources));
+  assert.ok(Array.isArray(ativa.gaps));
+});
+
+test("marca sem perfil nenhum aparece no quadro, com a linha vazia", async () => {
+  // Sumir com a marca esconderia justamente quem precisa de onboarding.
+  const semPerfil = await db.query(
+    `insert into mkt.brands (org_id, workspace_id, name) values ($1,$2,'Marca Nova') returning id`,
+    [ids.org, ids.ws]);
+
+  const linhas = await ports.knowledge.companyProfileBoard(ids.org, ids.ws);
+  const nova = linhas.find((l) => l.brand_id === semPerfil.rows[0].id);
+
+  assert.ok(nova, "a marca sem perfil precisa aparecer");
+  assert.equal(nova.version_id, null);
+});
+
+test("o quadro nao alcanca marca de outro workspace", async () => {
+  const wsB = await db.query(
+    `insert into mkt.workspaces (org_id, name) values ($1,'Unidade B') returning id`, [ids.org]);
+  await db.query(
+    `insert into mkt.brands (org_id, workspace_id, name) values ($1,$2,'Marca da B')`,
+    [ids.org, wsB.rows[0].id]);
+
+  const linhas = await ports.knowledge.companyProfileBoard(ids.org, ids.ws);
+  assert.ok(!linhas.some((l) => l.brand_name === "Marca da B"),
+    "o quadro e do workspace da sessao");
+});

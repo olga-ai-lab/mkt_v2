@@ -455,7 +455,7 @@ Atualizado conforme cada passo sai do papel. O que está aqui foi executado.
 |---|---|---|
 | 1 | Três P0 da revisão | **feito** — `messages.mjs`, migration `0011`, `facts.collectForAgent` |
 | 2 | Taxonomia: tabelas + carga | **tabelas feitas, carga proposta** — migration `0012`, tudo `CANDIDATE` |
-| 3 | Perfil da empresa | **feito** — migration `0013`, capability `profile.propose`, portas e testes |
+| 3 | Perfil da empresa | **feito** — migration `0013`, capability `profile.propose`, tela `/perfil` e a promoção |
 | 4 | Adapter `linkedin` | não começado — decisão 4 |
 | 5 | Entrevista | não começado |
 | 6 | CONTENT exige perfil `ACTIVE` | não começado |
@@ -538,10 +538,27 @@ Verificado no smoke, cenário novo: o agente lê o site, propõe o perfil, dois
 produtos canônicos entram, o código inventado vira lacuna, e quatro linhas de
 procedência ficam gravadas.
 
-### O que falta do passo 3
+### A tela de revisão
 
-A **tela de revisão** — onde a pessoa lê o perfil proposto, corrige o que a
-leitura errou e promove. Hoje a promoção existe como porta (`governance.
-promoteCompanyProfile`) e não tem tela: dá para exercitar por teste e por
-script, não pelo navegador. É o mesmo estado em que a promoção do Brand Brain
-esteve até a tela `/brand` existir.
+`/perfil` fecha o passo 3. Mostra, por marca, o perfil em vigor e as propostas
+lado a lado — promover é substituir, e uma tela que mostrasse só a candidata
+pediria decisão sobre o que muda sem mostrar o que havia antes.
+
+Duas coisas que ela mostra e a tela do Brand Brain não mostrava:
+
+- **As lacunas, em primeiro plano.** É o que a pessoa precisa ver para decidir,
+  e é o que a entrevista do passo 5 vai preencher. Inclui a ressalva da
+  taxonomia não curada, que cada perfil grava em si mesmo.
+- **O tom declarado e o observado, lado a lado**, com a divergência marcada em
+  vez de escondida numa média. Quando os dois se afastam, essa é a conversa a
+  ter com o cliente.
+
+`POST /api/profile/promote` é o ato humano: só `OWNER`, e `actor_id` vem do
+contexto confiável, nunca do corpo — aceitar de fora seria deixar alguém
+assinar em nome de outro justamente no registro que existe para dizer quem
+assinou.
+
+**O que ainda não existe na tela:** editar o perfil antes de promover. Hoje a
+pessoa aceita ou não aceita o que o agente propôs; corrigir um campo exige nova
+proposta. Isso entra junto com a entrevista (passo 5), que é o mecanismo
+desenhado para completar e corrigir o que a leitura errou.

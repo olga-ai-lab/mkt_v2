@@ -689,6 +689,55 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
       return rows[0] ?? null;
     },
 
+    /**
+     * O quadro de perfis do workspace: o que vale e o que espera decisao.
+     *
+     * Uma linha por VERSAO, e nao por marca, porque a tela precisa mostrar as
+     * duas lado a lado — promover e substituir, e uma tela que mostrasse so a
+     * candidata pediria decisao sobre o que muda sem mostrar o que havia
+     * antes. O agrupamento por marca acontece na tela; fazer isso no SQL
+     * exigiria um json_agg dificil de ler para servir uma decisao de layout.
+     */
+    async companyProfileBoard(org_id, workspace_id) {
+      const { rows } = await pool.query(
+        `select b.id as brand_id, b.name as brand_name, b.website_url,
+                p.id as version_id, p.version, p.status::text as status,
+                p.company_type, p.identity, p.tone_axes, p.tone_observed,
+                p.voice_examples, p.prohibitions, p.disclaimers, p.gaps,
+                p.created_at, p.created_by_actor_type as criado_por_tipo,
+                p.activated_at, p.activated_by_actor_id as ativado_por,
+                coalesce((select json_agg(json_build_object(
+                    'product_code', pp.product_code, 'label', tp.label,
+                    'is_focus', pp.is_focus, 'priority', pp.priority) order by pp.product_code)
+                   from ${S}.profile_products pp
+                   join ${S}.taxonomy_products tp on tp.product_code = pp.product_code
+                  where pp.profile_version_id = p.id), '[]'::json) as products,
+                coalesce((select json_agg(json_build_object(
+                    'audience_code', pa.audience_code, 'label', ta.label, 'weight', pa.weight)
+                    order by pa.audience_code)
+                   from ${S}.profile_audiences pa
+                   join ${S}.taxonomy_audiences ta on ta.audience_code = pa.audience_code
+                  where pa.profile_version_id = p.id), '[]'::json) as audiences,
+                coalesce((select json_agg(json_build_object(
+                    'carrier_name', pc.carrier_name, 'relationship', pc.relationship,
+                    'can_mention', pc.can_mention) order by pc.carrier_name)
+                   from ${S}.profile_carriers pc
+                  where pc.profile_version_id = p.id), '[]'::json) as carriers,
+                coalesce((select json_agg(json_build_object(
+                    'field_path', pf.field_path, 'source_kind', pf.source_kind,
+                    'quote', pf.quote, 'confidence', pf.confidence) order by pf.field_path)
+                   from ${S}.profile_field_sources pf
+                  where pf.profile_version_id = p.id), '[]'::json) as sources
+           from ${S}.brands b
+           left join ${S}.company_profile_versions p
+             on p.brand_id = b.id and p.org_id = b.org_id
+            and p.status in ('ACTIVE','CANDIDATE')
+          where b.org_id = $1 and b.workspace_id = $2
+          order by b.name, p.version desc`,
+        [org_id, workspace_id]);
+      return rows;
+    },
+
     async brandSite(org_id, brand_id) {
       const { rows } = await pool.query(
         `select id as brand_id, name, website_url from ${S}.brands
