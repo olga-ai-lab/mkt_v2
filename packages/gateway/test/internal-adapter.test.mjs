@@ -29,6 +29,10 @@ function portas(over = {}) {
       async claimsFor() { return []; },
       async evidenceFor() { return []; },
       async duplicateOf() { return null; },
+      // Marca sem perfil de marketing: o caminho de quem foi cadastrado
+      // antes de existir formulario. O adapter escreve sem template.
+      async marketingProfile() { return null; },
+      async promptTemplates() { return []; },
       ...(over.knowledge ?? {}),
     },
     authoring: {
@@ -365,4 +369,103 @@ test("schedule grava a autonomia CONCEDIDA, nao a pedida", async () => {
     granted_autonomy: "A2",
   });
   assert.equal(recebido.autonomy_used, "A2");
+});
+
+// ── A estrategia da marca chega na capability ───────────────────────────────
+//
+// O adapter le perfil e biblioteca e os repassa ao redator. Ele NAO escolhe
+// nem renderiza template: isso e do runtime (prompt-templates.mjs), porque o
+// runtime ja importa o gateway e a volta fecharia um ciclo. O que se afirma
+// aqui e a passagem — o render tem teste proprio.
+
+const PERFIL = {
+  brand_id: "b1", brand_name: "Marca", org_type: "MGA", objective: "AUTORIDADE",
+  channels: ["LINKEDIN"], publico_alvo: "PME",
+  o_que_comunica: "risco", como_comunica: "tecnico",
+};
+
+test("marca com perfil: o redator recebe perfil e biblioteca", async () => {
+  let recebido = null;
+  const a = montar({
+    knowledge: {
+      async marketingProfile() { return PERFIL; },
+      async promptTemplates(objective) { return [{ template_id: "PT-X", version: 1, objective }]; },
+    },
+    compose: {
+      async draft(p) {
+        recebido = p;
+        return { title: "T", master_body: "Corpo.", claims: [],
+                 prompt_template: { template_id: "PT-X", version: 1 } };
+      },
+      async variant() { return { headline: "H", body: "B", cta: "C" }; },
+      async brandBrain() { return {}; },
+    },
+  });
+
+  await a.call({ capability: cap("content.create_draft"),
+                 request: pedido({ brand_id: "b1", objective: "renovacao de apolice" }) });
+
+  assert.equal(recebido.estrategia.perfil.org_type, "MGA");
+  assert.equal(recebido.estrategia.templates[0].objective, "AUTORIDADE",
+    "a biblioteca pedida e a do objetivo do PERFIL, nao a do tema da peca");
+  assert.equal(recebido.estrategia.tema, "renovacao de apolice");
+});
+
+test("o template usado e gravado na versao, para poder ser rastreado depois", async () => {
+  let gravado = null;
+  const a = montar({
+    knowledge: {
+      async marketingProfile() { return PERFIL; },
+      async promptTemplates() { return [{ template_id: "PT-X", version: 1 }]; },
+    },
+    authoring: {
+      async createDraft(p) { gravado = p; return { content_id: "c1", content_version_id: "cv1", version: 1 }; },
+    },
+    compose: {
+      async draft() {
+        return { title: "T", master_body: "Corpo.", claims: [],
+                 prompt_template: { template_id: "PT-X", version: 1 } };
+      },
+      async variant() { return { headline: "H", body: "B", cta: "C" }; },
+      async brandBrain() { return {}; },
+    },
+  });
+
+  const r = await a.call({ capability: cap("content.create_draft"),
+                           request: pedido({ brand_id: "b1", objective: "tema" }) });
+
+  assert.equal(gravado.prompt_template_id, "PT-X");
+  assert.equal(gravado.prompt_template_version, 1);
+  assert.equal(r.output.prompt_template_id, "PT-X",
+    "quem chamou precisa ver com que estrategia foi escrito");
+});
+
+test("perfil configurado e peca sem tema recusa em vez de o modelo escolher o assunto", async () => {
+  const a = montar({
+    knowledge: {
+      async marketingProfile() { return PERFIL; },
+      async promptTemplates() { return []; },
+    },
+  });
+
+  await assert.rejects(
+    () => a.call({ capability: cap("content.create_draft"), request: pedido({ brand_id: "b1" }) }),
+    (e) => e.reason_code === "AMBIGUOUS_GOAL");
+});
+
+test("marca sem perfil escreve assim mesmo, com template nulo na versao", async () => {
+  // O caminho de quem foi cadastrado antes de existir formulario. Recusar
+  // aqui seria dizer "voce nao preencheu algo que nao existia".
+  let gravado = null;
+  const a = montar({
+    authoring: {
+      async createDraft(p) { gravado = p; return { content_id: "c1", content_version_id: "cv1", version: 1 }; },
+    },
+  });
+
+  const r = await a.call({ capability: cap("content.create_draft"),
+                           request: pedido({ brand_id: "b1" }) });
+
+  assert.equal(gravado.prompt_template_id, null);
+  assert.equal(r.output.prompt_template_id, null, "o nulo precisa ser visivel, nao implicito");
 });

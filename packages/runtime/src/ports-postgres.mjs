@@ -711,6 +711,55 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
     },
 
     /**
+     * O perfil de marketing declarado no formulario de onboarding.
+     *
+     * Le por marca porque e por marca que a estrategia vale: duas marcas do
+     * mesmo workspace podem falar com publicos diferentes.
+     */
+    async marketingProfile(org_id, brand_id) {
+      const { rows } = await pool.query(
+        `select p.id, p.brand_id, p.org_type::text as org_type,
+                p.objective::text as objective,
+                array(select unnest(p.channels)::text) as channels,
+                p.o_que_comunica, p.como_comunica, p.publico_alvo, p.updated_at,
+                b.name as brand_name
+           from ${S}.marketing_profiles p
+           join ${S}.brands b on b.id = p.brand_id
+          where p.org_id = $1 and p.brand_id = $2`, [org_id, brand_id]);
+      return rows[0] ?? null;
+    },
+
+    /**
+     * Os templates ACTIVE de um objetivo.
+     *
+     * Traz a fatia do objetivo inteira, e nao "o melhor": quem desempata e
+     * `escolherTemplate` em prompt-templates.mjs, com regra explicita e
+     * testada. Um `order by ... limit 1` aqui esconderia a regra de escolha
+     * dentro de um SQL que ninguem le quando o template errado sai.
+     */
+    async promptTemplates(objective) {
+      const { rows } = await pool.query(
+        `select template_id, version, status::text as status,
+                objective::text as objective, module_key,
+                array(select unnest(org_types)::text) as org_types,
+                channel::text as channel, formato, body, variables
+           from ${S}.prompt_templates
+          where objective = $1::${S}.marketing_objective and status = 'ACTIVE'`,
+        [objective]);
+      return rows;
+    },
+
+    /** Os modulos que o objetivo prioriza. Serve a tela do Hub. */
+    async marketingModules(objective) {
+      const { rows } = await pool.query(
+        `select objective::text as objective, module_key, title, description, ordem
+           from ${S}.marketing_modules
+          where objective = $1::${S}.marketing_objective
+          order by ordem`, [objective]);
+      return rows;
+    },
+
+    /**
      * A versao de conteudo que uma execucao do loop produziu, pelo trace_id.
      *
      * Existe para `mkt.content_briefs` fechar o pedido do formulario com o
@@ -834,7 +883,8 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
      */
     async createDraft({ org_id, workspace_id, brand_id, title, objective,
                         master_body, actor_id, trace_id, agent_id, agent_version,
-                        brand_brain_version_id = null, claims = [] }) {
+                        brand_brain_version_id = null, claims = [],
+                        prompt_template_id = null, prompt_template_version = null }) {
       return emTransacao(async (c) => {
         const ct = await c.query(
           `insert into ${S}.contents (org_id, workspace_id, brand_id, title, objective,
@@ -846,11 +896,13 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
           `insert into ${S}.content_versions
              (org_id, content_id, version, master_body, state, trace_id,
               agent_id, agent_version, brand_brain_version_id,
+              prompt_template_id, prompt_template_version,
               created_by_actor_type, created_by_actor_id)
-           values ($1,$2,1,$3,'DRAFT',$4,$5,$6,$7,'agent',$8)
+           values ($1,$2,1,$3,'DRAFT',$4,$5,$6,$7,$8,$9,'agent',$10)
            returning id, version`,
           [org_id, ct.rows[0].id, master_body, trace_id ?? null,
-           agent_id ?? null, agent_version ?? null, brand_brain_version_id, actor_id ?? null]);
+           agent_id ?? null, agent_version ?? null, brand_brain_version_id,
+           prompt_template_id, prompt_template_version, actor_id ?? null]);
 
         for (const cl of claims) {
           await c.query(
@@ -933,6 +985,47 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
            json(disclaimers), json(refs), actor_id ?? null]);
         return { ...rows[0], source_refs: refs };
       });
+    },
+  };
+
+  /**
+   * O perfil de marketing, escrito por uma PESSOA no onboarding.
+   *
+   * Separado de `authoring` de proposito: aquilo e o que o agente escreve,
+   * e tudo que o agente escreve nasce DRAFT ou CANDIDATE. Isto e
+   * configuracao declarada por quem conhece o negocio, e vale na hora.
+   *
+   * Separado de `governance` tambem: promover Brand Brain e assumir
+   * responsabilidade por afirmacao sobre a marca. Dizer "sou uma MGA e
+   * publico no LinkedIn" nao afirma nada sobre o mundo — nao ha claim
+   * aqui, e e por isso que este perfil nao tem versao nem promocao.
+   */
+  const marketing = {
+    /**
+     * Grava o formulario. Um perfil por marca (unique em 0012), entao
+     * reenviar o formulario CORRIGE em vez de criar uma segunda estrategia.
+     */
+    async saveProfile({ org_id, workspace_id, brand_id, org_type, objective, channels,
+                        o_que_comunica, como_comunica, publico_alvo, actor_id }) {
+      const { rows } = await pool.query(
+        `insert into ${S}.marketing_profiles
+           (org_id, workspace_id, brand_id, org_type, objective, channels,
+            o_que_comunica, como_comunica, publico_alvo, created_by_actor_id)
+         values ($1,$2,$3,$4::${S}.org_type,$5::${S}.marketing_objective,
+                 $6::${S}.channel[],$7,$8,$9,$10)
+         on conflict (brand_id) do update
+            set org_type = excluded.org_type,
+                objective = excluded.objective,
+                channels = excluded.channels,
+                o_que_comunica = excluded.o_que_comunica,
+                como_comunica = excluded.como_comunica,
+                publico_alvo = excluded.publico_alvo,
+                updated_at = now()
+         returning id`,
+        [org_id, workspace_id, brand_id, org_type, objective, channels,
+         o_que_comunica ?? null, como_comunica ?? null, publico_alvo ?? null,
+         actor_id ?? null]);
+      return rows[0].id;
     },
   };
 
@@ -1042,5 +1135,6 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
   };
 
   return { routing, budget, registry, runs, policies, receipts, outbox, approvals,
-           connections, variants, publishing, content, knowledge, authoring, governance, briefs };
+           connections, variants, publishing, content, knowledge, authoring, governance,
+           briefs, marketing };
 }

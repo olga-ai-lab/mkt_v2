@@ -146,6 +146,13 @@ nav.topo button {
 .gerar-form textarea { resize: vertical; }
 .gerar-form .btn { justify-self: start; }
 
+/* Canais: caixas de marcar. Multiplo de propósito — uma empresa publica em
+   mais de um lugar, e o perfil precisa dizer em quais. */
+.canais { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-3) var(--space-4); margin: 0; }
+.canais legend { font-size: 14px; font-weight: 600; padding: 0 var(--space-2); }
+.canal-item { display: inline-flex; align-items: center; gap: var(--space-2); margin-right: var(--space-4); font-weight: 400; font-size: 14px; }
+.canal-item input { width: auto; }
+
 /* Brand Brain — o quadro de revisão e promoção.
    Duas colunas lado a lado de propósito: promover é substituir, e decidir sem
    ver o que sai é decidir no escuro. Em telas estreitas viram uma coluna só,

@@ -12,7 +12,7 @@
  */
 import { useState } from "react";
 
-const CANAIS = ["INSTAGRAM", "FACEBOOK", "LINKEDIN", "WHATSAPP", "EMAIL", "BLOG"];
+const TODOS_CANAIS = ["INSTAGRAM", "FACEBOOK", "LINKEDIN", "WHATSAPP", "EMAIL", "BLOG"];
 
 const MICROCOPY: Record<string, string> = {
   ACTOR_ROLE_FORBIDDEN: "Seu perfil não tem permissão para gerar conteúdo.",
@@ -20,12 +20,29 @@ const MICROCOPY: Record<string, string> = {
   CLAIM_UNSUPPORTED: "O rascunho afirmava algo sem fonte. Reescreva o briefing sem essa afirmação e tente de novo.",
   AGENT_NOT_ACTIVE: "Este agente ainda não foi liberado para uso.",
   SPEND_LIMIT_EXCEEDED: "O limite de gasto do mês foi atingido.",
+  AMBIGUOUS_GOAL: "Diga o objetivo desta peça: a estratégia da marca precisa saber sobre o que falar.",
+  UNSUPPORTED_VALUE: "Ainda não há template para esse objetivo neste canal. Escolha outro canal ou fale com a Olga.",
+  SCHEMA_VALIDATION_FAILED: "Falta um dado que a estratégia pede. Revise o perfil da marca.",
 };
 
-export function GenerateContentForm({ marcas }: { marcas: { brand_id: string; brand_name: string }[] }) {
+type Marca = {
+  brand_id: string;
+  brand_name: string;
+  /** Canais declarados no perfil. Vazio = marca sem estratégia definida. */
+  channels: string[];
+};
+
+export function GenerateContentForm({ marcas }: { marcas: Marca[] }) {
   const [brand_name, setBrandName] = useState(marcas[0]?.brand_name ?? "");
   const [objective, setObjective] = useState("");
   const [channel, setChannel] = useState("");
+
+  // Os canais oferecidos sao os que a marca declarou no perfil. Oferecer
+  // Facebook a quem so publica no LinkedIn seria oferecer um destino que a
+  // estrategia nao cobre — e o template escolhido nao teria como servir.
+  const marcaAtual = marcas.find((m) => m.brand_name === brand_name);
+  const canaisDaMarca = marcaAtual?.channels?.length ? marcaAtual.channels : TODOS_CANAIS;
+  const semEstrategia = !marcaAtual?.channels?.length;
   const [briefing, setBriefing] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null);
@@ -84,7 +101,10 @@ export function GenerateContentForm({ marcas }: { marcas: { brand_id: string; br
 
       <label>
         Marca
-        <select value={brand_name} onChange={(e) => setBrandName(e.target.value)}>
+        <select
+          value={brand_name}
+          onChange={(e) => { setBrandName(e.target.value); setChannel(""); }}
+        >
           {marcas.map((m) => (
             <option key={m.brand_id} value={m.brand_name}>{m.brand_name}</option>
           ))}
@@ -92,8 +112,9 @@ export function GenerateContentForm({ marcas }: { marcas: { brand_id: string; br
       </label>
 
       <label>
-        Objetivo
+        Objetivo desta peça
         <input
+          required
           value={objective}
           onChange={(e) => setObjective(e.target.value)}
           placeholder="ex: divulgar a campanha de seguro auto do mês"
@@ -104,11 +125,17 @@ export function GenerateContentForm({ marcas }: { marcas: { brand_id: string; br
         Canal (opcional)
         <select value={channel} onChange={(e) => setChannel(e.target.value)}>
           <option value="">deixar em aberto</option>
-          {CANAIS.map((c) => (
+          {canaisDaMarca.map((c) => (
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
       </label>
+      {semEstrategia && (
+        <p className="muted" style={{ marginTop: "-8px" }}>
+          Esta marca ainda não tem perfil de marketing: o texto sai sem template de
+          estratégia. Defina em <a href="/perfil">Perfil</a>.
+        </p>
+      )}
 
       <label>
         Briefing
@@ -120,7 +147,7 @@ export function GenerateContentForm({ marcas }: { marcas: { brand_id: string; br
         />
       </label>
 
-      <button className="btn primario" type="submit" disabled={enviando}>
+      <button className="btn primario" type="submit" disabled={enviando || !objective.trim()}>
         {enviando ? "Gerando…" : "Gerar rascunho"}
       </button>
 

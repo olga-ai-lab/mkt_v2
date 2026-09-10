@@ -35,13 +35,22 @@ export default async function ContentPage() {
   // Só marca com Brand Brain ACTIVE pode virar conteúdo: pedir para as
   // outras é recusado lá na frente com BRAND_BRAIN_NOT_ACTIVE. Filtrar aqui
   // poupa esse passeio.
-  const marcasComMarcaAtiva = [
+  const comMarcaAtiva = [
     ...new Map<string, { brand_id: string; brand_name: string }>(
       marcasBoard
         .filter((l: any) => l.status === "ACTIVE")
         .map((l: any) => [l.brand_id, { brand_id: l.brand_id, brand_name: l.brand_name }]),
     ).values(),
   ];
+
+  // Os canais que cada marca declarou no perfil (0012). Vazio significa
+  // marca sem estratégia — o formulário diz isso em vez de esconder.
+  const marcasComMarcaAtiva = await Promise.all(
+    comMarcaAtiva.map(async (m) => {
+      const perfil = await ports.knowledge.marketingProfile(ctx.org_id, m.brand_id);
+      return { ...m, channels: perfil?.channels ?? [] };
+    }),
+  );
 
   const ativas = conexoes.filter((c: any) => c.status === "ACTIVE");
 
