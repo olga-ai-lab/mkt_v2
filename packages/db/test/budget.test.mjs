@@ -68,22 +68,54 @@ test("custo negativo e recusado pela constraint", async () => {
   );
 });
 
+// A versao 99 nao existe e nao vai existir: usar um numero livre faz o teste
+// provar o que ele diz provar. Enquanto ele inseria a versao 2, a rejeicao
+// passou a vir da chave primaria depois que a migration 0011 criou aquela
+// versao — o teste continuava verde sem nunca tocar no indice one_active.
 test("so existe uma rota ACTIVE por task class", async () => {
   await assert.rejects(
     () => db.query(`
       insert into mkt.model_routing (task_class, version, status, primary_target)
-      values ('copywriting', 2, 'ACTIVE', '{"provider":"x","model":"y"}'::jsonb)`),
-    /model_routing_one_active|duplicate key/i,
+      values ('copywriting', 99, 'ACTIVE', '{"provider":"x","model":"y"}'::jsonb)`),
+    /model_routing_one_active/i,
   );
 });
 
 test("uma segunda rota CANDIDATE convive com a ACTIVE", async () => {
   await db.query(`
     insert into mkt.model_routing (task_class, version, status, primary_target)
-    values ('copywriting', 3, 'CANDIDATE', '{"provider":"x","model":"y"}'::jsonb)`);
-  const r = await db.query(`select count(*)::int n from mkt.model_routing where task_class='copywriting'`);
-  assert.equal(r.rows[0].n, 2);
-  await db.query(`delete from mkt.model_routing where task_class='copywriting' and version=3`);
+    values ('copywriting', 99, 'CANDIDATE', '{"provider":"x","model":"y"}'::jsonb)`);
+  // O que importa nao e quantas versoes existem — e quantas estao ATIVAS.
+  // Contar o total amarrava o teste ao numero de migrations ja aplicadas.
+  const r = await db.query(
+    `select count(*) filter (where status = 'ACTIVE')::int ativas,
+            count(*)::int total
+       from mkt.model_routing where task_class='copywriting'`);
+  assert.equal(r.rows[0].ativas, 1);
+  assert.ok(r.rows[0].total > 1, "a candidata precisa ter entrado");
+  await db.query(`delete from mkt.model_routing where task_class='copywriting' and version=99`);
+});
+
+// ── O id do modelo precisa existir de verdade ──────────────────────────────
+//
+// As rotas apontaram para "claude-sonnet" e "claude-haiku" desde a 0007. Nao
+// sao identificadores validos da API: a chamada falha com modelo desconhecido,
+// e falha na PRIMEIRA vez que alguem roda de verdade — o que so aconteceria
+// com um cliente na frente, porque nenhum teste chama provider real.
+//
+// A regra aqui e de forma, nao de catalogo: um id de familia sem versao nunca
+// e valido. Conferir contra uma lista de modelos exigiria manter a lista, e
+// uma lista desatualizada reprovaria um modelo novo e legitimo.
+test("nenhuma rota ativa aponta para um id de modelo sem versao", async () => {
+  const r = await db.query(`
+    select task_class, primary_target->>'model' as modelo
+      from mkt.model_routing
+     where status = 'ACTIVE' and primary_target->>'provider' <> 'none'`);
+
+  for (const rota of r.rows) {
+    assert.match(rota.modelo, /^claude-[a-z]+-\d/,
+      `${rota.task_class} roteia para "${rota.modelo}", que nao tem versao no id`);
+  }
 });
 
 test("rota sem provider ou model e recusada", async () => {

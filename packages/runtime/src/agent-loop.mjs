@@ -173,9 +173,20 @@ export function buildEvidence({ trace_id, items = [] }) {
  */
 export function createAgentLoop({
   resolver, planner, responder, retrieval,
-  compiler, gateway, registry, policies,
+  compiler, gateway, registry, policies, facts,
   runs, tracer, ids, clock,
 }) {
+  // Falhar na montagem, nao no primeiro pedido de um cliente.
+  //
+  // Sem esta porta o loop voltaria a julgar policy com os fatos que vieram no
+  // corpo do pedido — que e o furo que ela existe para fechar. Um default
+  // silencioso aqui seria pior que o furo original, porque pareceria corrigido.
+  if (typeof facts?.collectForAgent !== "function") {
+    throw new Error(
+      "createAgentLoop exige a porta facts.collectForAgent: sem ela os fatos da " +
+      "policy voltam a vir do pedido, e nao do banco");
+  }
+
   const now = () => clock?.now?.() ?? Date.now();
   const nowIso = () => new Date(now()).toISOString();
 
@@ -339,15 +350,37 @@ export function createAgentLoop({
         if (!cap) return encerrar("UNSUPPORTED", ["CAPABILITY_NOT_ACTIVE"],
           `Capability desconhecida: ${step.capability_id}.`);
 
+        // ── 3b. FATOS — do banco, nao do pedido ────────────────────────────
+        //
+        // A ordem dos spreads e a regra inteira: o que o servidor apurou
+        // SOBREPOE o que veio no pedido, sempre. O que continua vindo de fora
+        // e apenas o que o banco nao tem como responder — hoje, o tipo de
+        // claim de um conteudo que ainda nao foi escrito.
+        //
+        // O coletor devolve so as chaves que ele apurou. Fosse ele devolver
+        // `false` para o que nao sabe, um fato desconhecido viraria um fato
+        // negativo, e a policy decidiria sobre uma afirmacao que ninguem fez.
+        const apurados = await facts.collectForAgent(tenant, {
+          entities: intent.entities, actor, capability: cap,
+        });
+        const fatos = { ...(req.facts ?? {}), ...apurados };
+        const canal = fatos.channel
+          ?? (intent.entities ?? []).find((e) => e.type === "channel")?.canonical_id
+          ?? null;
+        emitir("loop.facts", { step: step.step_id, apurados: Object.keys(apurados) });
+
         // ── 4. RESPONDABILITY ──────────────────────────────────────────────
         const respondability = evaluate({
           trace_id,
           context: {
             capability_id: cap.capability_id, capability_mode: cap.mode,
             agent_id: agent.agent_id, risk_tier: cap.risk_tier,
-            channel: req.facts?.channel ?? null,
+            // O engine usa isto para separar o que precisa de gate humano do
+            // que precisa so de teto: conferir nao e efeito.
+            side_effect: cap.side_effect,
+            channel: canal,
           },
-          facts: req.facts ?? {},
+          facts: fatos,
           requested_autonomy: autonomy_ceiling,
           policies: politicas,
         });
@@ -391,7 +424,11 @@ export function createAgentLoop({
           idempotency_key: req.idempotency_key
             ?? chaveDeIdempotencia(cap, tenant, compilado, step),
         };
-        const saida = await gateway.execute(request, { facts: req.facts ?? {}, actor });
+        // O gateway reavalia policy no passo 4 dos oito. Mandar `fatos` e nao
+        // `req.facts` e o que impede as duas avaliacoes de julgarem realidades
+        // diferentes — a de dentro do loop com o banco, a do gateway com o que
+        // o pedido afirmou.
+        const saida = await gateway.execute(request, { facts: fatos, actor });
         ultimaExecucao = saida.execution;
         if (saida.output != null) produzido[cap.capability_id] = saida.output;
         if (saida.receipt?.receipt_id) receipt_ids.push(saida.receipt.receipt_id);

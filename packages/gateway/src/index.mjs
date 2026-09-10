@@ -84,6 +84,10 @@ export function createGateway({ registry, policies, receipts, adapters, clock, t
       context: {
         capability_id: cap.capability_id,
         capability_mode: cap.mode,
+        // Sem isto, a avaliacao do gateway julgaria com um contexto mais pobre
+        // que a do loop — e as duas dariam respostas diferentes para o mesmo
+        // pedido, o que e pior que uma so estar errada.
+        side_effect: cap.side_effect,
         channel: request.args?.channel ?? null,
         agent_id: request.args?.agent_id ?? null,
         risk_tier: cap.risk_tier,

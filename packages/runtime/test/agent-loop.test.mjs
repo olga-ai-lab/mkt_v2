@@ -63,8 +63,12 @@ function montar(over = {}) {
   });
 
   const gateway = over.gateway ?? {
-    execute: async (request) => {
+    execute: async (request, contexto) => {
       visto.executadoCom.push(request);
+      // O segundo argumento carrega os fatos e o ator. O gateway reavalia
+      // policy com eles, entao o que chega aqui precisa ser o mesmo que o loop
+      // julgou — ha teste sobre isso.
+      visto.contextoDoGateway = contexto;
       return {
         respondability: { state: "EXECUTABLE", reason_codes: [], granted_autonomy: "A2" },
         execution: {
@@ -93,6 +97,12 @@ function montar(over = {}) {
       workspaceBelongsToOrg: async () => over.workspaceOk !== false,
     },
     policies: { listActive: async () => over.policies ?? [POL_ALLOW] },
+    // O coletor de fatos e obrigatorio: sem ele o loop se recusa a montar.
+    // Aqui ele devolve o que o caso mandar — e o teste logo abaixo prova que
+    // o que sai dele vence o que veio no pedido.
+    facts: over.facts ?? {
+      collectForAgent: async () => over.fatosApurados ?? {},
+    },
     runs: { start: async () => {}, finish: async () => {} },
     ids: { newId: () => "00000000-0000-4000-8000-000000000001", newTraceId: () => "tr_loop" },
   });
@@ -399,4 +409,51 @@ test("validateResult cobre as cinco checagens do contrato", () => {
   assert.equal(v.valid, true);
   assert.deepEqual(v.checks.map((c) => c.check).sort(),
     ["cardinality", "failure_normalized", "freshness", "schema", "tenant_scope"]);
+});
+
+// ── A fronteira: quem afirma os fatos que a policy julga ────────────────────
+
+test("o fato apurado no banco vence o fato que veio no pedido", async () => {
+  // O pedido afirma que o conteudo esta aprovado; o banco diz que e rascunho.
+  // Enquanto os fatos vinham do corpo, quem chamava escolhia a realidade que
+  // a policy ia julgar — e a policy julgava certo sobre um mundo falso.
+  const POL_SO_APROVADO = {
+    policy_id: "P_APROVADO", version: 1, status: "ACTIVE", priority: 20,
+    scope: {}, conditions: [{ fact: "content_status", op: "not_in", value: ["APPROVED"] }],
+    effect: "BLOCK", reason_code: "CONTENT_NOT_APPROVED",
+  };
+
+  const { loop, visto } = montar({
+    policies: [POL_SO_APROVADO, POL_ALLOW],
+    fatosApurados: { content_status: "DRAFT" },
+  });
+
+  const r = await loop.run(pedido({ facts: { content_status: "APPROVED" } }));
+
+  assert.equal(r.response.respondability, "POLICY_BLOCKED");
+  assert.ok(r.response.reason_codes.includes("CONTENT_NOT_APPROVED"));
+  assert.equal(visto.executadoCom.length, 0, "nao pode ter chegado a executar");
+});
+
+test("o gateway recebe os mesmos fatos que o loop julgou", async () => {
+  // Duas avaliacoes de policy sobre realidades diferentes seria pior que uma
+  // so: a de dentro barraria, a do gateway liberaria, e o desacordo ficaria
+  // invisivel ate o dia em que so uma delas rodasse.
+  const { loop, visto } = montar({ fatosApurados: { content_status: "APPROVED" } });
+  await loop.run(pedido({ facts: { content_status: "DRAFT", channel_connected: true } }));
+
+  assert.equal(visto.executadoCom.length, 1);
+  // O teste inspeciona o segundo argumento do gateway.execute.
+  assert.equal(visto.contextoDoGateway?.facts?.content_status, "APPROVED");
+});
+
+test("o loop nao monta sem a porta de fatos", () => {
+  // Um default silencioso aqui devolveria o furo original com aparencia de
+  // corrigido: a policy voltaria a julgar o que o pedido afirmou.
+  assert.throws(
+    () => createAgentLoop({
+      resolver: {}, planner: {}, responder: {}, compiler: createCompiler({}),
+      gateway: {}, registry: {}, policies: {}, ids: {},
+    }),
+    /facts\.collectForAgent/);
 });

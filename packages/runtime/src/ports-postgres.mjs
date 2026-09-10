@@ -988,6 +988,136 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
     },
   };
 
+  /**
+   * Os fatos que o Policy Engine julga — colhidos do BANCO.
+   *
+   * ── Por que esta porta existe ───────────────────────────────────────────
+   *
+   * O caminho do agente recebia os fatos pelo corpo do pedido HTTP:
+   * `facts: body.facts ?? {}` na rota, e dali direto para o engine. Quem
+   * chamava escolhia `content_status`, `channel_connected` e
+   * `workspace_first_publish` — exatamente as entradas das policies que
+   * protegem o produto. Um pedido com `content_status: "APPROVED"` sobre um
+   * rascunho passava pela policy; quem recusava era a porta do banco, uma
+   * camada depois. Defesa em profundidade funcionando, e a primeira linha
+   * ausente.
+   *
+   * O workflow duravel ja fazia certo desde sempre (`collectPublishFacts`).
+   * Esta e a irma dela, do lado do agente, e existe pela mesma razao: o
+   * engine nunca le texto livre nem consulta banco — ele recebe fatos ja
+   * reduzidos aos nomes do enum `olga://enums/policy-fact`.
+   *
+   * ── O que ela devolve, e o que ela NAO devolve ──────────────────────────
+   *
+   * Devolve SO as chaves que o banco consegue responder para este pedido. Um
+   * fato que ela nao sabe fica de fora do objeto — e nao vira `false`, `null`
+   * ou `"UNKNOWN"`. A diferenca importa: o loop sobrepoe o que vem do pedido
+   * com o que vem daqui, entao uma chave devolvida com valor errado seria
+   * pior que uma chave ausente.
+   *
+   * `claim_types` e o caso que merece nome: quando existe versao de conteudo,
+   * ele vem das claims gravadas — fato. Quando o pedido e para CRIAR conteudo,
+   * o texto ainda nao existe, e ninguem no banco sabe o que ele vai afirmar;
+   * ali o fato continua sendo declaracao de intencao, vinda da leitura do
+   * pedido. A defesa que nao depende de declaracao e a que le o texto DEPOIS
+   * de gravado — e essa e trabalho da taxonomia de termos vedados
+   * (docs/JORNADA-PERFIL.md §6.1), nao desta porta.
+   */
+  const facts = {
+    /**
+     * @param {{ org_id: string, workspace_id: string }} tenant
+     * @param {{ entities?: Array<{type: string, canonical_id: any}>,
+     *           actor?: { role?: string }, capability?: { risk_tier?: string, mode?: string } }} ctx
+     * @returns {Promise<object>} so as chaves que o banco respondeu
+     */
+    async collectForAgent(tenant, { entities = [], actor, capability } = {}) {
+      const idDe = (tipo) =>
+        entities.find((e) => e.type === tipo && e.canonical_id != null)?.canonical_id ?? null;
+
+      const content_version_id = idDe("content_version");
+      const brand_id = idDe("brand");
+      const canal = idDe("channel");
+      const channel = canal ? String(canal).toUpperCase() : null;
+
+      const fatos = {};
+
+      // Papel e risco nao vem do banco de dominio, mas tambem nao vem do
+      // pedido: um e contexto confiavel da sessao, o outro e o registry.
+      if (actor?.role) fatos.actor_role = actor.role;
+      if (capability?.risk_tier) fatos.risk_tier = capability.risk_tier;
+      if (capability?.mode) fatos.capability_mode = capability.mode;
+
+      const { rows } = await pool.query(
+        `select
+           -- Primeira publicacao do workspace: a policy que exige humano na
+           -- estreia depende disto, e era trivialmente contornavel de fora.
+           not exists (
+             select 1 from ${S}.publications p
+              where p.workspace_id = $2 and p.org_id = $1
+                and p.status in ('PUBLISHED','PUBLISHING')
+           ) as workspace_first_publish,
+
+           -- Conexao viva no canal pedido. Sem canal na intencao, null.
+           case when $4::text is null then null else exists (
+             select 1 from ${S}.connections c
+              where c.org_id = $1 and c.workspace_id = $2
+                and c.channel = $4::${S}.channel and c.status = 'ACTIVE'
+           ) end as channel_connected,
+
+           (select cv.state::text from ${S}.content_versions cv
+             where cv.id = $3 and cv.org_id = $1) as content_status,
+
+           (select cv.risk_tier::text from ${S}.content_versions cv
+             where cv.id = $3 and cv.org_id = $1) as content_risk_tier,
+
+           -- O que o conteudo JA afirma, gravado. Nao e o que alguem disse
+           -- que ele afirma.
+           (select array_agg(distinct cl.claim_type) from ${S}.claims cl
+             where cl.content_version_id = $3 and cl.org_id = $1) as claim_types,
+
+           -- Cobertura de evidencia: todo claim material tem ao menos uma
+           -- evidence que ainda existe. A evidence pode ser apagada depois de
+           -- o claim citar o id — e ai o lastro sumiu sem o texto mudar.
+           (select bool_and(exists (
+              select 1 from ${S}.evidence e
+               where e.id = any(cl.evidence_ids) and e.org_id = cl.org_id))
+              from ${S}.claims cl
+             where cl.content_version_id = $3 and cl.org_id = $1
+               and cl.material = true) as evidence_coverage,
+
+           -- Brand Brain da marca pedida, ou da marca do conteudo pedido.
+           coalesce(
+             (select max(bb.status::text) from ${S}.brand_brain_versions bb
+               where bb.org_id = $1 and bb.brand_id = $5 and bb.status = 'ACTIVE'),
+             (select max(bb.status::text)
+                from ${S}.content_versions cv
+                join ${S}.contents ct on ct.id = cv.content_id
+                join ${S}.brand_brain_versions bb on bb.brand_id = ct.brand_id
+               where cv.id = $3 and cv.org_id = $1 and bb.status = 'ACTIVE')
+           ) as brand_brain_status`,
+        [tenant.org_id, tenant.workspace_id, content_version_id, channel, brand_id]);
+
+      const r = rows[0] ?? {};
+
+      fatos.workspace_first_publish = r.workspace_first_publish === true;
+      if (r.channel_connected !== null && r.channel_connected !== undefined) {
+        fatos.channel_connected = r.channel_connected === true;
+      }
+      if (r.content_status != null) fatos.content_status = r.content_status;
+      if (r.content_risk_tier != null) fatos.risk_tier = r.content_risk_tier;
+      if (r.claim_types != null) fatos.claim_types = r.claim_types;
+      if (r.evidence_coverage != null) fatos.evidence_coverage = r.evidence_coverage === true;
+      // Marca sem Brand Brain ativo e um fato, e ele tem nome: MISSING. Aqui
+      // o valor ausente seria lido como "nao conferi", que e outra coisa.
+      if (brand_id || content_version_id) {
+        fatos.brand_brain_status = r.brand_brain_status ?? "MISSING";
+      }
+
+      return fatos;
+    },
+  };
+
   return { routing, budget, registry, runs, policies, receipts, outbox, approvals,
-           connections, variants, publishing, content, knowledge, authoring, governance };
+           connections, variants, publishing, content, knowledge, authoring, governance,
+           facts };
 }

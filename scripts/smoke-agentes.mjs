@@ -365,12 +365,18 @@ await cenario({
 
 // ── 8. CONTENT: o mesmo pedido com o FATO mentido no corpo da requisição ───
 //
-// O fato que a policy julga chega hoje pelo corpo do pedido HTTP. Este cenário
-// existe para deixar visível o que segura quando ele é falso: a policy passa,
-// e quem recusa é a porta do banco. Defesa em profundidade funcionando — e uma
-// primeira linha ausente.
+// Este cenário existia para deixar visível um furo: os fatos que a policy
+// julgava chegavam pelo corpo do pedido, e com `content_status: "APPROVED"`
+// mentido sobre um rascunho a policy PASSAVA — quem recusava era a porta do
+// banco, uma camada depois. Defesa em profundidade funcionando, e a primeira
+// linha ausente.
+//
+// Desde que o loop colhe os fatos do banco (ports.facts.collectForAgent), a
+// mentira não alcança mais o engine: o pedido continua afirmando APPROVED, o
+// banco continua dizendo DRAFT, e quem barra é a policy. O cenário fica —
+// agora provando a correção em vez do furo.
 await cenario({
-  nome: "CONTENT com FATO FALSO no pedido: a policy passa, o banco recusa",
+  nome: "CONTENT com FATO FALSO no pedido: o banco vence a afirmacao",
   agent_id: "AGT-MKT-CONTENT",
   input: { text: "agenda esse post para amanhã no instagram" },
   facts: { content_status: "APPROVED", channel_connected: true,
@@ -383,8 +389,8 @@ await cenario({
                          args_summary: "agendar" }] },
     responder: RESPONDER,
   },
-  espera: { reason_codes: ["CONTENT_NOT_APPROVED"],
-            porque: "o efeito não acontece, mas quem barrou foi a segunda linha, não a primeira" },
+  espera: { estado: "POLICY_BLOCKED", reason_codes: ["CONTENT_NOT_APPROVED"], executou: false,
+            porque: "o pedido diz APPROVED, o banco diz DRAFT — e quem decide e o banco" },
 });
 
 // ── 9. COMPLIANCE: termo proibido pelo Brand Brain ─────────────────────────

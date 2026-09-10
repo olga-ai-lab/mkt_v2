@@ -11,17 +11,22 @@ não se responde com suíte verde. A suíte estava verde — 422 testes, dois ga
 10/10, 24 evals — e ainda assim três coisas que a plataforma precisa para
 funcionar em produção interna **nunca tinham sido executadas uma vez**.
 
+> **Atualização de 10/09, mesma sessão:** os três P0 foram corrigidos, com
+> teste em cada um. A suíte está em 433. Os achados P1 e P2 continuam abertos,
+> e o texto de cada um segue como estava — o que muda é a linha de estado no
+> topo.
+
 ---
 
 ## 1. O que foi verificado, e como
 
 | Verificação | Resultado |
 |---|---|
-| `npm test` (Postgres ligado) | 422/422 |
+| `npm test` (Postgres ligado) | 433/433 |
 | `npm run gate:g0` | 10/10 |
 | `npm run gate:g1` | 10/10 verificáveis; falta o post real (ADR-0008) |
 | Evals de agente (`npm run evals`) | 24/24 |
-| **`npm run smoke:agentes`** (novo) | **9/11 cenários; 2 divergências, que são achados** |
+| **`npm run smoke:agentes`** (novo) | **9/11 cenários; 2 divergências, que são os achados 4 e 8** |
 
 O smoke é novo e é a peça que faltava: os evals medem governança caso a caso,
 com fixture próprio. Ninguém tinha montado a corretora de demonstração e
@@ -83,8 +88,8 @@ Verificado por execução, não por leitura.
 | Prompt injection | ✅ | Página hostil entra como turno de usuário; teste afirma que não chega com autoridade de sistema. |
 | Segredo fora do banco de domínio | ✅ | `secret_ref` + vault; token nunca em prompt, evidence ou trace. |
 | Enum de reason code fechado | ✅ | Delta projeta os códigos da linha do registry; teste impede código órfão. |
-| **Contexto de sete camadas chega ao modelo** | ❌ | O provider real descarta duas. **Achado 1.** |
-| **Fatos que a policy julga vêm do servidor** | ❌ | Vêm do corpo do request. **Achado 3.** |
+| **Contexto de sete camadas chega ao modelo** | ✅ | Corrigido — **achado 1**, com teste sobre a montagem real. |
+| **Fatos que a policy julga vêm do servidor** | ✅ | Corrigido — **achado 3**: `facts.collectForAgent` colhe do banco e sobrepõe o pedido. |
 | **Claim material sustentado por evidência** | ❌ | Sustentado pela autodeclaração do modelo. **Achados 4 e 5.** |
 | **Resolução canônica é cálculo, não interpretação** | ❌ | É o LLM que devolve o id. **Achado 6.** |
 | **Trace reproduz a execução** | ❌ | `audit_events` sem escritor; custo e modelo nulos em `agent_runs`. **Achado 7.** |
@@ -93,9 +98,15 @@ Verificado por execução, não por leitura.
 
 ## 5. Achados, em ordem de prioridade
 
-### P0 — impede a plataforma de funcionar de verdade
+### P0 — impede a plataforma de funcionar de verdade — **os três corrigidos**
 
 **1. O provider real descarta duas das sete camadas de contexto.**
+> ✅ **Corrigido.** A transformação saiu do adapter e virou
+> `apps/web/lib/providers/messages.mjs`, com quatro testes em
+> `apps/web/test/provider-messages.test.mjs` — inclusive um que prova que o
+> input do usuário continua sem autoridade de sistema. Ela estava dentro de um
+> `.ts` que nenhum teste importava; é por isso que ninguém viu.
+
 `assembleContext` monta `system`, `persona` e `schemas` como três mensagens de
 papel `system`. O adapter em `apps/web/lib/providers/anthropic.ts` faz
 `messages.find(m => m.role === "system")` — pega **a primeira** — e depois
@@ -124,13 +135,39 @@ bonito para um caminho que ninguém montou.
 const system = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
 ```
 
-**2. Os model IDs do registry não existem.** `mkt.model_routing` roteia para
+**2. Os model IDs do registry não existem.**
+> ✅ **Corrigido** pela migration `0011_model_ids_reais.sql`: a versão 1 de cada
+> rota virou `DEPRECATED` e a versão 2 nasceu com o id real e o preço da tabela
+> vigente — Sonnet 5 (200/1000 centavos por MTok) e Haiku 4.5 (100/500).
+> Reescrever a versão 1 teria transformado os traces antigos em mentira. Há
+> teste novo recusando qualquer rota ACTIVE cujo id não tenha versão.
+
+`mkt.model_routing` roteia para
 `"claude-sonnet"` e `"claude-haiku"`. Não são identificadores válidos da API — a
 primeira chamada real devolve erro. IDs válidos hoje: `claude-opus-5`,
 `claude-sonnet-5`, `claude-haiku-4-5`. Migration é imutável, então a correção é
 uma migration nova (`0011`), não uma edição da `0007`.
 
 **3. Os fatos que a policy julga vêm do corpo do pedido.**
+> ✅ **Corrigido.** `ports.facts.collectForAgent` colhe do banco tudo que o banco
+> sabe responder — `content_status`, `channel_connected`, `claim_types`,
+> `evidence_coverage`, `brand_brain_status`, `workspace_first_publish`,
+> `risk_tier` — e o loop sobrepõe o que veio no pedido. O coletor devolve só as
+> chaves que apurou: um fato desconhecido fica ausente, nunca vira `false`. O
+> loop se recusa a montar sem essa porta. O cenário 8 do smoke, que existia para
+> mostrar o furo, agora prova a correção: o pedido diz `APPROVED`, o banco diz
+> `DRAFT`, e quem barra é a policy.
+>
+> **Um defeito veio junto, e estava escondido pelo furo.** Com fatos reais, a
+> policy global de claim material (`REQUIRE_APPROVAL`, escopo vazio) passou a
+> exigir aprovação humana até para RODAR `quality.precheck` — a conferência que
+> apuraria se o claim se sustenta. A pessoa seria chamada a decidir sem o laudo.
+> O engine já fazia a distinção certa em `AUTONOMY_EXCEEDED` ("efeito externo
+> vira aprovação; leitura/rascunho apenas rebaixa"); faltava o mesmo no ramo de
+> `REQUIRE_APPROVAL`. Agora `side_effect` entra no contexto da policy e só
+> capability com efeito vira aprovação. Três testes em `packages/policy`, e o
+> eval `COPILOT-ADV-005` — que existia desde antes — voltou a passar por mérito.
+
 `POST /api/agent` faz `facts: body.facts ?? {}`, e esses fatos chegam intactos ao
 policy engine. Quem chama escolhe `content_status`, `channel_connected`,
 `claim_types` e `workspace_first_publish` — exatamente as entradas das quatro

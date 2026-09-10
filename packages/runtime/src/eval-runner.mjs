@@ -143,6 +143,10 @@ export function createEvalLoop({ ports, workerPorts, criarGateway, modelo, onCal
       workspaceBelongsToOrg: (ws, org) => ports.registry.workspaceBelongsToOrg(ws, org),
     },
     policies: ports.policies,
+    // Os evals rodam com o coletor de verdade: um caso que declara um fato que
+    // o banco tambem sabe passa a ser corrigido pelo banco, e e assim que se
+    // prova que o pedido nao decide mais o que a policy julga.
+    facts: ports.facts,
     runs: ports.runs,
     tracer,
     ids: { newId: () => crypto.randomUUID(), newTraceId: () => `tr_${crypto.randomUUID()}` },
