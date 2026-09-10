@@ -17,7 +17,31 @@
 -- leitura, mesmo padrao de prompt_templates/marketing_modules) foi o
 -- que revelou a lacuna: a tabela existia, a policy existia, e mesmo assim
 -- nada conseguia gravar.
+--
+-- ── Por que cria as roles antes de conceder ─────────────────────────────
+--
+-- authenticated/service_role/anon sao roles do Supabase, criadas pela
+-- plataforma quando o projeto nasce — nunca por uma migration deste
+-- repositorio, e por isso nenhuma das 0001-0013 as referenciou num GRANT.
+-- Esta e a primeira, e um Postgres puro (CI, local, outro provedor —
+-- ADR-0012) nao as tem. O bloco abaixo so cria o que faltar: no Supabase
+-- de verdade as tres ja existem, e a migration nao muda nada nelas; em
+-- qualquer outro Postgres, elas nascem sem LOGIN, so para existir como
+-- alvo de GRANT — a mesma logica que rls.test.mjs ja usa para a role
+-- sintetica dele (olga_app), so que para as tres que faltavam aqui.
 -- =====================================================================
+
+do $$ begin
+  if not exists (select 1 from pg_roles where rolname = 'authenticated') then
+    create role authenticated nologin;
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'service_role') then
+    create role service_role nologin;
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'anon') then
+    create role anon nologin;
+  end if;
+end $$;
 
 -- marketing_profiles: o tenant escreve de verdade, como em contents/approvals.
 grant select, insert, update on mkt.marketing_profiles to authenticated;
