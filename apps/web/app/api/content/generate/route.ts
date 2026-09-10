@@ -22,7 +22,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { anthropic } from "@/lib/providers/anthropic";
 import { getTrustedContext } from "@/lib/auth";
-import { pool } from "@/lib/db";
+import { pool, ports } from "@/lib/db";
 import { createWorkerApp } from "@olga/worker/composition";
 
 export const runtime = "nodejs";
@@ -68,6 +68,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Gravado ANTES de chamar o loop, de propósito: se o processo cair no meio
+  // da chamada ao modelo, o pedido continua rastreável (0011_content_briefs).
+  // Sem isso, só sobreviveria o que desse certo — e é o que dá errado que
+  // mais precisa de rastro.
+  const brief_id = await ports.briefs.create({
+    org_id: ctx.org_id, workspace_id: ctx.workspace_id,
+    brand_name: body.brand_name, objective: body.objective ?? null,
+    channel: body.channel || null, briefing: body.briefing ?? null,
+    submitted_by_actor_id: ctx.user_id,
+  });
+
   try {
     const { run_id, response } = await agentLoop.run({
       tenant: { org_id: ctx.org_id, workspace_id: ctx.workspace_id },
@@ -78,9 +89,21 @@ export async function POST(request: NextRequest) {
       internal: true,
     });
 
+    const content_version_id = response.respondability === "EXECUTABLE"
+      ? await ports.knowledge.contentVersionByTrace(ctx.org_id, response.trace_id)
+      : null;
+
+    await ports.briefs.recordOutcome(brief_id, {
+      trace_id: response.trace_id ?? null,
+      run_id,
+      content_version_id,
+      reason_code: response.reason_codes?.[0] ?? null,
+    });
+
     return NextResponse.json({ ...response, run_id });
   } catch (e: any) {
     const reason_code = e?.reason_code ?? "PROVIDER_UNAVAILABLE";
+    await ports.briefs.recordOutcome(brief_id, { reason_code });
     const status = reason_code === "TENANT_SCOPE_VIOLATION" ? 403
                  : reason_code === "ACTOR_ROLE_FORBIDDEN" ? 403
                  : reason_code === "SPEND_LIMIT_EXCEEDED" ? 402

@@ -711,6 +711,25 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
     },
 
     /**
+     * A versao de conteudo que uma execucao do loop produziu, pelo trace_id.
+     *
+     * Existe para `mkt.content_briefs` fechar o pedido do formulario com o
+     * resultado: content.create_draft e capability interna, sem receipt, e
+     * por isso o loop nao devolve o content_version_id na resposta final —
+     * so o trace_id, que content_versions ja grava (0002_brand_content).
+     * Ligar os dois por aqui e mais simples que fazer o loop devolver um
+     * campo que so este chamador usa.
+     */
+    async contentVersionByTrace(org_id, trace_id) {
+      if (!trace_id) return null;
+      const { rows } = await pool.query(
+        `select id from ${S}.content_versions
+          where org_id = $1 and trace_id = $2
+          order by created_at desc limit 1`, [org_id, trace_id]);
+      return rows[0]?.id ?? null;
+    },
+
+    /**
      * Todas as marcas do workspace com as versoes de Brand Brain de cada uma.
      *
      * E a consulta da tela de revisao: mostra a ACTIVE ao lado das CANDIDATE
@@ -918,6 +937,40 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
   };
 
   /**
+   * Briefings do formulario de geracao de conteudo (0011_content_briefs).
+   *
+   * Registra o PEDIDO que um formulario fez ao AGT-MKT-CONTENT, separado do
+   * que o loop resolveu ou produziu. `create` grava antes de chamar o loop;
+   * `recordOutcome` fecha a linha com o que aconteceu, sucesso ou recusa.
+   */
+  const briefs = {
+    async create({ org_id, workspace_id, brand_name, objective, channel,
+                   briefing, submitted_by_actor_id }) {
+      const { rows } = await pool.query(
+        `insert into ${S}.content_briefs
+           (org_id, workspace_id, brand_name, objective, channel, briefing, submitted_by_actor_id)
+         values ($1,$2,$3,$4,$5::${S}.channel,$6,$7)
+         returning id`,
+        [org_id, workspace_id, brand_name, objective ?? null, channel || null,
+         briefing ?? null, submitted_by_actor_id]);
+      return rows[0].id;
+    },
+
+    async recordOutcome(id, { trace_id = null, run_id = null,
+                               content_version_id = null, reason_code = null }) {
+      await pool.query(
+        `update ${S}.content_briefs
+            set trace_id = coalesce($2, trace_id),
+                run_id = coalesce($3, run_id),
+                content_version_id = coalesce($4, content_version_id),
+                reason_code = coalesce($5, reason_code),
+                resolved_at = now()
+          where id = $1`,
+        [id, trace_id, run_id, content_version_id, reason_code]);
+    },
+  };
+
+  /**
    * Governanca: os atos que só uma pessoa pode praticar.
    *
    * Separado de `authoring` porque a diferenca importa. `authoring` e o que o
@@ -989,5 +1042,5 @@ export function createPostgresPorts(pool, { schema = process.env.MKT_SCHEMA || "
   };
 
   return { routing, budget, registry, runs, policies, receipts, outbox, approvals,
-           connections, variants, publishing, content, knowledge, authoring, governance };
+           connections, variants, publishing, content, knowledge, authoring, governance, briefs };
 }

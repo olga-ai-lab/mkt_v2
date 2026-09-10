@@ -42,16 +42,16 @@ export function GenerateContentForm({ marcas }: { marcas: { brand_id: string; br
       });
       const corpo = await r.json().catch(() => ({}));
 
-      if (r.ok && corpo.respondability !== "CLARIFICATION_REQUIRED" && !corpo.reason_code) {
+      if (r.ok && corpo.respondability === "EXECUTABLE" && !corpo.reason_code) {
         setResultado({
           ok: true,
-          texto: corpo.text ?? "Rascunho criado. Veja abaixo, entre os conteúdos do workspace.",
+          texto: corpo.message ?? "Rascunho criado. Veja abaixo, entre os conteúdos do workspace.",
         });
         setBriefing("");
       } else if (corpo.respondability === "CLARIFICATION_REQUIRED") {
         setResultado({
           ok: false,
-          texto: corpo.text ?? "Preciso de mais detalhe para gerar este conteúdo. Ajuste o briefing e tente de novo.",
+          texto: corpo.message ?? "Preciso de mais detalhe para gerar este conteúdo. Ajuste o briefing e tente de novo.",
         });
       } else {
         setResultado({
