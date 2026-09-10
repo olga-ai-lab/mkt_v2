@@ -10,6 +10,7 @@ import { headers } from "next/headers";
 import { getTrustedContext } from "@/lib/auth";
 import { ports } from "@/lib/db";
 import { ContentList } from "./content-list";
+import { GenerateContentForm } from "./generate-form";
 
 export const dynamic = "force-dynamic";
 
@@ -25,10 +26,22 @@ export default async function ContentPage() {
     );
   }
 
-  const [conteudos, conexoes] = await Promise.all([
+  const [conteudos, conexoes, marcasBoard] = await Promise.all([
     ports.content.listByWorkspace(ctx.org_id, ctx.workspace_id, { limit: 100 }),
     ports.content.listConnections(ctx.org_id, ctx.workspace_id),
+    ports.knowledge.brandBrainBoard(ctx.org_id, ctx.workspace_id),
   ]);
+
+  // Só marca com Brand Brain ACTIVE pode virar conteúdo: pedir para as
+  // outras é recusado lá na frente com BRAND_BRAIN_NOT_ACTIVE. Filtrar aqui
+  // poupa esse passeio.
+  const marcasComMarcaAtiva = [
+    ...new Map<string, { brand_id: string; brand_name: string }>(
+      marcasBoard
+        .filter((l: any) => l.status === "ACTIVE")
+        .map((l: any) => [l.brand_id, { brand_id: l.brand_id, brand_name: l.brand_name }]),
+    ).values(),
+  ];
 
   const ativas = conexoes.filter((c: any) => c.status === "ACTIVE");
 
@@ -57,6 +70,12 @@ export default async function ContentPage() {
           {itens.length === 0 ? "Nada criado ainda." : `${itens.length} no workspace.`}
         </p>
       </header>
+
+      {/* AGT-MKT-CONTENT é CANDIDATE: roda internal, e internal é só OWNER
+          (apps/web/app/api/agent/route.ts). Sem isso o formulário chamaria
+          a rota só para levar ACTOR_ROLE_FORBIDDEN de volta. */}
+      {ctx.role === "OWNER" && <GenerateContentForm marcas={marcasComMarcaAtiva} />}
+
       <ContentList itens={itens} podePublicar={ctx.role === "OWNER" || ctx.role === "MARKETING"} />
     </main>
   );
