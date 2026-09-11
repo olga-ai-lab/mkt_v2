@@ -98,6 +98,6 @@ packages/db          migrations, RLS, state machine em trigger
 apps/worker          workflow durável de publicação, relay do outbox
 apps/web             Next.js: telas e rotas de API
 docs/adr             12 ADRs
-docs/ROADMAP.md      o que falta, com a procedencia de cada item
+docs/MASTER-PLAN.md  fonte unica de verdade: fases, gates e procedencia
 docs/HANDOFF.md      estado, acessos e o que falta, por dono
 ```

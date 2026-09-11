@@ -10,7 +10,7 @@ skeleton) fechadas, módulo de agente construído.
 |---|---|
 | **[`AGENTS.md`](AGENTS.md)** | Os quatro agentes: o que cada um faz, o que cada um NÃO faz, e onde cada parte deles mora |
 | **[`CLAUDE.md`](CLAUDE.md)** | Como trabalhar neste repositório: invariantes, convenções, o que rodar antes de dizer que terminou |
-| **[`docs/ROADMAP.md`](docs/ROADMAP.md)** | O que falta construir, com a procedência de cada item: o que veio do MKT-17, o que é derivado do código, e o que é proposta minha esperando confirmação |
+| **[`docs/MASTER-PLAN.md`](docs/MASTER-PLAN.md)** | **Fonte única de verdade para terminar o produto:** as 7 fases, o estado real das branches, e a procedência de cada item |
 | **[`docs/HANDOFF.md`](docs/HANDOFF.md)** | Estado atual, acessos ao Supabase, e o que falta — separado por dono |
 | **[`docs/adr/`](docs/adr/)** | 12 decisões de arquitetura, com o que foi recusado e por quê |
 
@@ -51,8 +51,11 @@ e adversarial por agente rodando contra banco de verdade.
 - **Só o `AGT-MKT-COPILOT` está `ACTIVE`, e ele só lê.** Nenhum agente escreve em
   produção hoje. Os outros três rodam em modo interno (`OWNER` apenas). Promover
   um que escreve é ato de governança com migration própria.
-- **Faltam três telas:** criar conteúdo, conectar canal, e ver o trace de uma
-  execução. A do Brand Brain já existe. Ver [`docs/ROADMAP.md`](docs/ROADMAP.md).
+- **O projeto está em CINCO branches divergentes**, com quatro sequências de
+  migration que colidem a partir da `0010`. Consolidar é a Fase 0 do
+  [`docs/MASTER-PLAN.md`](docs/MASTER-PLAN.md), e ela vem antes de qualquer
+  código de produto novo.
+- **Faltam duas telas:** conectar canal e ver o trace de uma execução.
 - **O Gate G1 não fecha por código.** Falta um post real numa conta real, e isso
   depende do app review da Meta (ADR-0008).
 - **Fase 2 e 3 não começaram:** plano editorial, geração em lote, calendário,

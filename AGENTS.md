@@ -30,8 +30,10 @@ Agente `CANDIDATE` não é agente quebrado: ele roda com `internal: true`, que
 `apps/web/app/api/agent/route.ts` só permite para `OWNER`. Dá para exercitar;
 não dá para servir usuário.
 
-A promoção de cada um está no [`docs/ROADMAP.md`](docs/ROADMAP.md), bloco B,
-marcada como **[proposto]** — é decisão de governança, não minha.
+A promoção de cada um passa pelo **Gate G2 — Agent Framework Compliance**,
+definido em [`docs/MASTER-PLAN.md`](docs/MASTER-PLAN.md). `ACTIVE` significa
+aprovado, versionado, testado e apto para produção — não apenas "não produz
+efeito externo".
 
 ---
 
